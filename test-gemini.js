@@ -16,7 +16,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 async function testBasic() {
   console.log("\n=== TEST 1: Basic text request ===");
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
     const result = await model.generateContent("Say hello in Romanian, one sentence.");
     console.log("Status: OK");
     console.log("Response:", result.response.text());
@@ -32,7 +32,7 @@ async function testGoogleSearch() {
   console.log("\n=== TEST 2: Google Search grounding ===");
   try {
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-3-flash-preview",
       tools: [{ googleSearch: {} }],
     });
     const result = await model.generateContent('Search Google for "Nike Air Max 90" and describe the product.');
