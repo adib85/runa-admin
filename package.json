@@ -1,0 +1,41 @@
+{
+  "name": "runa-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unified E-Commerce Admin Platform - Multi-platform product sync and management",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api & npm run dev:web",
+    "dev:api": "npm run dev -w @runa/api",
+    "dev:web": "npm run dev -w @runa/web",
+    "dev:worker": "npm run dev -w @runa/worker",
+    "build": "npm run build -w @runa/web",
+    "build:web": "npm run build -w @runa/web",
+    "start:api": "npm run start -w @runa/api",
+    "start:worker": "npm run start -w @runa/worker",
+    "sync": "node scripts/sync-shop.js",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules",
+    "lint": "eslint packages/ apps/"
+  },
+  "keywords": [
+    "ecommerce",
+    "shopify",
+    "woocommerce",
+    "vtex",
+    "product-sync",
+    "admin"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "dotenv": "^16.4.0",
+    "eslint": "^8.56.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

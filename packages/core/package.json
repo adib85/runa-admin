@@ -1,0 +1,30 @@
+{
+  "name": "@runa/core",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./database/neo4j": "./database/neo4j/index.js",
+    "./database/dynamodb": "./database/dynamodb/index.js",
+    "./services/ai": "./services/ai/index.js",
+    "./services/storage": "./services/storage/s3.js",
+    "./services/realtime": "./services/realtime/pubnub.js",
+    "./sync": "./sync/index.js",
+    "./utils": "./utils/index.js"
+  },
+  "dependencies": {
+    "@runa/config": "*",
+    "@runa/adapters": "*",
+    "@aws-sdk/client-dynamodb": "^3.500.0",
+    "@aws-sdk/client-s3": "^3.500.0",
+    "@aws-sdk/lib-dynamodb": "^3.500.0",
+    "@google/generative-ai": "^0.21.0",
+    "neo4j-driver": "^5.17.0",
+    "node-fetch": "^3.3.2",
+    "openai": "^4.28.0",
+    "pubnub": "^8.0.0",
+    "string-strip-html": "^13.4.0",
+    "uuid": "^9.0.0"
+  }
+}

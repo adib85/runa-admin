@@ -1,0 +1,229 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply font-sans text-neutral-900 bg-white;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Refined selection color */
+  ::selection {
+    @apply bg-neutral-900 text-white;
+  }
+}
+
+@layer components {
+  /* Buttons - Minimalist luxury style */
+  .btn {
+    @apply inline-flex items-center justify-center px-6 py-3 text-xs font-medium uppercase transition-all duration-200;
+    letter-spacing: 0.15em;
+  }
+
+  .btn-primary {
+    @apply bg-neutral-900 text-white hover:bg-neutral-800 active:bg-neutral-950;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-neutral-900 border border-neutral-900 hover:bg-neutral-900 hover:text-white;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-neutral-600 hover:text-neutral-900;
+  }
+
+  .btn-danger {
+    @apply bg-transparent text-red-600 border border-red-600 hover:bg-red-600 hover:text-white;
+  }
+
+  .btn-sm {
+    @apply px-4 py-2;
+    font-size: 0.625rem;
+  }
+
+  /* Inputs - Clean and minimal */
+  .input {
+    @apply w-full px-4 py-3 bg-transparent border border-neutral-200 text-neutral-900 text-sm transition-colors duration-200;
+    @apply focus:outline-none focus:border-neutral-900;
+  }
+
+  .input::placeholder {
+    @apply text-neutral-400;
+  }
+
+  .input:disabled {
+    @apply bg-neutral-50 text-neutral-500 cursor-not-allowed;
+  }
+
+  select.input {
+    @apply appearance-none cursor-pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23737373' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1.25rem 1.25rem;
+    padding-right: 2.5rem;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-neutral-500 uppercase mb-2;
+    letter-spacing: 0.15em;
+  }
+
+  /* Cards - Subtle and elegant */
+  .card {
+    @apply bg-white border border-neutral-100 p-8;
+  }
+
+  .card-elevated {
+    @apply bg-white border border-neutral-100 p-8 shadow-soft;
+  }
+
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center px-3 py-1 text-xs font-medium uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-success {
+    @apply bg-green-50 text-green-700 border border-green-200;
+  }
+
+  .badge-warning {
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
+  }
+
+  .badge-error {
+    @apply bg-red-50 text-red-700 border border-red-200;
+  }
+
+  .badge-info {
+    @apply bg-blue-50 text-blue-700 border border-blue-200;
+  }
+
+  .badge-neutral {
+    @apply bg-neutral-50 text-neutral-600 border border-neutral-200;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-neutral-100;
+  }
+
+  /* Loading spinner */
+  .spinner {
+    @apply animate-spin h-5 w-5 border-2 border-neutral-200 border-t-neutral-900 rounded-full;
+  }
+
+  /* Links */
+  .link {
+    @apply text-neutral-900 underline underline-offset-4 decoration-neutral-300 hover:decoration-neutral-900 transition-colors;
+  }
+
+  /* Page header */
+  .page-header {
+    @apply mb-12;
+  }
+
+  .page-title {
+    @apply text-2xl font-light tracking-tight text-neutral-900;
+  }
+
+  .page-subtitle {
+    @apply text-sm text-neutral-500 mt-2;
+  }
+
+  /* Section */
+  .section-title {
+    @apply text-xs font-medium uppercase text-neutral-500 mb-6;
+    letter-spacing: 0.15em;
+  }
+
+  /* Table styles */
+  .table-header {
+    @apply text-xs font-medium uppercase text-neutral-500 text-left pb-4 border-b border-neutral-100;
+    letter-spacing: 0.15em;
+  }
+
+  .table-cell {
+    @apply py-4 border-b border-neutral-50 text-sm;
+  }
+
+  /* Modal overlay */
+  .modal-overlay {
+    @apply fixed inset-0 bg-neutral-900/40 backdrop-blur-sm flex items-center justify-center p-4 z-50;
+  }
+
+  .modal-content {
+    @apply bg-white w-full max-w-lg p-8;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  /* Empty state */
+  .empty-state {
+    @apply text-center py-16;
+  }
+
+  .empty-state-icon {
+    @apply text-4xl mb-4 opacity-30;
+  }
+
+  .empty-state-title {
+    @apply text-sm font-medium text-neutral-900 mb-1;
+  }
+
+  .empty-state-text {
+    @apply text-sm text-neutral-500;
+  }
+
+  /* Text sizes */
+  .text-2xs {
+    font-size: 0.625rem;
+    line-height: 0.875rem;
+  }
+}
+
+/* Custom scrollbar - minimal */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e5e5e5;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d4d4d4;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}

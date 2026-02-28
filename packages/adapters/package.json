@@ -1,0 +1,16 @@
+{
+  "name": "@runa/adapters",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./shopify": "./shopify/index.js",
+    "./types": "./types.js"
+  },
+  "dependencies": {
+    "@runa/config": "*",
+    "graphql-request": "^6.1.0",
+    "string-strip-html": "^13.4.0"
+  }
+}

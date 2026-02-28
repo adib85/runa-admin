@@ -1,0 +1,68 @@
+---
+description: Lambda API pattern for saving user and store data to the database
+alwaysApply: true
+---
+
+# Lambda Database API Pattern
+
+User and store information should be saved to the database using the Lambda function API.
+
+## API Endpoint
+
+```javascript
+const APP_SERVER_URL = "https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/production/healthiny-app";
+```
+
+## Saving Data
+
+Use the `saveUserChat` action to save user/store configuration:
+
+```javascript
+const url = `${APP_SERVER_URL}?action=saveUserChat&shop=${shopName}&contextUpdated=0`;
+
+await fetch(url, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({ chat: dataToSave })
+});
+```
+
+## Loading Data
+
+Use the `getUser` action to retrieve user/store configuration:
+
+```javascript
+const url = `${APP_SERVER_URL}?action=getUser&shop=${shopName}`;
+const response = await fetch(url);
+const userData = await response.json();
+const config = userData.data?.chat;
+```
+
+## Key Points
+
+- The `shop` parameter is the store identifier (e.g., `mystore.myshopify.com`)
+- Set `contextUpdated=1` if AI instructions were modified (triggers regeneration)
+- The `chat` object contains all configuration fields
+- VTEX credentials (`vtexApiKey`, `vtexToken`) should be saved in the `chat` object
+- Shopify access token (`accessToken`) should be saved at root level (not inside `chat`)
+
+## Platform-Specific Credentials
+
+Platform credentials are saved at root level (not inside `chat`) using the same Lambda URL.
+
+### VTEX
+```javascript
+body: JSON.stringify({
+  vtexApiKey: "...",
+  vtexToken: "..."
+})
+```
+
+### Shopify
+```javascript
+body: JSON.stringify({
+  accessToken: "shpat_..."
+})
+```
