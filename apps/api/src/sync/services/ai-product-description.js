@@ -18,13 +18,22 @@ Find the product on retail websites, manufacturer sites, or product databases.
 
 MANDATORY: Use Google Search with the EXACT query "${sku}" or "${sku} product". Do NOT fabricate information.
 
-IMPORTANT: The final response MUST be written in ROMANIAN language.
-IMPORTANT: Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph.
-IMPORTANT: The tone must be elegant, sophisticated, as for a luxury online fashion store.
-IMPORTANT: Use <br> tags as line dividers in the output (HTML format).
-IMPORTANT: Maximum 800 characters total.
+You MUST respond with a JSON object in this EXACT format:
 
-EXACT FORMAT (use <br> for line breaks):
+If you FOUND the product:
+{"found": true, "description": "<the product description>"}
+
+If you did NOT find the product:
+{"found": false, "description": ""}
+
+DESCRIPTION RULES (only when found is true):
+- The description MUST be written in ROMANIAN language
+- Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph
+- The tone must be elegant, sophisticated, as for a luxury online fashion store
+- Use <br> tags as line dividers in the output (HTML format)
+- Maximum 800 characters total
+
+EXACT description FORMAT (use <br> for line breaks):
 
 [2-3 elegant sentences in Romanian — style, versatility, how to wear] <br>
 <br>
@@ -36,15 +45,16 @@ Caracteristici: <br>
 Compoziție produs: [material composition]
 
 STRICT RULES:
-1. Do NOT put titles or headings
-2. Start DIRECTLY with the descriptive paragraph
-3. The descriptive paragraph must be ELEGANT, like a luxury copywriter's text
-4. Features must be DETAILED (6-10 bullet points)
-5. Include "Compoziție produs:" ALWAYS
-6. Use <br> tags for ALL line breaks
-7. Maximum 800 characters total
-8. Do NOT fabricate data. If you cannot find the product, say: "Nu am găsit acest produs pe internet."
-9. The ENTIRE response must be in ROMANIAN language`;
+1. Respond ONLY with the JSON object, nothing else
+2. Do NOT put titles or headings inside the description
+3. Start the description DIRECTLY with the descriptive paragraph
+4. The descriptive paragraph must be ELEGANT, like a luxury copywriter's text
+5. Features must be DETAILED (6-10 bullet points)
+6. Include "Compoziție produs:" ALWAYS
+7. Use <br> tags for ALL line breaks in the description
+8. Maximum 800 characters for the description
+9. Do NOT fabricate data. If you cannot find the product, set found to false
+10. The description MUST be in ROMANIAN language`;
 }
 
 export async function searchWithGrounding(prompt, maxRetries = 3) {
@@ -91,8 +101,24 @@ CRITICAL RULES:
       if (webSearchQueries.length > 0) console.log(`  [AI Desc] Google queries: ${webSearchQueries.join(" | ")}`);
       sources.forEach((s, i) => console.log(`  [AI Desc] Source ${i + 1}: ${s.title} — ${s.url}`));
 
+      let found = false;
+      let description = "";
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          found = parsed.found === true;
+          description = found ? (parsed.description || "") : "";
+        }
+      } catch {
+        console.log(`  [AI Desc] Could not parse JSON from response, treating as not found`);
+      }
+
+      console.log(`  [AI Desc] Product found: ${found}`);
+
       return {
-        text,
+        text: description,
+        found,
         grounded: true,
         sources,
         webSearchQueries,
@@ -104,18 +130,14 @@ CRITICAL RULES:
     console.log(`  [AI Desc] Attempt ${attempt}/${maxRetries}: No grounding, ${attempt < maxRetries ? 'retrying...' : 'giving up'}`);
   }
 
-  return { text: null, grounded: false, sources: [], webSearchQueries: [], groundingChunks: [], attempt: maxRetries };
+  return { text: "", found: false, grounded: false, sources: [], webSearchQueries: [], groundingChunks: [], attempt: maxRetries };
 }
 
 // ─── Gemini: Parse & validate search result (structured JSON) ────────
 
 export async function parseSearchResult(product, rawSearchText) {
-  const { title, vendor, image, images } = product;
-  const rawImgs = images;
-  const imgUrls = Array.isArray(rawImgs)
-    ? rawImgs
-    : (typeof rawImgs === "string" && rawImgs ? rawImgs.split(",").map(u => u.trim()) : []);
-  if (image && !imgUrls.includes(image)) imgUrls.unshift(image);
+  const { title, vendor, image } = product;
+  const imgUrls = image ? [image] : [];
 
   try {
     const model = genAI.getGenerativeModel({
@@ -145,9 +167,9 @@ Google search result:
 ${rawSearchText.substring(0, 2000)}
 """
 
-Look at the product images carefully and determine if the Google search result describes THIS product:
-- descriptionAccurate = true: the description matches what you SEE in the images (same product type, same visual appearance, same style). If a brand is mentioned in the description, it must match "${vendor || ""}"
-- descriptionAccurate = false: the description does NOT match the images (e.g. search says "bag" but images show a jacket), or mentions a DIFFERENT brand than "${vendor || ""}", or describes a completely different product`;
+Look at the main product image carefully and determine if the Google search result describes THIS product:
+- descriptionAccurate = true: the description matches what you SEE in the image (same product type, same visual appearance, same style). If a brand is mentioned in the description, it must match "${vendor || ""}"
+- descriptionAccurate = false: the description does NOT match the image (e.g. search says "bag" but image shows a jacket), or mentions a DIFFERENT brand than "${vendor || ""}", or describes a completely different product`;
 
     const contentParts = [prompt];
 
@@ -286,8 +308,8 @@ export async function generateAIDescription(product) {
       const prompt = buildDescriptionPrompt(sku);
       const result = await searchWithGrounding(prompt, 2);
 
-      if (result.grounded && result.text) {
-        console.log(`  [AI Desc] Got grounded result (${result.text.length} chars), validating...`);
+      if (result.grounded && result.found && result.text) {
+        console.log(`  [AI Desc] Google found product (${result.text.length} chars), validating...`);
         console.log(`  [AI Desc] Google description:\n${result.text}`);
 
         const parsed = await parseSearchResult(product, result.text);
@@ -298,6 +320,8 @@ export async function generateAIDescription(product) {
         } else {
           console.log(`  [AI Desc] Google Search rejected (descriptionAccurate: false), generating from images...`);
         }
+      } else if (result.grounded && !result.found) {
+        console.log(`  [AI Desc] Google searched but product not found, generating from images...`);
       } else {
         console.log(`  [AI Desc] No grounded result, generating from images...`);
       }
