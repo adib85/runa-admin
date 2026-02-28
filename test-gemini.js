@@ -60,9 +60,9 @@ console.log(`\nModel: ${MODEL}`);
 console.log("Starting tests...\n");
 
 await testSequential(3);
-await testConcurrent(2);
-await testConcurrent(3);
 await testConcurrent(5);
 await testConcurrent(10);
+await testConcurrent(15);
+await testConcurrent(20);
 
 console.log("Done.");
