@@ -778,17 +778,17 @@ async function createOrUpdateProductWithVariantsAndStoreApplication(productsData
       }
 
       newProducts.push({
-        productId: p.id.toString(), storeId: storeData.id, title: p.title, titleEmbedding: p.titleEmbedding || [],
+        productId: p.id.toString(), storeId: storeData.id, title: p.title, titleEmbedding: p.titleEmbedding || null,
         description, vendor: p.vendor, category: p.category,
         handle: p.handle, status: p.status, variants: p.variants || [], options: p.options, properties: p.properties,
         content: p.content, product: p.product, characteristics: p.characteristics,
         styleCode: p.styleCode || "none", styleData: typeof styleData === 'object' ? JSON.stringify(styleData) : styleData,
-        contentEmbedding: p.contentEmbedding || [], productEmbedding: p.productEmbedding || [],
-        characteristicsEmbedding: p.characteristicsEmbedding || [], categoryEmbedding: p.categoryEmbedding || [],
-        styleCodeEmbedding: p.styleCodeEmbedding || [], image: p.image, images, demographics: demographicsData,
+        contentEmbedding: p.contentEmbedding || null, productEmbedding: p.productEmbedding || null,
+        characteristicsEmbedding: p.characteristicsEmbedding || null, categoryEmbedding: p.categoryEmbedding || null,
+        styleCodeEmbedding: p.styleCodeEmbedding || null, image: p.image, images, demographics: demographicsData,
         currency: p.currency, collections: p.collections || [], tags: p.tags || "",
         styleBody, stylePersonality, styleChromatic, is_neutral, neutral_whitelist, color_vec,
-        searchAttributesText: p.searchAttributesText || "", searchAttributesEmbedding: p.searchAttributesEmbedding || [],
+        searchAttributesText: p.searchAttributesText || "", searchAttributesEmbedding: p.searchAttributesEmbedding || null,
         en_title: p.en_title || null, en_price: p.en_price || null, en_price_currency: p.en_price_currency || null,
         en_url: p.en_url || null, en_product_type: p.en_product_type || null, en_description: p.en_description || null, en_json: p.en_json || null
       });
@@ -808,7 +808,7 @@ async function createOrUpdateProductWithVariantsAndStoreApplication(productsData
         categoryEmbedding: product.categoryEmbedding, styleCodeEmbedding: product.styleCodeEmbedding,
         searchAttributesText: product.searchAttributesText, searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
         color: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END,
-        colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE [] END,
+        colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
         en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
         en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json }
       ON MATCH SET p += { id: product.productId, title: product.title, titleEmbedding: product.titleEmbedding, description: product.description,
@@ -821,7 +821,7 @@ async function createOrUpdateProductWithVariantsAndStoreApplication(productsData
         categoryEmbedding: product.categoryEmbedding, styleCodeEmbedding: product.styleCodeEmbedding,
         searchAttributesText: product.searchAttributesText, searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
         color: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END,
-        colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE [] END,
+        colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
         en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
         en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json }
       WITH p, product
