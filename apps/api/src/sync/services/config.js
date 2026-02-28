@@ -3,8 +3,12 @@
  * EXACT values from original runa_server/crawler
  */
 
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 import dotenv from "dotenv";
-dotenv.config();
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dirname, "../../../../../.env") });
 
 export const NEO4J_URI = process.env.NEO4J_URI || "neo4j://3.95.143.107:7687";
 export const NEO4J_USER = process.env.NEO4J_USER || "neo4j";

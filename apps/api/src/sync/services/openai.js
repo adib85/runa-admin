@@ -3,13 +3,23 @@
  * Handles embeddings and AI-powered product analysis
  */
 
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+import dotenv from "dotenv";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dirname, "../../../../../.env") });
+
 import OpenAI from "openai";
 import fetch from "node-fetch";
 import { OPENAI_API_KEY } from "./config.js";
 
 class OpenAIService {
   constructor() {
-    this.apiKey = OPENAI_API_KEY;
+    this.apiKey = OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!this.apiKey) {
+      throw new Error(`OPENAI_API_KEY is missing. Make sure .env exists at ${resolve(__dirname, "../../../../../.env")}`);
+    }
     this.client = new OpenAI({ apiKey: this.apiKey });
     this.embeddingCache = [];
   }
