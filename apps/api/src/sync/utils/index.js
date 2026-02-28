@@ -80,7 +80,7 @@ class GeminiRateLimiter {
 }
 
 export const geminiLimiter = new GeminiRateLimiter(
-  parseInt(process.env.GEMINI_MAX_RPM, 10) || 10
+  parseInt(process.env.GEMINI_MAX_RPM, 10) || 200
 );
 
 function isRateLimitError(error) {
