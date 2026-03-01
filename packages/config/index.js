@@ -55,6 +55,11 @@ export const config = {
   // Google Gemini
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
+    groundingApiKeys: [
+      "AIzaSyDQiWBSV0CwmHWgaL9Y7a_PwjcklXNvV98",
+      "AIzaSyBZhsvc2yTwySjofJ8UTOfvpJ-f5V82XkM",
+      "AIzaSyDAIh0nGRfmrs_oiVgI_JmE3XTcijvRyvk"
+    ],
     model: "gemini-3-flash-preview"
   },
 

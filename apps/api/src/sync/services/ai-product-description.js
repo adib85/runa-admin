@@ -6,6 +6,11 @@ import { geminiWithRetry } from "../utils/index.js";
 const GEMINI_MODEL = runaConfig.gemini.model;
 const genAI = new GoogleGenerativeAI(runaConfig.gemini.apiKey);
 
+const groundingClients = (runaConfig.gemini.groundingApiKeys || []).map((key, i) => ({
+  client: new GoogleGenerativeAI(key),
+  label: `grounding-${i + 1}`
+}));
+
 // ─── Gemini: Google Search description ───────────────────────────────
 
 export function buildDescriptionPrompt(sku) {
@@ -57,7 +62,7 @@ STRICT RULES:
 10. The description MUST be in ROMANIAN language`;
 }
 
-export async function searchWithGrounding(prompt, maxRetries = 3) {
+export async function searchWithGrounding(prompt, maxRetries = 3, { aiClient = genAI, keyLabel = "primary" } = {}) {
   const systemInstruction = `You are a product search assistant specialized in finding products on the internet.
 
 CRITICAL RULES:
@@ -70,7 +75,7 @@ CRITICAL RULES:
 7. Your final response (the product description) MUST be written in Romanian language.`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    const model = genAI.getGenerativeModel({
+    const model = aiClient.getGenerativeModel({
       model: GEMINI_MODEL,
       tools: [{ googleSearch: {} }],
       systemInstruction,
@@ -97,7 +102,7 @@ CRITICAL RULES:
         .filter(c => c.web)
         .map(c => ({ title: c.web.title || "unknown", url: c.web.uri || "" }));
 
-      console.log(`  [AI Desc] Grounded on attempt ${attempt} with ${groundingChunks.length} chunks`);
+      console.log(`  [AI Desc] Grounded on attempt ${attempt} [${keyLabel}] with ${groundingChunks.length} chunks`);
       if (webSearchQueries.length > 0) console.log(`  [AI Desc] Google queries: ${webSearchQueries.join(" | ")}`);
       sources.forEach((s, i) => console.log(`  [AI Desc] Source ${i + 1}: ${s.title} — ${s.url}`));
 
@@ -123,14 +128,15 @@ CRITICAL RULES:
         sources,
         webSearchQueries,
         groundingChunks,
-        attempt
+        attempt,
+        usedFallbackKey: keyLabel !== "primary"
       };
     }
 
-    console.log(`  [AI Desc] Attempt ${attempt}/${maxRetries}: No grounding, ${attempt < maxRetries ? 'retrying...' : 'giving up'}`);
+    console.log(`  [AI Desc] Attempt ${attempt}/${maxRetries} [${keyLabel}]: No grounding, ${attempt < maxRetries ? 'retrying...' : 'giving up'}`);
   }
 
-  return { text: "", found: false, grounded: false, sources: [], webSearchQueries: [], groundingChunks: [], attempt: maxRetries };
+  return { text: "", found: false, grounded: false, sources: [], webSearchQueries: [], groundingChunks: [], attempt: maxRetries, usedFallbackKey: keyLabel !== "primary" };
 }
 
 // ─── Gemini: Parse & validate search result (structured JSON) ────────
@@ -287,6 +293,15 @@ STRICT RULES:
 
 // ─── Core: Generate AI description (L1 search → L2 image) ───────────
 
+function isGrounding429Error(error) {
+  const msg = error?.message || "";
+  return error?.status === 429
+    || msg.includes("429")
+    || msg.includes("RESOURCE_EXHAUSTED")
+    || msg.includes("rate")
+    || msg.includes("quota");
+}
+
 export async function generateAIDescription(product) {
   const sku = product.sku
     || product.handle
@@ -300,34 +315,54 @@ export async function generateAIDescription(product) {
     imageList.unshift(product.image);
   }
 
+  let groundingError429 = false;
+  let keys429Count = 0;
+
   // ── Step 1: Google Search + validate against product images ──
-  if (sku) {
-    console.log(`  [AI Desc] Searching Google for "${product.title}" using SKU: ${sku}`);
+  if (sku && groundingClients.length > 0) {
+    const prompt = buildDescriptionPrompt(sku);
 
-    try {
-      const prompt = buildDescriptionPrompt(sku);
-      const result = await searchWithGrounding(prompt, 2);
+    for (const { client, label } of groundingClients) {
+      console.log(`  [AI Desc] Searching Google for "${product.title}" using SKU: ${sku} [${label}]`);
 
-      if (result.grounded && result.found && result.text) {
-        console.log(`  [AI Desc] Google found product (${result.text.length} chars), validating...`);
-        console.log(`  [AI Desc] Google description:\n${result.text}`);
+      try {
+        const result = await searchWithGrounding(prompt, 4, { aiClient: client, keyLabel: label });
 
-        const parsed = await parseSearchResult(product, result.text);
+        if (result.grounded && result.found && result.text) {
+          console.log(`  [AI Desc] Google found product (${result.text.length} chars), validating...`);
+          console.log(`  [AI Desc] Google description:\n${result.text}`);
 
-        if (parsed.descriptionAccurate) {
-          console.log(`  [AI Desc] ✓ Google Search description accepted for "${product.title}"`);
-          return { text: result.text, source: "google_search" };
+          const parsed = await parseSearchResult(product, result.text);
+
+          if (parsed.descriptionAccurate) {
+            console.log(`  [AI Desc] ✓ Google Search description accepted for "${product.title}" [${label}]`);
+            return { text: result.text, source: `google_search_${label}` };
+          } else {
+            console.log(`  [AI Desc] Google Search rejected (descriptionAccurate: false) [${label}], generating from images...`);
+          }
+        } else if (result.grounded && !result.found) {
+          console.log(`  [AI Desc] Google searched but product not found [${label}], generating from images...`);
         } else {
-          console.log(`  [AI Desc] Google Search rejected (descriptionAccurate: false), generating from images...`);
+          console.log(`  [AI Desc] No grounded result [${label}], generating from images...`);
         }
-      } else if (result.grounded && !result.found) {
-        console.log(`  [AI Desc] Google searched but product not found, generating from images...`);
-      } else {
-        console.log(`  [AI Desc] No grounded result, generating from images...`);
+        break;
+      } catch (error) {
+        if (isGrounding429Error(error)) {
+          keys429Count++;
+          console.log(`  [AI Desc] ⚠ Grounding 429 on ${label}: ${error.message}, trying next key...`);
+          continue;
+        }
+        console.log(`  [AI Desc] Google Search error: ${error.message}, generating from images...`);
+        break;
       }
-    } catch (error) {
-      console.log(`  [AI Desc] Google Search error: ${error.message}, generating from images...`);
     }
+
+    if (keys429Count >= groundingClients.length) {
+      groundingError429 = true;
+      console.log(`  [AI Desc] ⚠ All ${groundingClients.length} grounding keys exhausted (429), falling back to images...`);
+    }
+  } else if (sku) {
+    console.log(`  [AI Desc] No grounding API keys configured, skipping Google Search`);
   } else {
     console.log(`  [AI Desc] No SKU found, skipping Google Search`);
   }
@@ -335,11 +370,16 @@ export async function generateAIDescription(product) {
   // ── Step 2: Generate description from images (fallback) ──
   const imageDescription = await generateDescriptionFromImage(product.title, imageList);
   if (imageDescription) {
-    console.log(`  [AI Desc] ✓ Using image-based description for "${product.title}"`);
-    return { text: imageDescription, source: "ai_image" };
+    const source = groundingError429 ? "ai_image_grounding_429" : "ai_image";
+    console.log(`  [AI Desc] ✓ Using image-based description for "${product.title}" (source: ${source})`);
+    return { text: imageDescription, source };
   }
 
   // ── Step 3: Nothing worked ──
+  if (groundingError429) {
+    console.log(`  [AI Desc] ✗ All methods failed for "${product.title}" (grounding was blocked by 429)`);
+    return { text: "", source: "none_grounding_429" };
+  }
   console.log(`  [AI Desc] ✗ All methods failed for "${product.title}"`);
   return null;
 }

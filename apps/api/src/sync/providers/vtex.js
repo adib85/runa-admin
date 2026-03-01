@@ -278,7 +278,11 @@ export class VtexProvider extends BaseProvider {
           throw new Error(`VTEX API error: ${response.status} - ${errorText}`);
         }
 
-        return response.json();
+        const json = await response.json();
+        if (options.returnHeaders) {
+          return { json, headers: Object.fromEntries(response.headers.entries()) };
+        }
+        return json;
       } catch (error) {
         if (error.message.includes('429') && attempt < maxRetries) continue;
         if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
@@ -370,20 +374,23 @@ export class VtexProvider extends BaseProvider {
   async fetchProducts(options = {}) {
     // Initialize cursor if first call
     if (this.catalogCursor === undefined) {
-      // First, get total count to start from the end (newest first)
       try {
-        const countResponse = await this.vtexRequest('/api/catalog_system/pvt/products/GetProductAndSkuIds?_from=1&_to=1');
-        this.totalProducts = countResponse.range?.total || null;
-        
-        if (this.totalProducts) {
-          // Start from the end (newest products first)
+        const result = await this.vtexRequest('/api/catalog_system/pvt/products/GetProductAndSkuIds?_from=1&_to=1', { returnHeaders: true });
+        const { json: countResponse, headers } = result;
+        // Parse total from REST-Content-Range (format: "items 0-0/3500" or "0-0/3500")
+        const rangeHeader = headers['rest-content-range'] || headers['content-range'] || '';
+        const totalMatch = rangeHeader.match(/\/(\d+)\s*$/);
+        this.totalProducts = totalMatch ? parseInt(totalMatch[1], 10) : (countResponse.range?.total || null);
+        // range.total in body is the current batch size, NOT catalog total - never use it for pagination
+        if (this.totalProducts && this.totalProducts > 1) {
           this.catalogCursor = Math.max(1, this.totalProducts - 249);
-          this.fetchDirection = 'backwards'; // Track that we're going backwards
+          this.fetchDirection = 'backwards';
           console.log(`  [VTEX] Starting from newest products (${this.totalProducts} total, starting at ${this.catalogCursor})`);
         } else {
           this.catalogCursor = 1;
+          this.totalProducts = null; // Unknown total - fetch until empty
           this.fetchDirection = 'forwards';
-          console.log("  [VTEX] Starting incremental fetch...");
+          console.log("  [VTEX] Starting incremental fetch (total unknown, will fetch until no more products)...");
         }
       } catch (error) {
         this.catalogCursor = 1;
@@ -411,13 +418,8 @@ export class VtexProvider extends BaseProvider {
     try {
       const response = await this.vtexRequest(idsEndpoint);
       const data = response.data || response;
-      const range = response.range || {};
-      
-      // Store total for progress tracking
-      if (range.total && this.totalProducts === null) {
-        this.totalProducts = range.total;
-        console.log(`  [VTEX] Total products in catalog: ${this.totalProducts}`);
-      }
+      // NOTE: range.total in the response body is the BATCH size, NOT the catalog total.
+      // Never use it for pagination - it causes sync to stop after the first batch.
 
       // Extract product IDs
       productIds = Object.keys(data).filter(k => k !== 'range' && !isNaN(k));
@@ -440,8 +442,8 @@ export class VtexProvider extends BaseProvider {
     }
 
     // Fetch details for this batch
-    const progress = ((from / (this.totalProducts || 1)) * 100).toFixed(1);
-    console.log(`  [VTEX] Fetching ${productIds.length} products (${from}-${to} of ${this.totalProducts || '?'}) - ${progress}%`);
+    const progressStr = this.totalProducts ? `${((from / this.totalProducts) * 100).toFixed(1)}%` : '?';
+    console.log(`  [VTEX] Fetching ${productIds.length} products (${from}-${to} of ${this.totalProducts ?? '?'}) - ${progressStr}`);
     
     const availableProducts = [];
     
