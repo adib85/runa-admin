@@ -92,7 +92,7 @@ function isRateLimitError(error) {
     || msg.includes("quota");
 }
 
-export async function geminiWithRetry(fn, maxRetries = 6) {
+export async function geminiWithRetry(fn, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     await geminiLimiter.acquire();
     try {

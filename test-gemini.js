@@ -7,62 +7,70 @@ dotenv.config({ path: resolve(__dirname, ".env") });
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const apiKey = process.env.GEMINI_API_KEY;
-console.log("GEMINI_API_KEY:", apiKey ? `${apiKey.substring(0, 10)}...` : "MISSING");
-
-const genAI = new GoogleGenerativeAI(apiKey);
 const MODEL = "gemini-3-flash-preview";
 
-async function singleRequest(label) {
-  const start = Date.now();
+const groundingKeys = (process.env.GEMINI_GROUNDING_API_KEYS || "")
+  .split(",").map(k => k.trim()).filter(Boolean);
+const primaryKey = process.env.GEMINI_API_KEY;
+
+const testGroundingKey = process.env.GEMINI_TEST_GROUNDING_API_KEY;
+
+const allKeys = [
+  { key: primaryKey, label: "primary (GEMINI_API_KEY)" },
+  ...groundingKeys.map((k, i) => ({ key: k, label: `grounding-${i + 1}` })),
+  ...(testGroundingKey ? [{ key: testGroundingKey, label: "test-grounding (new project)" }] : [])
+];
+
+async function testKey(apiKey, label) {
+  const masked = apiKey ? `${apiKey.substring(0, 10)}...${apiKey.slice(-4)}` : "MISSING";
+  console.log(`\n── Testing: ${label} [${masked}] ──`);
+
+  if (!apiKey) {
+    console.log(`  SKIPPED — no key`);
+    return;
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  // Test 1: Simple request (no grounding)
+  const t1 = Date.now();
+  try {
+    const model = genAI.getGenerativeModel({ model: MODEL });
+    const result = await model.generateContent("What is 2+2? Reply with just the number.");
+    const ms = Date.now() - t1;
+    console.log(`  [simple]    ✓ OK in ${ms}ms — ${result.response.text().trim()}`);
+  } catch (error) {
+    const ms = Date.now() - t1;
+    console.log(`  [simple]    ✗ FAILED in ${ms}ms — ${error.message}`);
+  }
+
+  // Test 2: Grounding request
+  const t2 = Date.now();
   try {
     const model = genAI.getGenerativeModel({
       model: MODEL,
       tools: [{ googleSearch: {} }],
     });
-    const result = await model.generateContent(`Search Google for "Nike Air Max 90 ${label}" and give a one-line summary.`);
-    const ms = Date.now() - start;
-    console.log(`  [${label}] OK in ${ms}ms — ${result.response.text().substring(0, 80)}...`);
-    return { label, ok: true, ms };
+    const result = await model.generateContent(
+      `Search Google for "Nike Air Max 90" and give a one-line summary.`
+    );
+    const ms = Date.now() - t2;
+    const metadata = result.response.candidates?.[0]?.groundingMetadata;
+    const chunks = metadata?.groundingChunks?.length || 0;
+    const queries = metadata?.webSearchQueries || [];
+    console.log(`  [grounding] ✓ OK in ${ms}ms — chunks: ${chunks}, queries: ${queries.join(" | ") || "none"}`);
   } catch (error) {
-    const ms = Date.now() - start;
-    console.log(`  [${label}] FAILED in ${ms}ms — ${error.message}`);
-    return { label, ok: false, ms, error: error.message };
+    const ms = Date.now() - t2;
+    const is429 = error.status === 429 || error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED");
+    console.log(`  [grounding] ✗ FAILED in ${ms}ms ${is429 ? "[429 RATE LIMITED]" : ""} — ${error.message}`);
   }
 }
 
-// Test sequential requests
-async function testSequential(count) {
-  console.log(`\n=== SEQUENTIAL: ${count} requests one by one ===`);
-  let ok = 0, fail = 0;
-  for (let i = 1; i <= count; i++) {
-    const result = await singleRequest(`seq-${i}`);
-    result.ok ? ok++ : fail++;
-  }
-  console.log(`Result: ${ok} OK, ${fail} FAILED\n`);
-}
-
-// Test concurrent requests
-async function testConcurrent(count) {
-  console.log(`\n=== CONCURRENT: ${count} requests at the same time ===`);
-  const promises = [];
-  for (let i = 1; i <= count; i++) {
-    promises.push(singleRequest(`par-${i}`));
-  }
-  const results = await Promise.all(promises);
-  const ok = results.filter(r => r.ok).length;
-  const fail = results.filter(r => !r.ok).length;
-  console.log(`Result: ${ok} OK, ${fail} FAILED\n`);
-}
-
-// Run tests
 console.log(`\nModel: ${MODEL}`);
-console.log("Starting tests...\n");
+console.log(`Testing ${allKeys.length} API keys...\n`);
 
-await testSequential(3);
-await testConcurrent(5);
-await testConcurrent(10);
-await testConcurrent(15);
-await testConcurrent(20);
+for (const { key, label } of allKeys) {
+  await testKey(key, label);
+}
 
-console.log("Done.");
+console.log("\n\nDone.");

@@ -12,7 +12,12 @@
  */
 
 import dotenv from "dotenv";
-dotenv.config();
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 import fetch from "node-fetch";
 
 const accountName = process.env.VTEX_ACCOUNT || "toffro";

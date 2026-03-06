@@ -10,6 +10,7 @@ const groundingClients = (runaConfig.gemini.groundingApiKeys || []).map((key, i)
   client: new GoogleGenerativeAI(key),
   label: `grounding-${i + 1}`
 }));
+let groundingRoundRobinIndex = 0;
 
 // ─── Gemini: Google Search description ───────────────────────────────
 
@@ -86,7 +87,7 @@ CRITICAL RULES:
       finalPrompt = `IMPORTANT: You MUST use Google Search now. Search ONLY the exact product code, do NOT add extra words. Do NOT answer from memory. Do NOT assume the product type.\n\n${prompt}\n\nYou MUST search Google for ONLY the exact code. Use the Google Search tool NOW.`;
     }
 
-    const result = await geminiWithRetry(() => model.generateContent(finalPrompt));
+    const result = await geminiWithRetry(() => model.generateContent(finalPrompt), 2);
     const response = result.response;
     const text = response.text();
 
@@ -142,8 +143,14 @@ CRITICAL RULES:
 // ─── Gemini: Parse & validate search result (structured JSON) ────────
 
 export async function parseSearchResult(product, rawSearchText) {
-  const { title, vendor, image } = product;
-  const imgUrls = image ? [image] : [];
+  const { title, vendor, image, images } = product;
+  const rawImgs = images;
+  const imgUrls = Array.isArray(rawImgs)
+    ? [...rawImgs]
+    : (typeof rawImgs === "string" && rawImgs ? rawImgs.split(",").map(u => u.trim()) : []);
+  if (image && !imgUrls.includes(image)) {
+    imgUrls.unshift(image);
+  }
 
   try {
     const model = genAI.getGenerativeModel({
@@ -173,9 +180,9 @@ Google search result:
 ${rawSearchText.substring(0, 2000)}
 """
 
-Look at the main product image carefully and determine if the Google search result describes THIS product:
-- descriptionAccurate = true: the description matches what you SEE in the image (same product type, same visual appearance, same style). If a brand is mentioned in the description, it must match "${vendor || ""}"
-- descriptionAccurate = false: the description does NOT match the image (e.g. search says "bag" but image shows a jacket), or mentions a DIFFERENT brand than "${vendor || ""}", or describes a completely different product`;
+Look at ALL the product images carefully and determine if the Google search result describes THIS product:
+- descriptionAccurate = true: the description matches what you SEE across ALL images (same product type, same visual appearance, same style). If a brand is mentioned in the description, it must match "${vendor || ""}"
+- descriptionAccurate = false: the description does NOT match the images (e.g. search says "bag" but images show a jacket), or mentions a DIFFERENT brand than "${vendor || ""}", or describes a completely different product`;
 
     const contentParts = [prompt];
 
@@ -321,12 +328,16 @@ export async function generateAIDescription(product) {
   // ── Step 1: Google Search + validate against product images ──
   if (sku && groundingClients.length > 0) {
     const prompt = buildDescriptionPrompt(sku);
+    const totalKeys = groundingClients.length;
+    const startIdx = groundingRoundRobinIndex;
+    groundingRoundRobinIndex = (groundingRoundRobinIndex + 1) % totalKeys;
 
-    for (const { client, label } of groundingClients) {
+    for (let i = 0; i < totalKeys; i++) {
+      const { client, label } = groundingClients[(startIdx + i) % totalKeys];
       console.log(`  [AI Desc] Searching Google for "${product.title}" using SKU: ${sku} [${label}]`);
 
       try {
-        const result = await searchWithGrounding(prompt, 4, { aiClient: client, keyLabel: label });
+        const result = await searchWithGrounding(prompt, 2, { aiClient: client, keyLabel: label });
 
         if (result.grounded && result.found && result.text) {
           console.log(`  [AI Desc] Google found product (${result.text.length} chars), validating...`);
@@ -349,7 +360,7 @@ export async function generateAIDescription(product) {
       } catch (error) {
         if (isGrounding429Error(error)) {
           keys429Count++;
-          console.log(`  [AI Desc] ⚠ Grounding 429 on ${label}: ${error.message}, trying next key...`);
+          console.log(`  [AI Desc] ⚠ Grounding 429 on ${label} (${keys429Count}/${totalKeys}): ${error.message}`);
           continue;
         }
         console.log(`  [AI Desc] Google Search error: ${error.message}, generating from images...`);
@@ -357,9 +368,9 @@ export async function generateAIDescription(product) {
       }
     }
 
-    if (keys429Count >= groundingClients.length) {
+    if (keys429Count >= totalKeys) {
       groundingError429 = true;
-      console.log(`  [AI Desc] ⚠ All ${groundingClients.length} grounding keys exhausted (429), falling back to images...`);
+      console.log(`  [AI Desc] ⚠ All ${totalKeys} grounding keys exhausted (429), falling back to images...`);
     }
   } else if (sku) {
     console.log(`  [AI Desc] No grounding API keys configured, skipping Google Search`);

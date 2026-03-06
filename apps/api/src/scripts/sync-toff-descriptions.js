@@ -9,13 +9,17 @@
  *
  * Usage:
  *   node apps/api/src/scripts/sync-toff-descriptions.js [--dry-run]
+ *   node apps/api/src/scripts/sync-toff-descriptions.js --handle <handle-or-url> [--dry-run]
  *
  * Options:
- *   --dry-run   Check products without writing anything to VTEX
+ *   --dry-run               Check products without writing anything to VTEX
+ *   --handle <handle-or-url> Process a single product by handle or toff.ro URL
  *
  * Examples:
  *   node apps/api/src/scripts/sync-toff-descriptions.js
  *   node apps/api/src/scripts/sync-toff-descriptions.js --dry-run
+ *   node apps/api/src/scripts/sync-toff-descriptions.js --handle philipp-plein-jacheta-neagra-cu-logo-safcmjb3877pte003n0202
+ *   node apps/api/src/scripts/sync-toff-descriptions.js --handle https://www.toff.ro/philipp-plein-jacheta-neagra-cu-logo-safcmjb3877pte003n0202/p
  */
 
 import neo4j from "neo4j-driver";
@@ -32,6 +36,12 @@ const appToken = process.env.VTEX_API_TOKEN;
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const handleIdx = args.indexOf("--handle");
+let singleHandle = handleIdx !== -1 ? args[handleIdx + 1] : null;
+if (singleHandle) {
+  const urlMatch = singleHandle.match(/toff\.ro\/([^/]+)\/p/);
+  if (urlMatch) singleHandle = urlMatch[1];
+}
 
 const STORE_ID = `${accountName}.vtexcommercestable.com.br`;
 const BASE_URL = `https://${accountName}.vtexcommercestable.com.br`;
@@ -56,8 +66,10 @@ async function getProductsWithDescriptions() {
   const session = driver.session();
   try {
     const result = await session.run(
-      `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
-       WHERE p.description IS NOT NULL AND trim(p.description) <> ""
+      `MATCH (p:Product)
+       WHERE p.storeId = $storeId
+         AND p.description IS NOT NULL AND trim(p.description) <> ""
+         AND (p.descriptionSource IS NULL OR p.descriptionSource <> "original")
        RETURN p.id AS id, p.title AS title, p.description AS description
        ORDER BY p.title`,
       { storeId: STORE_ID }
@@ -67,6 +79,29 @@ async function getProductsWithDescriptions() {
       title: r.get("title"),
       description: r.get("description"),
     }));
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
+async function getProductByHandle(handle) {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `MATCH (p:Product)
+       WHERE p.storeId = $storeId AND p.handle = $handle
+       RETURN p.id AS id, p.title AS title, p.description AS description`,
+      { storeId: STORE_ID, handle }
+    );
+    if (result.records.length === 0) return null;
+    const r = result.records[0];
+    return {
+      id: r.get("id"),
+      title: r.get("title"),
+      description: r.get("description"),
+    };
   } finally {
     await session.close();
     await driver.close();
@@ -137,12 +172,31 @@ async function main() {
   console.log(`  Sync Toff Descriptions`);
   console.log(`  Store:  ${STORE_ID}`);
   console.log(`  Mode:   ${dryRun ? "DRY RUN (no updates)" : "LIVE (will update VTEX)"}`);
+  if (singleHandle) console.log(`  Handle: ${singleHandle}`);
   console.log(`═══════════════════════════════════════════════════════════\n`);
 
-  // 1. Get products from Neo4j that have descriptions
-  console.log(`[1] Fetching products with descriptions from Neo4j...`);
-  const neo4jProducts = await getProductsWithDescriptions();
-  console.log(`    Found ${neo4jProducts.length} products with descriptions\n`);
+  let neo4jProducts;
+
+  if (singleHandle) {
+    console.log(`[1] Looking up handle "${singleHandle}" in Neo4j...`);
+    const product = await getProductByHandle(singleHandle);
+    if (!product) {
+      console.log(`    Product not found in Neo4j for handle "${singleHandle}"`);
+      return;
+    }
+    const hasDesc = product.description && product.description.trim().length > 0;
+    console.log(`    Found: "${product.title}" (id: ${product.id})`);
+    console.log(`    Neo4j description: ${hasDesc ? `${product.description.length} chars` : "EMPTY"}`);
+    if (!hasDesc) {
+      console.log(`    No description in Neo4j — nothing to push.`);
+      return;
+    }
+    neo4jProducts = [product];
+  } else {
+    console.log(`[1] Fetching products with descriptions from Neo4j...`);
+    neo4jProducts = await getProductsWithDescriptions();
+    console.log(`    Found ${neo4jProducts.length} products with descriptions\n`);
+  }
 
   if (neo4jProducts.length === 0) {
     console.log("Nothing to do — no products with descriptions in Neo4j.");
