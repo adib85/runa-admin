@@ -1,10 +1,16 @@
 #!/bin/bash
 set -e
 
-PROJECT_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
-cd "$PROJECT_ROOT"
+# 1. Load the Conda configuration so we can use 'conda activate'
+source /home/ec2-user/miniconda3/etc/profile.d/conda.sh
 
-LOG_FILE="$PROJECT_ROOT/apps/api/src/scripts/logs/sync-toff-$(date +%Y-%m-%d_%H%M).log"
+# 2. Activate the environment
+conda activate myenv
+
+# 3. Go to the project root
+cd /home/ec2-user/runa-admin
+
+LOG_FILE="/home/ec2-user/runa-admin/logs/sync-toff-$(date +%Y-%m-%d_%H%M).log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
