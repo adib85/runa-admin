@@ -159,7 +159,7 @@ async function getProductById(productId, storeId) {
   }
 }
 
-async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false) {
+async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false, reindexOnly = false) {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -169,12 +169,16 @@ async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false)
     const missingFilter = missingOnly
       ? `AND p.similar_product_updated_at IS NULL`
       : "";
+    const reindexFilter = reindexOnly
+      ? `AND p.needs_reindex = true`
+      : "";
     const result = await session.run(
       `MATCH (p:Product)
        WHERE p.storeId = $storeId
          AND p.handle IS NOT NULL AND p.handle <> ''
          ${timeFilter}
          ${missingFilter}
+         ${reindexFilter}
        RETURN count(p) as total`,
       { storeId }
     );
@@ -188,7 +192,7 @@ async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false)
   }
 }
 
-async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missingOnly = false) {
+async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missingOnly = false, reindexOnly = false) {
   const driver = getDriver();
   const session = driver.session();
   try {
@@ -198,12 +202,16 @@ async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missing
     const missingFilter = missingOnly
       ? `AND p.similar_product_updated_at IS NULL`
       : "";
+    const reindexFilter = reindexOnly
+      ? `AND p.needs_reindex = true`
+      : "";
     const result = await session.run(
       `MATCH (p:Product)
        WHERE p.storeId = $storeId
          AND p.handle IS NOT NULL AND p.handle <> ''
          ${timeFilter}
          ${missingFilter}
+         ${reindexFilter}
        RETURN p.id as id, p.title as title, p.handle as handle, p.storeId as storeId
        ORDER BY p.updated_at DESC
        SKIP $skip
@@ -262,6 +270,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
     startFrom = 0,
     hoursAgo = 24,
     missingOnly = false,
+    reindexOnly = false,
     delayBetweenRequests = 2000
   } = options;
 
@@ -269,7 +278,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
   console.log("SIMILAR PRODUCTS PROCESSOR");
   console.log("========================================");
   console.log(`Store ID: ${storeId}`);
-  console.log(`Mode: ${missingOnly ? "MISSING ONLY" : hoursAgo ? `last ${hoursAgo} hours` : "ALL products"}`);
+  console.log(`Mode: ${reindexOnly ? "REINDEX (needs_reindex=true)" : missingOnly ? "MISSING ONLY" : hoursAgo ? `last ${hoursAgo} hours` : "ALL products"}`);
   console.log(`Batch size: ${batchSize} (parallel requests)`);
   console.log(`Max products: ${maxProducts || "UNLIMITED"}`);
   console.log(`Starting from: ${startFrom}`);
@@ -277,7 +286,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
   console.log("========================================\n");
 
   console.log("Counting products...");
-  const totalProducts = await countStoreProducts(storeId, hoursAgo, missingOnly);
+  const totalProducts = await countStoreProducts(storeId, hoursAgo, missingOnly, reindexOnly);
   console.log(`Total products to process: ${totalProducts}\n`);
 
   let processedCount = 0;
@@ -296,7 +305,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
       }
 
       console.log(`\n--- Fetching batch (skip: ${skip}, limit: ${batchSize}) ---`);
-      const products = await fetchProductsBatch(storeId, skip, batchSize, hoursAgo, missingOnly);
+      const products = await fetchProductsBatch(storeId, skip, batchSize, hoursAgo, missingOnly, reindexOnly);
 
       if (products.length === 0) {
         console.log("No more products to process");
@@ -424,6 +433,7 @@ if (args.length === 0) {
   console.error("    --hours <n>          Only products updated in last N hours (default: 24)");
   console.error("    --all                Process ALL products regardless of updated_at");
   console.error("    --missing            Only products missing similar_product_updated_at");
+  console.error("    --reindex            Only products flagged with needs_reindex=true");
   console.error("    --delay <ms>         Delay between requests in ms (default: 1000)");
   process.exit(1);
 }
@@ -449,7 +459,8 @@ const { storeId: cliStoreId, opts: cliOpts } = parseCliArgs(args);
 const batchSize = parseInt(cliOpts.batchSize) || 50;
 const maxProducts = cliOpts.maxProducts ? parseInt(cliOpts.maxProducts) : null;
 const startFrom = parseInt(cliOpts.startFrom) || 0;
-const hoursAgo = args.includes("--all") || args.includes("--missing") ? null : (parseInt(cliOpts.hours) || 24);
+const reindexOnly = args.includes("--reindex");
+const hoursAgo = args.includes("--all") || args.includes("--missing") || reindexOnly ? null : (parseInt(cliOpts.hours) || 24);
 const missingOnly = args.includes("--missing");
 const delayBetweenRequests = parseInt(cliOpts.delay) || 1000;
 
@@ -461,6 +472,7 @@ const delayBetweenRequests = parseInt(cliOpts.delay) || 1000;
       startFrom,
       hoursAgo,
       missingOnly,
+      reindexOnly,
       delayBetweenRequests
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);

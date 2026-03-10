@@ -109,47 +109,48 @@ export class Neo4jService {
       const newProducts = productsData.map(p => this._prepareProductForSave(p, storeData, demographicsData));
       const nowIso = new Date().toISOString();
 
+      const productProps = `{
+           id: product.productId, need_update: null, title: product.title, titleEmbedding: product.titleEmbedding,
+           description: product.description, descriptionSource: product.descriptionSource, content: product.content, product: product.product,
+           characteristics: product.characteristics, styleCode: product.styleCode, styleData: product.styleData,
+           styleBody: product.styleBody, stylePersonality: product.stylePersonality, styleChromatic: product.styleChromatic,
+           is_neutral: product.is_neutral, neutral_whitelist: product.neutral_whitelist, color_vec: product.color_vec,
+           image: product.image, images: product.images, vendor: product.vendor, currency: product.currency,
+           category: product.category, handle: product.handle, status: product.status, storeId: product.storeId,
+           contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
+           characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
+           styleCodeEmbedding: product.styleCodeEmbedding, searchAttributesText: product.searchAttributesText,
+           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
+           color: COALESCE(product.detectedColor, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END),
+           colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
+           sizes: product.sizes,
+           en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
+           en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json,
+           sku: product.sku
+         }`;
+
+      // Query 1: Create/update products + Store relationship + Demographics
+      // These are isolated from optional UNWINDs so they always execute
       await tx.run(
         `UNWIND $newProducts AS product
          MERGE (p:Product {id: product.productId})
-         ON CREATE SET p += {
-           id: product.productId, title: product.title, titleEmbedding: product.titleEmbedding,
-           description: product.description, descriptionSource: product.descriptionSource, content: product.content, product: product.product,
-           characteristics: product.characteristics, styleCode: product.styleCode, styleData: product.styleData,
-           styleBody: product.styleBody, stylePersonality: product.stylePersonality, styleChromatic: product.styleChromatic,
-           is_neutral: product.is_neutral, neutral_whitelist: product.neutral_whitelist, color_vec: product.color_vec,
-           image: product.image, images: product.images, vendor: product.vendor, currency: product.currency,
-           category: product.category, handle: product.handle, status: product.status, storeId: product.storeId,
-           contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
-           characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
-           styleCodeEmbedding: product.styleCodeEmbedding, searchAttributesText: product.searchAttributesText,
-           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
-           color: COALESCE(product.detectedColor, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END),
-           colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
-           sizes: product.sizes,
-           en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
-           en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json,
-           sku: product.sku
-         }
-         ON MATCH SET p += {
-           id: product.productId, title: product.title, titleEmbedding: product.titleEmbedding,
-           description: product.description, descriptionSource: product.descriptionSource, content: product.content, product: product.product,
-           characteristics: product.characteristics, styleCode: product.styleCode, styleData: product.styleData,
-           styleBody: product.styleBody, stylePersonality: product.stylePersonality, styleChromatic: product.styleChromatic,
-           is_neutral: product.is_neutral, neutral_whitelist: product.neutral_whitelist, color_vec: product.color_vec,
-           image: product.image, images: product.images, vendor: product.vendor, currency: product.currency,
-           category: product.category, handle: product.handle, status: product.status, storeId: product.storeId,
-           contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
-           characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
-           styleCodeEmbedding: product.styleCodeEmbedding, searchAttributesText: product.searchAttributesText,
-           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
-           color: COALESCE(product.detectedColor, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END),
-           colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
-           sizes: product.sizes,
-           en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
-           en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json,
-           sku: product.sku
-         }
+         ON CREATE SET p += ${productProps}
+         ON MATCH SET p += ${productProps}
+         WITH p, product
+         MATCH (store:Store {id: product.storeId})
+         MERGE (store)-[:HAS_PRODUCT]->(p)
+         WITH p, product
+         FOREACH (demographic IN product.demographics |
+           MERGE (d:Demographic {name: demographic})
+           MERGE (p)-[:HAS_DEMOGRAPHIC]->(d)
+         )`,
+        { newProducts, nowIso }
+      );
+
+      // Query 2: Variants (isolated — empty variants won't break other relationships)
+      await tx.run(
+        `UNWIND $newProducts AS product
+         MATCH (p:Product {id: product.productId})
          WITH p, product
          UNWIND product.variants AS variant
          MERGE (v:Variant {id: variant.id})
@@ -157,18 +158,31 @@ export class Neo4jService {
            size: variant.sizeValue, color: variant.colorValue, sizeEmbedding: variant.sizeEmbedding, colorEmbedding: variant.colorEmbedding, inventoryQuantity: variant.inventory_quantity }
          ON MATCH SET v += { id: variant.id, title: variant.title, price: variant.price, price_old: variant.compare_at_price,
            size: variant.sizeValue, color: variant.colorValue, sizeEmbedding: variant.sizeEmbedding, colorEmbedding: variant.colorEmbedding, inventoryQuantity: variant.inventory_quantity }
-         MERGE (p)-[:HAS_VARIANT]->(v)
+         MERGE (p)-[:HAS_VARIANT]->(v)`,
+        { newProducts }
+      );
+
+      // Query 3: Categories from collections (isolated — empty collections won't break tags)
+      await tx.run(
+        `UNWIND $newProducts AS product
+         MATCH (p:Product {id: product.productId})
          WITH p, product
          UNWIND product.collections AS collection
          MERGE (c:Category {name: toLower(collection.title)})
-         MERGE (p)-[:HAS_CATEGORY]->(c)
+         MERGE (p)-[:HAS_CATEGORY]->(c)`,
+        { newProducts }
+      );
+
+      // Query 4: Categories from tags (isolated — empty tags are harmless now)
+      await tx.run(
+        `UNWIND $newProducts AS product
+         MATCH (p:Product {id: product.productId})
          WITH p, product
-         UNWIND split(product.tags, ",") AS tag WITH p, product, trim(tag) AS tag WHERE tag <> ""
-         MERGE (c:Category {name: toLower(tag)}) MERGE (p)-[:HAS_CATEGORY]->(c)
-         WITH p, product
-         UNWIND product.demographics AS demographic MERGE (d:Demographic {name: demographic}) MERGE (p)-[:HAS_DEMOGRAPHIC]->(d)
-         WITH p, product.storeId AS storeId MATCH (store:Store {id: storeId}) MERGE (store)-[:HAS_PRODUCT]->(p)`,
-        { newProducts, nowIso }
+         UNWIND split(product.tags, ",") AS tag
+         WITH p, trim(tag) AS tag WHERE tag <> ""
+         MERGE (c:Category {name: toLower(tag)})
+         MERGE (p)-[:HAS_CATEGORY]->(c)`,
+        { newProducts }
       );
 
       await tx.commit();
