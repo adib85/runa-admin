@@ -344,7 +344,7 @@ async function processStoreProductsWithLambda(storeId, options = {}) {
         batchPromises.push(promise);
 
         if (i < products.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
@@ -481,7 +481,7 @@ function parseCliArgs(argv) {
 
 const { storeId: cliStoreId, opts: cliOpts } = parseCliArgs(args);
 
-const batchSize = parseInt(cliOpts.batchSize) || 10;
+const batchSize = parseInt(cliOpts.batchSize) || 40;
 const maxProducts = cliOpts.maxProducts ? parseInt(cliOpts.maxProducts) : null;
 const startFrom = parseInt(cliOpts.startFrom) || 0;
 const reindexOnly = args.includes("--reindex");

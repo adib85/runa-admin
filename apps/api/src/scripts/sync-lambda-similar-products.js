@@ -271,7 +271,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
     hoursAgo = 24,
     missingOnly = false,
     reindexOnly = false,
-    delayBetweenRequests = 2000
+    delayBetweenRequests = 100
   } = options;
 
   console.log("\n========================================");
@@ -456,13 +456,13 @@ function parseCliArgs(argv) {
 
 const { storeId: cliStoreId, opts: cliOpts } = parseCliArgs(args);
 
-const batchSize = parseInt(cliOpts.batchSize) || 50;
+const batchSize = parseInt(cliOpts.batchSize) || 40;
 const maxProducts = cliOpts.maxProducts ? parseInt(cliOpts.maxProducts) : null;
 const startFrom = parseInt(cliOpts.startFrom) || 0;
 const reindexOnly = args.includes("--reindex");
 const hoursAgo = args.includes("--all") || args.includes("--missing") || reindexOnly ? null : (parseInt(cliOpts.hours) || 24);
 const missingOnly = args.includes("--missing");
-const delayBetweenRequests = parseInt(cliOpts.delay) || 1000;
+const delayBetweenRequests = parseInt(cliOpts.delay) || 100;
 
 (async () => {
   try {
