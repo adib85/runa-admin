@@ -16,7 +16,7 @@ import { config } from "@runa/config";
 import { neo4jService, openaiService, pubnubService, dynamodbService } from "../services/index.js";
 import { shopifyCategories } from "../utils/categories.js";
 import { delay, retryOnDeadlock, geminiWithRetry, mapWithConcurrency } from "../utils/index.js";
-import { generateAIDescription } from "../services/ai-product-description.js";
+import { generateAIDescription, rewriteDescriptionFromImage } from "../services/ai-product-description.js";
 
 export class BaseProvider {
   constructor(config) {
@@ -25,6 +25,10 @@ export class BaseProvider {
     this.channelId = config.channelId || `${config.shopName}_scan`;
     this.region = config.region || "us-east-1";
     this.forceAll = config.forceAll || false;
+    this.demographic = config.demographic || "woman";
+    this.descriptionLanguage = config.descriptionLanguage || "ro";
+    this.rewriteDescriptions = config.rewriteDescriptions || false;
+    this.geminiModel = config.geminiModel || null;
     
     // Services
     this.neo4j = neo4jService;
@@ -134,7 +138,7 @@ export class BaseProvider {
   async fetchAndProcessProducts(user) {
     const appData = { id: "runa", appName: "Runa" };
     const storeData = { id: this.shopName, storeName: this.shopName };
-    const demographicsData = ["woman"];
+    const demographicsData = [this.demographic];
     const defaultCategories = user?.defaultCategories || null;
     const shopData = await this.getShopData();
     console.log("shopData", shopData);
@@ -337,67 +341,16 @@ Return exactly one category.`,
   async processProducts(products, defaultCategories, shopData) {
     const websiteCategories = defaultCategories || shopifyCategories;
 
-    const concurrency = parseInt(process.env.SYNC_CONCURRENCY, 10) || 5;
+    const concurrency = parseInt(process.env.SYNC_CONCURRENCY, 10) || this.defaultConcurrency || 5;
 
     const processedProducts = await mapWithConcurrency(products, concurrency, async (product, i, total) => {
-      console.log(`\n── Product ${i + 1}/${total} ──`);
-      console.log("productItem - ", product.id, " -- ", product.product_type, " -- ", product.title);
-      console.log("productItem initial", product);
+      console.log(`\n── Product ${i + 1}/${total}: ${product.title} (${product.id}) ──`);
 
       if (!product.sku) {
-        product.sku = product.vtex?.productReference || null;
-        if (product.sku) console.log(`  [Sync] SKU set: ${product.sku}`);
+        product.sku = product.vtex?.productReference
+          || product.variants?.[0]?.sku
+          || null;
       }
-
-      if (!product.body_html || product.body_html.trim() === "") {
-        console.log(`  [Sync] Product "${product.title}" has no description, generating with AI...`);
-
-        const imageUrls = (product.images || []).map(img => img.src || img).filter(Boolean);
-        const descProduct = {
-          title: product.title,
-          sku: product.sku,
-          vendor: product.vendor,
-          image: product.image?.src || product.image || imageUrls[0] || null,
-          images: imageUrls.length > 0 ? imageUrls.join(",") : null,
-        };
-        console.log(`  [Sync] Description product:`, JSON.stringify(descProduct, null, 2));
-
-        const aiResult = await generateAIDescription(descProduct);
-        if (aiResult) {
-          product.body_html = aiResult.text;
-          product.descriptionHtml = aiResult.text;
-          product.descriptionSource = aiResult.source;
-          console.log(`  [Sync] ✓ AI description set for "${product.title}" (source: ${aiResult.source})`);
-        } else {
-          product.descriptionSource = "none";
-          console.log(`  [Sync] ✗ Could not generate description for "${product.title}", continuing without it`);
-        }
-      } else {
-        product.descriptionSource = "original";
-      }
-
-      const productContent = `${product.title} ${product.body_html || ""}`;
-      console.log("defaultCategories in products", defaultCategories);
-      
-      let productProperties;
-      try {
-        const propsJson = await this.openai.getProductProperties(productContent, defaultCategories, websiteCategories);
-        productProperties = JSON.parse(propsJson);
-      } catch (e) {
-        console.log(e);
-        productProperties = { product: "unknown", characteristics: "unknown", color: "unknown", demographic: "woman", category: "Clothing" };
-      }
-
-      if (!productProperties.product) {
-        console.log("error on properties", productProperties);
-        productProperties.product = "unknown";
-      }
-      if (!productProperties.characteristics) {
-        console.log("error on properties", productProperties);
-        productProperties.characteristics = "unknown";
-      }
-
-      product.properties = productProperties;
 
       if (product.images && product.images.length > 0) {
         product.image = product.images[0].src || product.images[0];
@@ -405,6 +358,50 @@ Return exactly one category.`,
         product.image = product.image.src;
       }
 
+      // ── Phase 1: Run description + properties in PARALLEL ──
+      const needsDescription = !product.body_html || product.body_html.trim() === "";
+      const descriptionPromise = (needsDescription || this.rewriteDescriptions)
+        ? (async () => {
+            const imageUrls = (product.images || []).map(img => img.src || img).filter(Boolean);
+            const descProduct = {
+              title: product.title,
+              sku: product.sku,
+              vendor: product.vendor,
+              image: product.image || imageUrls[0] || null,
+              images: imageUrls.length > 0 ? imageUrls.join(",") : null,
+              existingDescription: product.body_html || "",
+            };
+            const aiResult = this.skipGrounding
+              ? await rewriteDescriptionFromImage(descProduct, { language: this.descriptionLanguage, geminiModel: this.geminiModel })
+              : await generateAIDescription(descProduct, { language: this.descriptionLanguage, geminiModel: this.geminiModel });
+            if (aiResult) {
+              product.body_html = aiResult.text;
+              product.descriptionHtml = aiResult.text;
+              product.descriptionSource = aiResult.source;
+              console.log(`  [Sync] ✓ Description for "${product.title}" (${aiResult.source})`);
+            } else {
+              product.descriptionSource = needsDescription ? "none" : "original";
+            }
+          })()
+        : Promise.resolve(() => { product.descriptionSource = "original"; });
+
+      const productContent = `${product.title} ${product.body_html || ""}`;
+      const propertiesPromise = (async () => {
+        try {
+          const propsJson = await this.openai.getProductProperties(productContent, defaultCategories, websiteCategories);
+          return JSON.parse(propsJson);
+        } catch (e) {
+          return { product: "unknown", characteristics: "unknown", color: "unknown", demographic: "woman", category: "Clothing" };
+        }
+      })();
+
+      const [, productProperties] = await Promise.all([descriptionPromise, propertiesPromise]);
+
+      if (!productProperties.product) productProperties.product = "unknown";
+      if (!productProperties.characteristics) productProperties.characteristics = "unknown";
+      product.properties = productProperties;
+
+      // ── Phase 2: Color, variants, category (fast, no API calls) ──
       const detectedColor = await this.detectColorFromImage(product);
       if (detectedColor) {
         product.detectedColor = detectedColor;
@@ -418,25 +415,17 @@ Return exactly one category.`,
 
       const colorValue = detectedColor || productProperties.color || "unknown";
       for (const variant of (product.variants || [])) {
-        const size = variant.title || "unknown";
         variant.option1 = colorValue;
-        variant.option2 = size;
+        variant.option2 = variant.title || "unknown";
         delete variant.option3;
       }
 
-      const sizes = [...new Set(
-        (product.variants || [])
-          .map(v => v.option2)
-          .filter(Boolean)
-          .filter(s => s !== "unknown")
+      product.sizes = [...new Set(
+        (product.variants || []).map(v => v.option2).filter(s => s && s !== "unknown")
       )];
-      product.sizes = sizes;
-
-      await this.generateOptionEmbeddings(product);
 
       const category = this.determineCategory(product, productProperties, websiteCategories);
       product.category = category;
-      console.log("category", category);
 
       if (!product.collections || product.collections.length === 0) {
         product.collections = [{ title: category }];
@@ -449,10 +438,7 @@ Return exactly one category.`,
       if (isBeach) {
         const beachSubcategory = await this.classifyBeachCategory(product);
         if (beachSubcategory) {
-          const alreadyHas = product.collections.some(c =>
-            c.title?.toLowerCase() === beachSubcategory
-          );
-          if (!alreadyHas) {
+          if (!product.collections.some(c => c.title?.toLowerCase() === beachSubcategory)) {
             product.collections.push({ title: beachSubcategory });
           }
           product.category = beachSubcategory;
@@ -465,16 +451,13 @@ Return exactly one category.`,
         ? `${styleResult.body?.join(",")},${styleResult.personality?.join(",")},${styleResult.chromatic?.join(",")}` 
         : "none";
 
+      // ── Phase 3: Embeddings in ONE batch call ──
       const content = `${product.title}. ${product.body_html || ""}`;
       product.content = content;
 
-      const [titleEmb, contentEmb, productEmb, charEmb, catEmb, styleEmb] = await Promise.all([
-        this.openai.generateEmbedding(product.title),
-        this.openai.generateEmbedding(content),
-        this.openai.generateEmbedding(productProperties.product),
-        this.openai.generateEmbedding(productProperties.characteristics),
-        this.openai.generateEmbedding(`category: ${category}`),
-        this.openai.generateEmbedding(product.styleCode)
+      const [titleEmb, contentEmb, productEmb, charEmb, catEmb, styleEmb] = await this.openai.generateEmbeddingsBatch([
+        product.title, content, productProperties.product,
+        productProperties.characteristics, `category: ${category}`, product.styleCode
       ]);
 
       product.titleEmbedding = titleEmb;
@@ -485,8 +468,13 @@ Return exactly one category.`,
       product.characteristicsEmbedding = charEmb;
       product.categoryEmbedding = catEmb;
       product.styleCodeEmbedding = styleEmb;
-      product.currency = shopData.currency;
 
+      for (const variant of (product.variants || [])) {
+        if (variant.price) variant.price = parseFloat(variant.price);
+        if (variant.compare_at_price) variant.compare_at_price = parseFloat(variant.compare_at_price);
+      }
+
+      product.currency = shopData.currency;
       return product;
     });
 

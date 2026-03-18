@@ -173,17 +173,21 @@ export class Neo4jService {
         { newProducts }
       );
 
-      // Query 4: Categories from tags (isolated — empty tags are harmless now)
-      await tx.run(
-        `UNWIND $newProducts AS product
-         MATCH (p:Product {id: product.productId})
-         WITH p, product
-         UNWIND split(product.tags, ",") AS tag
-         WITH p, trim(tag) AS tag WHERE tag <> ""
-         MERGE (c:Category {name: toLower(tag)})
-         MERGE (p)-[:HAS_CATEGORY]->(c)`,
-        { newProducts }
-      );
+      // Query 4: Categories from tags (only for providers where tags are meaningful categories)
+      const hasTagCategories = newProducts.some(p => p.tagsAsCategories && p.tags);
+      if (hasTagCategories) {
+        await tx.run(
+          `UNWIND $newProducts AS product
+           WITH product WHERE product.tagsAsCategories = true AND product.tags <> ""
+           MATCH (p:Product {id: product.productId})
+           WITH p, product
+           UNWIND split(product.tags, ",") AS tag
+           WITH p, trim(tag) AS tag WHERE tag <> ""
+           MERGE (c:Category {name: toLower(tag)})
+           MERGE (p)-[:HAS_CATEGORY]->(c)`,
+          { newProducts }
+        );
+      }
 
       await tx.commit();
       console.log(`  ✓ Batch ${batchNum}/${totalBatches}: ${productsData.length} products saved`);
@@ -250,6 +254,7 @@ export class Neo4jService {
       currency: p.currency,
       collections: p.collections || [],
       tags: p.tags || "",
+      tagsAsCategories: p.tagsAsCategories !== undefined ? p.tagsAsCategories : true,
       styleBody,
       stylePersonality,
       styleChromatic,

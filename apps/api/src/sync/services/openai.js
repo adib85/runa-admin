@@ -41,6 +41,29 @@ class OpenAIService {
     }
   }
 
+  async generateEmbeddingsBatch(texts) {
+    const validEntries = texts.map((t, i) => ({ text: t, index: i })).filter(e => e.text);
+    if (validEntries.length === 0) return texts.map(() => null);
+
+    const url = "https://api.openai.com/v1/embeddings";
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify({ model: "text-embedding-3-small", input: validEntries.map(e => e.text) })
+      });
+      const data = await response.json();
+      const results = new Array(texts.length).fill(null);
+      for (const item of (data?.data || [])) {
+        results[validEntries[item.index].index] = item.embedding;
+      }
+      return results;
+    } catch (e) {
+      console.log("error generateEmbeddingsBatch", e.message);
+      return texts.map(() => null);
+    }
+  }
+
   async getProductProperties(aggregatedContent, defaultCategories, websiteCategories, maxRetries = 2) {
     let retries = 0;
     const categories = defaultCategories || websiteCategories;

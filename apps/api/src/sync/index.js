@@ -51,6 +51,8 @@ export class SyncOrchestrator {
 ║  Provider: ${this.provider.providerType.padEnd(53)}║
 ║  Shop: ${this.config.shopName.padEnd(57)}║
 ║  Mode: ${this.config.forceAll ? 'FORCE (all products)'.padEnd(57) : 'Normal (new products only)'.padEnd(57)}║
+║  Demographic: ${(this.provider.demographic || 'woman').padEnd(49)}║
+║  Rewrite descriptions: ${(this.provider.rewriteDescriptions ? 'YES' : 'no').padEnd(40)}║
 ╚═══════════════════════════════════════════════════════════════════╝
     `);
 

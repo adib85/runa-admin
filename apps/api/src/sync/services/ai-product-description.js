@@ -12,10 +12,36 @@ const groundingClients = (runaConfig.gemini.groundingApiKeys || []).map((key, i)
 }));
 let groundingRoundRobinIndex = 0;
 
+// ─── Language-specific prompt config ─────────────────────────────────
+
+const LANG_CONFIG = {
+  ro: {
+    featuresLabel: "Caracteristici",
+    compositionLabel: "Compoziție produs",
+    elegantSentences: "2-3 elegant sentences in Romanian — style, versatility, how to wear",
+    languageRule: "The description MUST be written in ROMANIAN language",
+    languageName: "ROMANIAN",
+    systemLangRule: "Your final response (the product description) MUST be written in Romanian language.",
+  },
+  en: {
+    featuresLabel: "Features",
+    compositionLabel: "Material composition",
+    elegantSentences: "2-3 elegant sentences in English — style, versatility, how to wear",
+    languageRule: "The description MUST be written in ENGLISH language",
+    languageName: "ENGLISH",
+    systemLangRule: "Your final response (the product description) MUST be written in English language.",
+  }
+};
+
+function getLangConfig(language) {
+  return LANG_CONFIG[language] || LANG_CONFIG.ro;
+}
+
 // ─── Gemini: Google Search description ───────────────────────────────
 
-export function buildDescriptionPrompt(sku) {
-  console.log(`  [AI Desc] Building prompt for SKU: "${sku}"`);
+export function buildDescriptionPrompt(sku, { language = "ro" } = {}) {
+  console.log(`  [AI Desc] Building prompt for SKU: "${sku}" (lang: ${language})`);
+  const lang = getLangConfig(language);
   
   return `Search Google for EXACTLY "${sku}". 
 Search ONLY "${sku}" - do NOT add extra words to the search (no product type, no brand name, no assumptions).
@@ -33,7 +59,7 @@ If you did NOT find the product:
 {"found": false, "description": ""}
 
 DESCRIPTION RULES (only when found is true):
-- The description MUST be written in ROMANIAN language
+- ${lang.languageRule}
 - Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph
 - The tone must be elegant, sophisticated, as for a luxury online fashion store
 - Use <br> tags as line dividers in the output (HTML format)
@@ -41,14 +67,14 @@ DESCRIPTION RULES (only when found is true):
 
 EXACT description FORMAT (use <br> for line breaks):
 
-[2-3 elegant sentences in Romanian — style, versatility, how to wear] <br>
+[${lang.elegantSentences}] <br>
 <br>
-Caracteristici: <br>
+${lang.featuresLabel}: <br>
 - [feature 1] <br>
 - [feature 2] <br>
 - [etc — 6-10 physical details] <br>
 <br>
-Compoziție produs: [material composition]
+${lang.compositionLabel}: [material composition]
 
 STRICT RULES:
 1. Respond ONLY with the JSON object, nothing else
@@ -56,14 +82,15 @@ STRICT RULES:
 3. Start the description DIRECTLY with the descriptive paragraph
 4. The descriptive paragraph must be ELEGANT, like a luxury copywriter's text
 5. Features must be DETAILED (6-10 bullet points)
-6. Include "Compoziție produs:" ALWAYS
+6. Include "${lang.compositionLabel}:" ALWAYS
 7. Use <br> tags for ALL line breaks in the description
 8. Maximum 800 characters for the description
 9. Do NOT fabricate data. If you cannot find the product, set found to false
-10. The description MUST be in ROMANIAN language`;
+10. ${lang.languageRule}`;
 }
 
-export async function searchWithGrounding(prompt, maxRetries = 3, { aiClient = genAI, keyLabel = "primary" } = {}) {
+export async function searchWithGrounding(prompt, maxRetries = 3, { aiClient = genAI, keyLabel = "primary", language = "ro", geminiModel = null } = {}) {
+  const lang = getLangConfig(language);
   const systemInstruction = `You are a product search assistant specialized in finding products on the internet.
 
 CRITICAL RULES:
@@ -73,11 +100,11 @@ CRITICAL RULES:
 4. NEVER assume what type of product it is before searching. Let the Google results tell you what the product is.
 5. NEVER invent or fabricate product information. All data must come from real web sources.
 6. If you cannot find the product, explicitly say so.
-7. Your final response (the product description) MUST be written in Romanian language.`;
+7. ${lang.systemLangRule}`;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const model = aiClient.getGenerativeModel({
-      model: GEMINI_MODEL,
+      model: geminiModel || GEMINI_MODEL,
       tools: [{ googleSearch: {} }],
       systemInstruction,
     });
@@ -142,7 +169,7 @@ CRITICAL RULES:
 
 // ─── Gemini: Parse & validate search result (structured JSON) ────────
 
-export async function parseSearchResult(product, rawSearchText) {
+export async function parseSearchResult(product, rawSearchText, { geminiModel = null } = {}) {
   const { title, vendor, image, images } = product;
   const rawImgs = images;
   const imgUrls = Array.isArray(rawImgs)
@@ -154,7 +181,7 @@ export async function parseSearchResult(product, rawSearchText) {
 
   try {
     const model = genAI.getGenerativeModel({
-      model: GEMINI_MODEL,
+      model: geminiModel || GEMINI_MODEL,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -186,9 +213,10 @@ Look at ALL the product images carefully and determine if the Google search resu
 
     const contentParts = [prompt];
 
-    for (const url of imgUrls) {
+    const mainImg = imgUrls[0];
+    if (mainImg) {
       try {
-        const imageResponse = await fetch(url);
+        const imageResponse = await fetch(mainImg);
         if (imageResponse.ok) {
           const imageBuffer = await imageResponse.buffer();
           const base64Image = imageBuffer.toString("base64");
@@ -214,7 +242,7 @@ Look at ALL the product images carefully and determine if the Google search resu
 
 // ─── Gemini: Description from image ──────────────────────────────────
 
-export async function generateDescriptionFromImage(title, imageUrls) {
+export async function generateDescriptionFromImage(title, imageUrls, { language = "ro", geminiModel = null } = {}) {
   if (!imageUrls || imageUrls.length === 0) {
     console.log(`  [AI Vision] No images available for "${title}"`);
     return null;
@@ -224,7 +252,8 @@ export async function generateDescriptionFromImage(title, imageUrls) {
 
   try {
     const imageParts = [];
-    for (const url of imageUrls) {
+    const maxImages = 3;
+    for (const url of imageUrls.slice(0, maxImages)) {
       try {
         const imageResponse = await fetch(url);
         if (!imageResponse.ok) {
@@ -247,13 +276,14 @@ export async function generateDescriptionFromImage(title, imageUrls) {
 
     console.log(`  [AI Vision] Loaded ${imageParts.length} image(s)`);
 
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const lang = getLangConfig(language);
+    const model = genAI.getGenerativeModel({ model: geminiModel || GEMINI_MODEL });
 
     const prompt = `You are a luxury fashion copywriter. Look at ALL the product images and use the product title to write an elegant product description.
 
 Product title: "${title}"
 
-IMPORTANT: The response MUST be written in ROMANIAN language.
+IMPORTANT: The response MUST be written in ${lang.languageName} language.
 IMPORTANT: Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph.
 IMPORTANT: The tone must be elegant, sophisticated, as for a luxury online fashion store.
 IMPORTANT: Use <br> tags as line dividers in the output (HTML format).
@@ -261,22 +291,22 @@ IMPORTANT: Maximum 800 characters total.
 
 EXACT FORMAT (use <br> for line breaks):
 
-[2-3 elegant sentences in Romanian — style, versatility, how to wear. Describe what you SEE across ALL images.] <br>
+[${lang.elegantSentences}. Describe what you SEE across ALL images.] <br>
 <br>
-Caracteristici: <br>
+${lang.featuresLabel}: <br>
 - [feature 1 — material, color, cut, design] <br>
 - [feature 2] <br>
 - [etc — 6-10 visible physical details from ALL images] <br>
 <br>
-Compoziție produs: [ONLY if you can read the material from a label/tag in the images, or if the product title mentions the material. Otherwise OMIT this line entirely.]
+${lang.compositionLabel}: [ONLY if you can read the material from a label/tag in the images, or if the product title mentions the material. Otherwise OMIT this line entirely.]
 
 STRICT RULES:
 1. Do NOT put titles or headings
 2. Start DIRECTLY with the descriptive paragraph
 3. Describe ONLY what you can see in the images and infer from the title
-4. Do NOT guess or invent material composition — include "Compoziție produs" ONLY if a label/tag is visible in the images OR the product title mentions the material
+4. Do NOT guess or invent material composition — include "${lang.compositionLabel}" ONLY if a label/tag is visible in the images OR the product title mentions the material
 4. Do NOT invent specific measurements or precise percentages you cannot see
-5. The ENTIRE response must be in ROMANIAN language
+5. The ENTIRE response must be in ${lang.languageName} language
 6. Be elegant and sophisticated in tone
 7. Use <br> tags for ALL line breaks
 8. Maximum 800 characters total`;
@@ -298,6 +328,95 @@ STRICT RULES:
   }
 }
 
+// ─── Shopify: Rewrite description from images + existing description ─
+
+export async function rewriteDescriptionFromImage(product, { language = "en", geminiModel = null } = {}) {
+  const { title, vendor } = product;
+  const existingDescription = product.existingDescription || "";
+
+  const rawImages = product.images;
+  const imageList = Array.isArray(rawImages)
+    ? rawImages
+    : (typeof rawImages === "string" && rawImages ? rawImages.split(",").map(u => u.trim()) : []);
+  if (product.image && !imageList.includes(product.image)) {
+    imageList.unshift(product.image);
+  }
+
+  if (imageList.length === 0 && !existingDescription) {
+    console.log(`  [AI Rewrite] No images or description for "${title}"`);
+    return null;
+  }
+
+  try {
+    const imageParts = [];
+    for (const url of imageList.slice(0, 3)) {
+      try {
+        const imageResponse = await fetch(url);
+        if (!imageResponse.ok) continue;
+        const imageBuffer = await imageResponse.buffer();
+        imageParts.push({
+          inlineData: {
+            mimeType: imageResponse.headers.get("content-type") || "image/jpeg",
+            data: imageBuffer.toString("base64")
+          }
+        });
+      } catch {}
+    }
+
+    const lang = getLangConfig(language);
+    const model = genAI.getGenerativeModel({ model: geminiModel || GEMINI_MODEL });
+
+    const hasExisting = existingDescription && existingDescription.trim().length > 20;
+    const existingBlock = hasExisting
+      ? `\nExisting product description (use as reference for facts, materials, and details — but rewrite completely):\n"""\n${existingDescription.substring(0, 1500)}\n"""\n`
+      : "";
+
+    const prompt = `You are a luxury fashion copywriter. Write an elegant product description for a high-end online store.
+
+Product title: "${title}"
+Brand: "${vendor || "unknown"}"
+${existingBlock}
+${imageParts.length > 0 ? "Look at the product images to understand the product's appearance, color, cut, and style." : ""}
+
+IMPORTANT: ${lang.languageRule}
+IMPORTANT: Do NOT put any title, heading, or "Description:". Start DIRECTLY with the descriptive paragraph.
+IMPORTANT: Use <br> tags for line breaks (HTML format).
+IMPORTANT: Maximum 800 characters total.
+
+FORMAT (use <br> for line breaks):
+
+[${lang.elegantSentences}] <br>
+<br>
+${lang.featuresLabel}: <br>
+- [feature 1 — material, color, cut, design] <br>
+- [feature 2] <br>
+- [etc — 6-10 details] <br>
+<br>
+${lang.compositionLabel}: [material composition if known from the existing description or visible in images. Otherwise OMIT.]
+
+RULES:
+1. Start DIRECTLY with the descriptive paragraph
+2. Be elegant and sophisticated
+3. ${lang.languageRule}
+4. Use <br> for ALL line breaks
+5. Maximum 800 characters`;
+
+    const contentParts = [prompt, ...imageParts];
+    const result = await geminiWithRetry(() => model.generateContent(contentParts));
+    const text = result.response.text();
+
+    if (text && text.length > 50) {
+      console.log(`  [AI Rewrite] ✓ Generated description (${text.length} chars, ${imageParts.length} img)`);
+      return { text, source: "ai_rewrite" };
+    }
+    console.log(`  [AI Rewrite] ✗ Response too short`);
+    return null;
+  } catch (error) {
+    console.log(`  [AI Rewrite] ✗ Error: ${error.message}`);
+    return null;
+  }
+}
+
 // ─── Core: Generate AI description (L1 search → L2 image) ───────────
 
 function isGrounding429Error(error) {
@@ -309,10 +428,9 @@ function isGrounding429Error(error) {
     || msg.includes("quota");
 }
 
-export async function generateAIDescription(product) {
-  const sku = product.sku
-    || product.handle
-    || product.title;
+export async function generateAIDescription(product, { language = "ro", geminiModel = null } = {}) {
+  const activeModel = geminiModel || GEMINI_MODEL;
+  const sku = product.sku || null;
 
   const rawImages = product.images;
   const imageList = Array.isArray(rawImages)
@@ -327,7 +445,7 @@ export async function generateAIDescription(product) {
 
   // ── Step 1: Google Search + validate against product images ──
   if (sku && groundingClients.length > 0) {
-    const prompt = buildDescriptionPrompt(sku);
+    const prompt = buildDescriptionPrompt(sku, { language });
     const totalKeys = groundingClients.length;
     const startIdx = groundingRoundRobinIndex;
     groundingRoundRobinIndex = (groundingRoundRobinIndex + 1) % totalKeys;
@@ -337,13 +455,13 @@ export async function generateAIDescription(product) {
       console.log(`  [AI Desc] Searching Google for "${product.title}" using SKU: ${sku} [${label}]`);
 
       try {
-        const result = await searchWithGrounding(prompt, 2, { aiClient: client, keyLabel: label });
+        const result = await searchWithGrounding(prompt, 2, { aiClient: client, keyLabel: label, language, geminiModel: activeModel });
 
         if (result.grounded && result.found && result.text) {
           console.log(`  [AI Desc] Google found product (${result.text.length} chars), validating...`);
           console.log(`  [AI Desc] Google description:\n${result.text}`);
 
-          const parsed = await parseSearchResult(product, result.text);
+          const parsed = await parseSearchResult(product, result.text, { geminiModel: activeModel });
 
           if (parsed.descriptionAccurate) {
             console.log(`  [AI Desc] ✓ Google Search description accepted for "${product.title}" [${label}]`);
@@ -379,7 +497,7 @@ export async function generateAIDescription(product) {
   }
 
   // ── Step 2: Generate description from images (fallback) ──
-  const imageDescription = await generateDescriptionFromImage(product.title, imageList);
+  const imageDescription = await generateDescriptionFromImage(product.title, imageList, { language, geminiModel: activeModel });
   if (imageDescription) {
     const source = groundingError429 ? "ai_image_grounding_429" : "ai_image";
     console.log(`  [AI Desc] ✓ Using image-based description for "${product.title}" (source: ${source})`);

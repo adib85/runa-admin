@@ -8,6 +8,7 @@ import { GraphQLClient, gql } from "graphql-request";
 import Shopify from "shopify-api-node";
 import fetch from "node-fetch";
 import { stripHtml } from "string-strip-html";
+import { config as runaConfig } from "@runa/config";
 import { BaseProvider } from "./base.js";
 import { s3Service, openaiService } from "../services/index.js";
 import { convertHtmlToMarkdown, extractRelevantFields, delay } from "../utils/index.js";
@@ -48,6 +49,20 @@ export class ShopifyProvider extends BaseProvider {
       }
     });
     this.shopifyApi = new Shopify({ shopName: this.shopName, accessToken: this.accessToken });
+    this.descriptionLanguage = "en";
+    this.defaultConcurrency = 10;
+    this.geminiModel = runaConfig.gemini.liteModel || runaConfig.gemini.model;
+    this.skipGrounding = true;
+
+    this.stats = {
+      totalFetched: 0,
+      withDescription: 0,
+      withoutDescription: 0,
+      withImages: 0,
+      withoutImages: 0,
+      totalVariants: 0,
+      zeroInventory: 0
+    };
   }
 
   get providerType() {
@@ -55,9 +70,11 @@ export class ShopifyProvider extends BaseProvider {
   }
 
   async fetchProducts(options = {}) {
-    const { cursor, limit = 20 } = options;
+    const { cursor, limit = 50 } = options;
     
-    // Shop-specific batch size
+    const effectiveCursor = cursor || this._resumeCursor || null;
+    this._resumeCursor = null;
+
     let batchSize = limit;
     if (this.shopName === "andreearaicu.myshopify.com") {
       batchSize = 2;
@@ -65,21 +82,23 @@ export class ShopifyProvider extends BaseProvider {
 
     const response = await this.graphQLClient.request(GET_PRODUCTS_QUERY, {
       first: batchSize,
-      after: cursor
+      after: effectiveCursor
     });
 
     const products = this.transformGraphQLResponse(response);
     
-    // Fetch English translations for Raicu
     if (this.shopName === "andreearaicu.myshopify.com") {
       await this.fetchRaicuTranslations(products);
     }
 
+    const nextCursor = response.products.pageInfo.hasNextPage 
+      ? response.products.edges[response.products.edges.length - 1].cursor 
+      : null;
+    this._lastCursor = nextCursor;
+
     return {
       products,
-      nextCursor: response.products.pageInfo.hasNextPage 
-        ? response.products.edges[response.products.edges.length - 1].cursor 
-        : null,
+      nextCursor,
       hasNextPage: response.products.pageInfo.hasNextPage
     };
   }
@@ -88,6 +107,34 @@ export class ShopifyProvider extends BaseProvider {
     return response.products.edges.map(edge => {
       const node = edge.node;
       const id = node.id.replace("gid://shopify/Product/", "");
+
+      const images = node.images?.edges?.map(e => ({ src: e.node.src, alt: e.node.altText })) || [];
+      const variants = node.variants?.edges?.map(e => {
+        const v = e.node;
+        const variantId = v.id.replace("gid://shopify/ProductVariant/", "");
+        const options = {};
+        v.selectedOptions?.forEach((opt, idx) => {
+          options[`option${idx + 1}`] = opt.value;
+        });
+        return {
+          id: variantId,
+          title: v.title,
+          price: v.price,
+          compare_at_price: v.compareAtPrice,
+          sku: v.sku,
+          inventory_quantity: v.inventoryQuantity,
+          ...options
+        };
+      }) || [];
+
+      this.stats.totalFetched++;
+      this.stats.totalVariants += variants.length;
+      if (node.descriptionHtml?.trim()) this.stats.withDescription++;
+      else this.stats.withoutDescription++;
+      if (images.length > 0) this.stats.withImages++;
+      else this.stats.withoutImages++;
+      const totalStock = variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0);
+      if (totalStock <= 0) this.stats.zeroInventory++;
 
       return {
         id,
@@ -99,25 +146,10 @@ export class ShopifyProvider extends BaseProvider {
         product_type: node.productType,
         status: node.status?.toLowerCase(),
         tags: node.tags?.join(", ") || "",
+        tagsAsCategories: false,
         published_at: node.publishedAt,
-        images: node.images?.edges?.map(e => ({ src: e.node.src, alt: e.node.altText })) || [],
-        variants: node.variants?.edges?.map(e => {
-          const v = e.node;
-          const variantId = v.id.replace("gid://shopify/ProductVariant/", "");
-          const options = {};
-          v.selectedOptions?.forEach((opt, idx) => {
-            options[`option${idx + 1}`] = opt.value;
-          });
-          return {
-            id: variantId,
-            title: v.title,
-            price: v.price,
-            compare_at_price: v.compareAtPrice,
-            sku: v.sku,
-            inventory_quantity: v.inventoryQuantity,
-            ...options
-          };
-        }) || [],
+        images,
+        variants,
         options: this.extractOptions(node.variants?.edges || []),
         collections: node.collections?.edges?.map(e => ({
           id: e.node.id.replace("gid://shopify/Collection/", ""),
@@ -172,6 +204,25 @@ export class ShopifyProvider extends BaseProvider {
     }
   }
 
+  getCursorState() {
+    return { graphqlCursor: this._lastCursor || null };
+  }
+
+  restoreCursorState(state) {
+    if (state?.graphqlCursor) {
+      this._resumeCursor = state.graphqlCursor;
+      console.log(`  [Shopify] Restored cursor for resume`);
+    }
+  }
+
+  async detectColorFromImage() {
+    return null;
+  }
+
+  async classifyBeachCategory() {
+    return null;
+  }
+
   // ==================== SHOP-SPECIFIC FEATURES ====================
 
   // Override for DyFashion-specific category handling
@@ -211,10 +262,10 @@ export class ShopifyProvider extends BaseProvider {
       return category;
     }
 
-    // Default handling for other shops
+    // Default handling for other shops — use last (most specific) collection
     if (product.collections && product.collections.length > 0) {
-      category = product.collections[0].title;
-      console.log("found category from collections");
+      category = product.collections[product.collections.length - 1].title;
+      console.log("found category from collections (last/most specific)");
     } else if (websiteCategories.map(c => c.toLowerCase()).includes(productTypeCategory)) {
       category = productTypeCategory;
       console.log("found category");
@@ -495,6 +546,30 @@ Example responses:
     });
 
     return JSON.parse(completion.choices[0].message.content);
+  }
+
+  logFinalStats() {
+    const pct = (n) => this.stats.totalFetched > 0 ? ((n / this.stats.totalFetched) * 100).toFixed(1) : '0.0';
+    console.log("\n  ════════════════════════════════════════════════════════════");
+    console.log("  [Shopify] SYNC STATS:");
+    console.log(`    Total fetched from API:    ${this.stats.totalFetched}`);
+    console.log(`    With description:          ${this.stats.withDescription} (${pct(this.stats.withDescription)}%)`);
+    console.log(`    Without description:       ${this.stats.withoutDescription} (${pct(this.stats.withoutDescription)}%)`);
+    console.log(`    With images:               ${this.stats.withImages} (${pct(this.stats.withImages)}%)`);
+    console.log(`    Without images:             ${this.stats.withoutImages} (${pct(this.stats.withoutImages)}%)`);
+    console.log(`    Zero inventory:            ${this.stats.zeroInventory} (${pct(this.stats.zeroInventory)}%)`);
+    console.log(`    Total variants:            ${this.stats.totalVariants}`);
+    console.log("  ════════════════════════════════════════════════════════════\n");
+  }
+
+  async sync() {
+    console.log(`\n=== Starting ${this.providerType} Sync for ${this.shopName} ===`);
+    console.log(`  [Shopify] Fetching active products via GraphQL Admin API`);
+    console.log(`  [Shopify] Default demographic: ${this.demographic}\n`);
+
+    await super.sync();
+
+    this.logFinalStats();
   }
 
   // Override to handle Bogas HTML->Markdown and DyFashion S3 uploads

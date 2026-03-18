@@ -56,7 +56,8 @@ export const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     groundingApiKeys: (process.env.GEMINI_GROUNDING_API_KEYS || "").split(",").map(k => k.trim()).filter(Boolean),
-    model: "gemini-3-flash-preview"
+    model: "gemini-3-flash-preview",
+    liteModel: "gemini-3.1-flash-lite-preview"
   },
 
   // Server

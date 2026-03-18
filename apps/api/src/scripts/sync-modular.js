@@ -8,6 +8,7 @@
  *   # Shopify
  *   node apps/api/src/scripts/sync-modular.js shopify my-store.myshopify.com shpat_xxx
  *   node apps/api/src/scripts/sync-modular.js shopify my-store.myshopify.com shpat_xxx --force
+ *   node apps/api/src/scripts/sync-modular.js shopify my-store.myshopify.com shpat_xxx --demographic woman
  *   
  *   # VTEX (requires appKey and appToken)
  *   node apps/api/src/scripts/sync-modular.js vtex accountName appKey appToken
@@ -34,13 +35,20 @@ import { SyncOrchestrator } from "../sync/index.js";
 async function main() {
   const args = process.argv.slice(2);
   const forceAll = args.includes('--force') || args.includes('-f');
-  const filteredArgs = args.filter(a => !a.startsWith('-'));
+  const rewriteDescriptions = args.includes('--rewrite-descriptions');
+
+  const demoIdx = args.indexOf('--demographic');
+  const demographic = demoIdx !== -1 ? args[demoIdx + 1] : null;
+
+  const filteredArgs = args.filter((a, i) => !a.startsWith('-') && (i === 0 || args[i - 1] !== '--demographic'));
   
   const provider = filteredArgs[0] || 'shopify';
   
   let config = {
     provider,
     forceAll,
+    rewriteDescriptions,
+    demographic,
     region: "us-east-1"
   };
 
@@ -90,7 +98,7 @@ Examples:
 
     if (!shopName || !accessToken) {
       console.error(`
-Usage: node sync-modular.js <provider> <shop-domain> <access-token> [--force]
+Usage: node sync-modular.js <provider> <shop-domain> <access-token> [--force] [--demographic <value>]
 
 Arguments:
   provider      The e-commerce platform (shopify, vtex, woocommerce, vrex)
@@ -98,11 +106,15 @@ Arguments:
   access-token  The API access token
 
 Options:
-  --force, -f   Process ALL products (skip existing product check)
+  --force, -f              Process ALL products (skip existing product check)
+  --demographic <value>    Default demographic for products (woman, man, unisex). Defaults to "woman"
+  --rewrite-descriptions   Regenerate AI descriptions for ALL products (even those with existing descriptions)
 
 Examples:
   node sync-modular.js shopify my-store.myshopify.com shpat_xxx
   node sync-modular.js shopify my-store.myshopify.com shpat_xxx --force
+  node sync-modular.js shopify my-store.myshopify.com shpat_xxx --demographic unisex
+  node sync-modular.js shopify my-store.myshopify.com shpat_xxx --force --rewrite-descriptions
       `);
       process.exit(1);
     }
