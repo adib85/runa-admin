@@ -39,6 +39,7 @@ const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD;
 
 const AWS_REGION = "us-east-1";
 const DYNAMODB_USER_TABLE = "UserTable";
+const CACHE_TABLE = process.env.DYNAMODB_CACHE_TABLE || "CacheTable";
 
 async function getUserByShop(shop) {
   AWS.config.update({ region: AWS_REGION });
@@ -51,6 +52,25 @@ async function getUserByShop(shop) {
     ExpressionAttributeValues: { ":shop": shop }
   }).promise();
   return result.Count > 0 ? result.Items[0] : null;
+}
+
+const COMMON_LANGUAGES = ["en", "ro"];
+
+async function deleteCacheForProduct(docClient, handle, storeId) {
+  const cacheKeys = COMMON_LANGUAGES.flatMap(lang => [
+    `${storeId}_${handle}_${lang}`,
+    `${storeId.toLowerCase()}_similar_products_${handle.toLowerCase()}_${lang}`
+  ]);
+
+  const results = await Promise.all(
+    cacheKeys.map(id =>
+      docClient.delete({ TableName: CACHE_TABLE, Key: { id }, ReturnValues: "ALL_OLD" })
+        .promise()
+        .then(res => res.Attributes ? 1 : 0)
+        .catch(() => 0)
+    )
+  );
+  return results.reduce((sum, v) => sum + v, 0);
 }
 
 async function main() {
@@ -128,7 +148,7 @@ async function main() {
       `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
        WHERE (p.lastSeenAt IS NOT NULL AND p.lastSeenAt < $latestSync)
           OR (p.lastSeenAt IS NULL)
-       RETURN p.id AS id, p.title AS title, p.lastSeenAt AS lastSeenAt
+       RETURN p.id AS id, p.title AS title, p.handle AS handle, p.lastSeenAt AS lastSeenAt
        ORDER BY p.lastSeenAt ASC`,
       { storeId, latestSync }
     );
@@ -136,6 +156,7 @@ async function main() {
     const staleProducts = staleResult.records.map(r => ({
       id: r.get("id"),
       title: r.get("title"),
+      handle: r.get("handle"),
       lastSeenAt: r.get("lastSeenAt")
     }));
 
@@ -174,6 +195,20 @@ async function main() {
     );
 
     console.log(`\n  ✓ Deleted ${staleProducts.length} stale product(s)`);
+
+    // Delete cache entries for stale products (all languages)
+    const docClient = new AWS.DynamoDB.DocumentClient({ convertEmptyValues: true });
+    const handles = staleProducts.filter(p => p.handle).map(p => p.handle);
+    if (handles.length > 0) {
+      console.log(`\n  Deleting cache entries for ${handles.length} product(s)...`);
+      let totalCacheDeleted = 0;
+      for (const handle of handles) {
+        const count = await deleteCacheForProduct(docClient, handle, storeId);
+        if (count > 0) console.log(`    - ${handle}: ${count} cache entries`);
+        totalCacheDeleted += count;
+      }
+      console.log(`  ✓ ${totalCacheDeleted} cache entries deleted`);
+    }
 
     // Cleanup orphaned variants
     const orphanResult = await session.run(

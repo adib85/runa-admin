@@ -12,7 +12,6 @@ cd /home/ec2-user/runa-admin
 
 SHOP_DOMAIN="${SHOP_DOMAIN:-k8xbf0-5t.myshopify.com}"
 ACCESS_TOKEN="${ACCESS_TOKEN:?Set ACCESS_TOKEN env var}"
-
 LOG_FILE="/home/ec2-user/runa-admin/logs/sync-runwayher-$(date +%Y-%m-%d_%H%M).log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -21,7 +20,7 @@ echo "  RunwayHer Full Sync — $(date)" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 1/4] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
+echo "[Step 1/5] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" "$ACCESS_TOKEN" --demographic woman 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
