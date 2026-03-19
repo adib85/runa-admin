@@ -22,7 +22,7 @@ echo "════════════════════════�
 
 echo ""
 echo "[Step 1/5] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
-node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" "$ACCESS_TOKEN" --demographic woman --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" "$ACCESS_TOKEN" --demographic woman --rewrite-descriptions --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "[Step 2/5] Cleaning up stale products from Neo4j..." | tee -a "$LOG_FILE"
