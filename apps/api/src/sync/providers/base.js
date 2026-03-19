@@ -202,6 +202,7 @@ export class BaseProvider {
       // Process products
       if (productsToProcess.length > 0) {
         const processedProducts = await this.processProducts(productsToProcess, defaultCategories, shopData);
+        processedProducts.forEach(p => p.lastSeenAt = syncRunStartedAt);
         await this.distributeProducts(processedProducts, storeData, appData, demographicsData);
         countProcessed += productsToProcess.length;
         if (countProcessed > count) countProcessed = count;

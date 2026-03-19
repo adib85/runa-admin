@@ -120,13 +120,14 @@ export class Neo4jService {
            contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
            characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
            styleCodeEmbedding: product.styleCodeEmbedding, searchAttributesText: product.searchAttributesText,
-           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso, lastSeenAt: $nowIso,
+           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
            color: COALESCE(product.detectedColor, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END),
            colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
            sizes: product.sizes,
            en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
            en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json,
-           sku: product.sku
+           sku: product.sku,
+           lastSeenAt: COALESCE(product.lastSeenAt, p.lastSeenAt)
          }`;
 
       // Query 1: Create/update products + Store relationship + Demographics
@@ -272,7 +273,8 @@ export class Neo4jService {
       en_product_type: p.en_product_type || null,
       en_description: p.en_description || null,
       en_json: p.en_json || null,
-      sku: p.sku || p.vtex?.productReference || null
+      sku: p.sku || p.vtex?.productReference || null,
+      lastSeenAt: p.lastSeenAt || null
     };
   }
 

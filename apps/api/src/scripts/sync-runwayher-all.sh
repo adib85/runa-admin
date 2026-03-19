@@ -12,7 +12,7 @@ cd /home/ec2-user/runa-admin
 
 SHOP_DOMAIN="${SHOP_DOMAIN:-k8xbf0-5t.myshopify.com}"
 ACCESS_TOKEN="${ACCESS_TOKEN:?Set ACCESS_TOKEN env var}"
-GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash-lite-preview-09-2025}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash-lite}"
 LOG_FILE="/home/ec2-user/runa-admin/logs/sync-runwayher-$(date +%Y-%m-%d_%H%M).log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
