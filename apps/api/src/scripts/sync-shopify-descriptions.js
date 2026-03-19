@@ -16,10 +16,12 @@
  *   --force                 Update ALL products (even those with existing descriptions)
  *   --recent                Only process products updated in the last 48 hours
  *   --hours <n>             Custom hours window for --recent (default: 48)
+ *   --missing               Only process products not yet synced (description_synced_at IS NULL)
  *
  * Examples:
  *   node apps/api/src/scripts/sync-shopify-descriptions.js k8xbf0-5t.myshopify.com shpat_xxx
  *   node apps/api/src/scripts/sync-shopify-descriptions.js k8xbf0-5t.myshopify.com shpat_xxx --dry-run
+ *   node apps/api/src/scripts/sync-shopify-descriptions.js k8xbf0-5t.myshopify.com shpat_xxx --missing
  *   node apps/api/src/scripts/sync-shopify-descriptions.js k8xbf0-5t.myshopify.com shpat_xxx --handle petar-petrov-bicolor-cashmere-sweater
  *   node apps/api/src/scripts/sync-shopify-descriptions.js k8xbf0-5t.myshopify.com shpat_xxx --force
  */
@@ -46,6 +48,7 @@ const ACCESS_TOKEN = positional[1] || process.env.ACCESS_TOKEN;
 const dryRun = args.includes("--dry-run");
 const forceAll = args.includes("--force");
 const recentOnly = args.includes("--recent");
+const missingOnly = args.includes("--missing");
 const hoursIdx = args.indexOf("--hours");
 const recentHours = hoursIdx !== -1 ? parseInt(args[hoursIdx + 1], 10) : 48;
 const handleIdx = args.indexOf("--handle");
@@ -87,12 +90,16 @@ async function getProductsWithDescriptions() {
     const sourceFilter = forceAll
       ? ""
       : `AND (p.descriptionSource IS NOT NULL AND p.descriptionSource <> "original")`;
+    const missingFilter = missingOnly
+      ? `AND p.description_synced_at IS NULL`
+      : "";
 
     const query = `MATCH (p:Product)
        WHERE p.storeId = $storeId
          AND p.description IS NOT NULL AND trim(p.description) <> ""
          ${sourceFilter}
          ${recentFilter}
+         ${missingFilter}
        RETURN p.id AS id, p.title AS title, p.description AS description, p.descriptionSource AS source
        ORDER BY p.title`;
 
@@ -128,6 +135,23 @@ async function getProductByHandle(handle) {
       description: r.get("description"),
       source: r.get("source"),
     };
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
+async function updateDescriptionSyncedAt(productId) {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const now = new Date().toISOString();
+    await session.run(
+      `MATCH (p:Product {id: $productId, storeId: $storeId})
+       SET p.description_synced_at = $syncedAt
+       RETURN p.id AS id`,
+      { productId, storeId: SHOP_DOMAIN, syncedAt: now }
+    );
   } finally {
     await session.close();
     await driver.close();
@@ -174,7 +198,7 @@ async function main() {
   console.log(`  Sync Shopify Descriptions`);
   console.log(`  Store:  ${SHOP_DOMAIN}`);
   console.log(`  Mode:   ${dryRun ? "DRY RUN (no updates)" : "LIVE (will update Shopify)"}`);
-  console.log(`  Filter: ${forceAll ? "ALL products with descriptions" : "Only AI-generated descriptions"}`);
+  console.log(`  Filter: ${missingOnly ? "MISSING ONLY (not yet synced)" : forceAll ? "ALL products with descriptions" : "Only AI-generated descriptions"}`);
   if (recentOnly) console.log(`  Recent: Last ${recentHours} hours only`);
   if (singleHandle) console.log(`  Handle: ${singleHandle}`);
   console.log(`═══════════════════════════════════════════════════════════\n`);
@@ -220,6 +244,7 @@ async function main() {
         stats.updated++;
       } else {
         await updateShopifyDescription(neo4jProduct.id, neo4jProduct.description);
+        await updateDescriptionSyncedAt(neo4jProduct.id);
         console.log(`${tag} "${neo4jProduct.title}" — UPDATED (${neo4jProduct.description.length} chars)`);
         stats.updated++;
       }
