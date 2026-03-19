@@ -37,6 +37,9 @@ class DynamoDBService {
     
     user.syncInProgress = syncInProgress;
     user.syncProgress = syncProgress;
+    if (!syncInProgress && syncProgress >= 100) {
+      user.lastSyncCompletedAt = new Date().toISOString();
+    }
     console.log("updating user", user.shop);
     await this.saveUser(user, region);
   }

@@ -12,11 +12,14 @@
  *   node apps/api/src/scripts/sync-cleanup-stale.js <storeId>
  *
  *   Options:
- *     --dry-run    Show what would be deleted without actually deleting
+ *     --dry-run          Show what would be deleted without actually deleting
+ *     --max-delete-pct   Max % of products allowed to delete (default: 10). Aborts if exceeded.
+ *     --force            Skip the safety threshold check
  *
  *   Examples:
  *     node apps/api/src/scripts/sync-cleanup-stale.js k8xbf0-5t.myshopify.com
  *     node apps/api/src/scripts/sync-cleanup-stale.js k8xbf0-5t.myshopify.com --dry-run
+ *     node apps/api/src/scripts/sync-cleanup-stale.js k8xbf0-5t.myshopify.com --max-delete-pct 20
  */
 
 import dotenv from "dotenv";
@@ -28,15 +31,35 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 import neo4j from "neo4j-driver";
+import AWS from "aws-sdk";
 
 const NEO4J_URI = process.env.NEO4J_URI || "neo4j://3.95.143.107:7687";
 const NEO4J_USER = process.env.NEO4J_USER || "neo4j";
 const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD;
 
+const AWS_REGION = "us-east-1";
+const DYNAMODB_USER_TABLE = "UserTable";
+
+async function getUserByShop(shop) {
+  AWS.config.update({ region: AWS_REGION });
+  const docClient = new AWS.DynamoDB.DocumentClient({ convertEmptyValues: true });
+  const result = await docClient.query({
+    TableName: DYNAMODB_USER_TABLE,
+    IndexName: "shop_index",
+    KeyConditionExpression: "#shop = :shop",
+    ExpressionAttributeNames: { "#shop": "shop" },
+    ExpressionAttributeValues: { ":shop": shop }
+  }).promise();
+  return result.Count > 0 ? result.Items[0] : null;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
-  const storeId = args.find(a => !a.startsWith("--"));
+  const force = args.includes("--force");
+  const maxPctIdx = args.indexOf("--max-delete-pct");
+  const maxDeletePct = maxPctIdx !== -1 ? parseInt(args[maxPctIdx + 1], 10) : 10;
+  const storeId = args.find((a, i) => !a.startsWith("--") && (i === 0 || args[i - 1] !== "--max-delete-pct"));
 
   if (!storeId) {
     console.error("Usage: node sync-cleanup-stale.js <storeId> [--dry-run]");
@@ -48,6 +71,25 @@ async function main() {
 
   try {
     console.log(`\n── Stale product cleanup for ${storeId} ${dryRun ? "(DRY RUN)" : ""} ──\n`);
+
+    // Verify the last sync completed recently
+    const user = await getUserByShop(storeId);
+    const lastSyncCompletedAt = user?.lastSyncCompletedAt;
+
+    if (!lastSyncCompletedAt) {
+      console.log("  ✗ No lastSyncCompletedAt found in the store record. Run a full sync first.\n");
+      process.exit(1);
+    }
+
+    const syncAgeHours = (Date.now() - new Date(lastSyncCompletedAt).getTime()) / (1000 * 60 * 60);
+    console.log(`  Last sync completed: ${lastSyncCompletedAt} (${syncAgeHours.toFixed(1)}h ago)`);
+
+    if (!force && syncAgeHours > 4) {
+      console.error(`\n  ✗ ABORTED — last sync completed ${syncAgeHours.toFixed(1)}h ago (>4h).`);
+      console.error(`    Cleanup should run immediately after a successful sync.`);
+      console.error(`    Run with --force to override.\n`);
+      process.exit(1);
+    }
 
     // Find the latest lastSeenAt for this store
     const latestResult = await session.run(
@@ -67,8 +109,19 @@ async function main() {
       return;
     }
 
-    console.log(`  Latest sync timestamp: ${latestSync}`);
+    // Total products for this store (with and without lastSeenAt)
+    const totalResult = await session.run(
+      `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
+       RETURN count(p) AS totalProducts`,
+      { storeId }
+    );
+    const totalProducts = totalResult.records[0]?.get("totalProducts");
+    const totalAll = totalProducts?.toNumber ? totalProducts.toNumber() : Number(totalProducts || 0);
+
+    console.log(`  Total products in store: ${totalAll}`);
     console.log(`  Products with lastSeenAt: ${total}`);
+    console.log(`  Latest sync timestamp: ${latestSync}`);
+    console.log(`  Safety threshold: ${maxDeletePct}% max deletion`);
 
     // Find stale products
     const staleResult = await session.run(
@@ -91,7 +144,9 @@ async function main() {
       return;
     }
 
-    console.log(`\n  Found ${staleProducts.length} stale product(s):\n`);
+    const deletePct = totalAll > 0 ? (staleProducts.length / totalAll) * 100 : 0;
+
+    console.log(`\n  Found ${staleProducts.length} stale product(s) (${deletePct.toFixed(1)}% of ${totalAll} total):\n`);
     staleProducts.forEach(p => {
       const seen = p.lastSeenAt || "never";
       console.log(`    - [${p.id}] ${p.title} (lastSeenAt: ${seen})`);
@@ -100,6 +155,13 @@ async function main() {
     if (dryRun) {
       console.log(`\n  DRY RUN — no products were deleted.\n`);
       return;
+    }
+
+    if (!force && deletePct > maxDeletePct) {
+      console.error(`\n  ✗ ABORTED — would delete ${deletePct.toFixed(1)}% of products, which exceeds the ${maxDeletePct}% safety threshold.`);
+      console.error(`    This usually means the previous sync failed or was incomplete.`);
+      console.error(`    Run with --force to override, or --max-delete-pct <n> to adjust the threshold.\n`);
+      process.exit(1);
     }
 
     // Delete stale products
