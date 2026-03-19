@@ -101,7 +101,7 @@ async function getProductsWithDescriptions() {
          ${recentFilter}
          ${missingFilter}
        RETURN p.id AS id, p.title AS title, p.description AS description, p.descriptionSource AS source
-       ORDER BY p.title`;
+       ORDER BY p.updated_at DESC`;
 
     const cutoff = new Date(Date.now() - recentHours * 60 * 60 * 1000).toISOString();
     const result = await session.run(query, { storeId: SHOP_DOMAIN, cutoff });

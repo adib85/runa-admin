@@ -242,7 +242,8 @@ function buildLambdaUrl(product, options = {}) {
     skipCaching,
     productHandle: product.handle,
     profileId,
-    language
+    language,
+    ...(options.geminiModel ? { geminiModel: options.geminiModel } : {})
   });
 
   return `${LAMBDA_URL_BASE}?${params.toString()}`;
@@ -488,6 +489,7 @@ const reindexOnly = args.includes("--reindex");
 const hoursAgo = args.includes("--all") || args.includes("--missing") || reindexOnly ? null : (parseInt(cliOpts.hours) || 24);
 const missingOnly = args.includes("--missing");
 const language = cliOpts.language || "en";
+const geminiModel = cliOpts["gemini-model"] || null;
 
 (async () => {
   try {
@@ -506,7 +508,8 @@ const language = cliOpts.language || "en";
         action: "gpt-4",
         tokens: 1024,
         temperature: 1,
-        language
+        language,
+        geminiModel
       }
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);

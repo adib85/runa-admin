@@ -72,8 +72,9 @@ async function deleteSimilarProductsCache(productHandle, storeId, languages = ["
 
 // ─── Lambda: refresh similar products widget ─────────────────────────
 
-async function refreshSimilarProductsWidget(productHandle, storeId) {
-  const url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar`;
+async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null } = {}) {
+  let url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar`;
+  if (geminiModel) url += `&geminiModel=${encodeURIComponent(geminiModel)}`;
 
   try {
     console.log(`   Refreshing similar products widget...`);
@@ -235,7 +236,7 @@ async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missing
 
 // ─── Single product processor ────────────────────────────────────────
 
-async function processSimilarProductsForProduct(product) {
+async function processSimilarProductsForProduct(product, { geminiModel = null } = {}) {
   console.log(`\n   [${product.id}] ${product.title}`);
   console.log(`   Handle: ${product.handle}`);
   console.log(`   Store/Domain: ${product.storeId}`);
@@ -245,7 +246,7 @@ async function processSimilarProductsForProduct(product) {
 
     await deleteSimilarProductsCache(product.handle, product.storeId);
 
-    const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId);
+    const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId, { geminiModel });
 
     if (similarResult.success) {
       await updateSimilarProductTimestamp(product.id, product.storeId);
@@ -271,7 +272,8 @@ async function processSimilarProductsRecent(storeId, options = {}) {
     hoursAgo = 24,
     missingOnly = false,
     reindexOnly = false,
-    delayBetweenRequests = 100
+    delayBetweenRequests = 100,
+    geminiModel = null
   } = options;
 
   console.log("\n========================================");
@@ -317,7 +319,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
 
       const batchPromises = [];
       for (let i = 0; i < products.length; i++) {
-        const promise = processSimilarProductsForProduct(products[i]);
+        const promise = processSimilarProductsForProduct(products[i], { geminiModel });
         batchPromises.push(promise);
 
         if (i < products.length - 1) {
@@ -463,6 +465,7 @@ const reindexOnly = args.includes("--reindex");
 const hoursAgo = args.includes("--all") || args.includes("--missing") || reindexOnly ? null : (parseInt(cliOpts.hours) || 24);
 const missingOnly = args.includes("--missing");
 const delayBetweenRequests = parseInt(cliOpts.delay) || 100;
+const geminiModel = cliOpts["gemini-model"] || null;
 
 (async () => {
   try {
@@ -473,7 +476,8 @@ const delayBetweenRequests = parseInt(cliOpts.delay) || 100;
       hoursAgo,
       missingOnly,
       reindexOnly,
-      delayBetweenRequests
+      delayBetweenRequests,
+      geminiModel
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);
   } catch (error) {

@@ -40,7 +40,11 @@ async function main() {
   const demoIdx = args.indexOf('--demographic');
   const demographic = demoIdx !== -1 ? args[demoIdx + 1] : null;
 
-  const filteredArgs = args.filter((a, i) => !a.startsWith('-') && (i === 0 || args[i - 1] !== '--demographic'));
+  const modelIdx = args.indexOf('--gemini-model');
+  const geminiModel = modelIdx !== -1 ? args[modelIdx + 1] : null;
+
+  const flagsWithValues = ['--demographic', '--gemini-model'];
+  const filteredArgs = args.filter((a, i) => !a.startsWith('-') && !flagsWithValues.includes(args[i - 1]));
   
   const provider = filteredArgs[0] || 'shopify';
   
@@ -49,6 +53,7 @@ async function main() {
     forceAll,
     rewriteDescriptions,
     demographic,
+    geminiModel,
     region: "us-east-1"
   };
 

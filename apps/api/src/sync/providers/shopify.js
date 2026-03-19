@@ -51,7 +51,7 @@ export class ShopifyProvider extends BaseProvider {
     this.shopifyApi = new Shopify({ shopName: this.shopName, accessToken: this.accessToken });
     this.descriptionLanguage = "en";
     this.defaultConcurrency = 10;
-    this.geminiModel = runaConfig.gemini.liteModel || runaConfig.gemini.model;
+    this.geminiModel = config.geminiModel || runaConfig.gemini.liteModel || runaConfig.gemini.model;
     this.skipGrounding = true;
 
     this.stats = {
