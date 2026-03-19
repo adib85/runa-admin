@@ -120,7 +120,7 @@ export class Neo4jService {
            contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
            characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
            styleCodeEmbedding: product.styleCodeEmbedding, searchAttributesText: product.searchAttributesText,
-           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso,
+           searchAttributesEmbedding: product.searchAttributesEmbedding, updated_at: $nowIso, lastSeenAt: $nowIso,
            color: COALESCE(product.detectedColor, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorValue ELSE null END),
            colorEmbedding: CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END,
            sizes: product.sizes,
@@ -274,6 +274,78 @@ export class Neo4jService {
       en_json: p.en_json || null,
       sku: p.sku || p.vtex?.productReference || null
     };
+  }
+
+  async stampLastSeenAt(storeId, productIds, timestamp) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      await session.run(
+        `UNWIND $productIds AS productId
+         MATCH (p:Product {id: productId})
+         WHERE p.storeId = $storeId
+         SET p.lastSeenAt = $timestamp`,
+        { productIds: productIds.map(id => String(id)), storeId, timestamp }
+      );
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
+  async deleteStaleProducts(storeId, syncRunStartedAt) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
+         WHERE p.lastSeenAt IS NOT NULL AND p.lastSeenAt < $syncRunStartedAt
+         RETURN count(p) AS staleCount, collect(p.title)[0..20] AS sampleTitles`,
+        { storeId, syncRunStartedAt }
+      );
+
+      const record = result.records[0];
+      const staleCount = record ? (record.get('staleCount').toNumber ? record.get('staleCount').toNumber() : Number(record.get('staleCount'))) : 0;
+      const sampleTitles = record ? record.get('sampleTitles') || [] : [];
+
+      if (staleCount > 0) {
+        await session.run(
+          `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
+           WHERE p.lastSeenAt IS NOT NULL AND p.lastSeenAt < $syncRunStartedAt
+           DETACH DELETE p`,
+          { storeId, syncRunStartedAt }
+        );
+      }
+
+      return { staleCount, sampleTitles };
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
+  async cleanupOrphanedVariants() {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (v:Variant) WHERE NOT (v)<-[:HAS_VARIANT]-(:Product)
+         RETURN count(v) AS cnt`
+      );
+      const orphanCount = result.records[0]?.get('cnt');
+      const count = orphanCount?.toNumber ? orphanCount.toNumber() : Number(orphanCount || 0);
+
+      if (count > 0) {
+        await session.run(
+          `MATCH (v:Variant) WHERE NOT (v)<-[:HAS_VARIANT]-(:Product)
+           DELETE v`
+        );
+      }
+      return count;
+    } finally {
+      await session.close();
+      await driver.close();
+    }
   }
 
   async fetchCategories(storeId) {

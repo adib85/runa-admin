@@ -166,6 +166,7 @@ export class BaseProvider {
     }
 
     const syncStartedAt = savedProgress?.startedAt || Date.now();
+    const syncRunStartedAt = savedProgress?.syncRunStartedAt || new Date().toISOString();
 
     while (hasMore) {
       // Fetch batch of products
@@ -179,6 +180,10 @@ export class BaseProvider {
       console.log(`\n=== Batch: ${products.length} products, Total: ${totalProductsSeen} ===`);
 
       if (products.length === 0) continue;
+
+      // Stamp lastSeenAt on ALL fetched products (including ones we'll skip)
+      const allProductIds = products.map(p => p.id);
+      await this.neo4j.stampLastSeenAt(this.shopName, allProductIds, syncRunStartedAt);
 
       // Filter existing products (unless force mode)
       let productsToProcess = products;
@@ -209,6 +214,7 @@ export class BaseProvider {
       // Save progress after each batch for resume capability
       this.saveProgress({
         startedAt: syncStartedAt,
+        syncRunStartedAt,
         countProcessed,
         totalProductsSeen,
         count,
@@ -587,6 +593,7 @@ Return exactly one category.`,
   async classifyStyle(product) {
     return null;
   }
+
 
   async distributeProducts(productsData, storeData, appData, demographicsData) {
     const numConcurrentTransactions = 2;
