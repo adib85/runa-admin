@@ -15,7 +15,7 @@ import { convertHtmlToMarkdown, extractRelevantFields, delay } from "../utils/in
 
 const GET_PRODUCTS_QUERY = gql`
   query getProducts($first: Int!, $after: String) {
-    products(first: $first, after: $after, query: "status:active") {
+    products(first: $first, after: $after, query: "status:active", sortKey: CREATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
       edges {
         cursor
