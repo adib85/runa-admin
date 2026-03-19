@@ -55,6 +55,7 @@ async function getUserByShop(shop) {
 }
 
 const COMMON_LANGUAGES = ["en", "ro"];
+const CACHE_GSI = "storeId-index";
 
 async function deleteCacheForProduct(docClient, handle, storeId) {
   const cacheKeys = COMMON_LANGUAGES.flatMap(lang => [
@@ -71,6 +72,65 @@ async function deleteCacheForProduct(docClient, handle, storeId) {
     )
   );
   return results.reduce((sum, v) => sum + v, 0);
+}
+
+function extractHandlesFromCacheData(data) {
+  const handles = new Set();
+  if (!data) return handles;
+
+  // Similar products: only check data.products (the final curated list shown to users)
+  (data.products || []).forEach(p => { if (p.handle) handles.add(p.handle); });
+
+  // Complete the look: check data.outfits[].products_for_outfit (the final outfit shown to users)
+  (data.outfits || []).forEach(outfit => {
+    (outfit.products_for_outfit || []).forEach(p => { if (p.handle) handles.add(p.handle); });
+  });
+
+  return handles;
+}
+
+async function deleteReferencingCacheEntries(docClient, deletedHandles, storeId) {
+  const deletedSet = new Set(deletedHandles);
+  let scannedCount = 0;
+  let deletedCount = 0;
+  let lastEvaluatedKey = null;
+
+  console.log(`\n  Scanning cache for entries referencing deleted products...`);
+  const startTime = Date.now();
+
+  do {
+    const params = {
+      TableName: CACHE_TABLE,
+      IndexName: CACHE_GSI,
+      KeyConditionExpression: "storeId = :storeId",
+      ExpressionAttributeValues: { ":storeId": storeId },
+    };
+    if (lastEvaluatedKey) params.ExclusiveStartKey = lastEvaluatedKey;
+
+    const result = await docClient.query(params).promise();
+    lastEvaluatedKey = result.LastEvaluatedKey;
+    scannedCount += result.Items.length;
+
+    if (scannedCount % 1000 === 0 || !lastEvaluatedKey) {
+      process.stdout.write(`\r    Scanned: ${scannedCount} cache entries...`);
+    }
+
+    for (const item of result.Items) {
+      const referencedHandles = extractHandlesFromCacheData(item.data);
+      for (const h of referencedHandles) {
+        if (deletedSet.has(h)) {
+          await docClient.delete({ TableName: CACHE_TABLE, Key: { id: item.id } }).promise().catch(() => {});
+          deletedCount++;
+          console.log(`\n    ✗ Deleted cache: ${item.id} (references: ${h})`);
+          break;
+        }
+      }
+    }
+  } while (lastEvaluatedKey);
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`\n  ✓ Scanned ${scannedCount} cache entries in ${elapsed}s, deleted ${deletedCount} referencing entries`);
+  return deletedCount;
 }
 
 async function main() {
@@ -210,7 +270,10 @@ async function main() {
         if (count > 0) console.log(`    - ${handle}: ${count} cache entries`);
         totalCacheDeleted += count;
       }
-      console.log(`  ✓ ${totalCacheDeleted} cache entries deleted`);
+      console.log(`  ✓ ${totalCacheDeleted} direct cache entries deleted`);
+
+      // Find and delete cache entries of OTHER products that reference deleted handles
+      await deleteReferencingCacheEntries(docClient, handles, storeId);
     }
 
     // Cleanup orphaned variants
