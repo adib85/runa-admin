@@ -224,7 +224,7 @@ async function main() {
     if (orphans > 0) {
       await session.run(
         `MATCH (v:Variant) WHERE NOT (v)<-[:HAS_VARIANT]-(:Product)
-         DELETE v`
+         DETACH DELETE v`
       );
       console.log(`  ✓ Cleaned up ${orphans} orphaned variant(s)`);
     }

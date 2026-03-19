@@ -340,7 +340,7 @@ export class Neo4jService {
       if (count > 0) {
         await session.run(
           `MATCH (v:Variant) WHERE NOT (v)<-[:HAS_VARIANT]-(:Product)
-           DELETE v`
+           DETACH DELETE v`
         );
       }
       return count;
