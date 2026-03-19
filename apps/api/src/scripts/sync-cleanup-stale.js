@@ -174,7 +174,10 @@ async function main() {
     });
 
     if (dryRun) {
-      console.log(`\n  DRY RUN — no products were deleted.\n`);
+      const handles = staleProducts.filter(p => p.handle).map(p => p.handle);
+      const cacheEntries = handles.length * COMMON_LANGUAGES.length * 2;
+      console.log(`\n  Cache entries that would be deleted: up to ${cacheEntries} (${handles.length} handles × ${COMMON_LANGUAGES.length} languages × 2 cache types)`);
+      console.log(`\n  DRY RUN — no products or cache entries were deleted.\n`);
       return;
     }
 
