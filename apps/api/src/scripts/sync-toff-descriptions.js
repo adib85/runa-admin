@@ -25,6 +25,7 @@
 import neo4j from "neo4j-driver";
 import fetch from "node-fetch";
 import { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD } from "../sync/services/config.js";
+import { isDimensionsOnly, isBagProduct } from "../sync/services/ai-product-description.js";
 
 // ─── Toff defaults ───────────────────────────────────────────────────
 
@@ -214,9 +215,19 @@ async function main() {
       const vtexProduct = await getVtexProduct(neo4jProduct.id);
       const vtexDesc = (vtexProduct.Description || "").trim();
 
-      if (vtexDesc.length > 0) {
+      const isBagWithDimensionsOnly = isDimensionsOnly(vtexDesc) && isBagProduct(neo4jProduct.title);
+      if (vtexDesc.length > 0 && !isBagWithDimensionsOnly) {
         console.log(`${tag} "${neo4jProduct.title}" — already has description (${vtexDesc.length} chars), skipping`);
         stats.skipped++;
+      } else if (vtexDesc.length > 0 && isBagWithDimensionsOnly) {
+        if (dryRun) {
+          console.log(`${tag} "${neo4jProduct.title}" — has dimensions-only description, WOULD UPDATE (${neo4jProduct.description.length} chars from Neo4j)`);
+          stats.updated++;
+        } else {
+          await updateVtexDescription(neo4jProduct.id, vtexProduct, neo4jProduct.description);
+          console.log(`${tag} "${neo4jProduct.title}" — had dimensions-only, UPDATED (${neo4jProduct.description.length} chars)`);
+          stats.updated++;
+        }
       } else if (dryRun) {
         console.log(`${tag} "${neo4jProduct.title}" — WOULD UPDATE (${neo4jProduct.description.length} chars from Neo4j)`);
         stats.updated++;

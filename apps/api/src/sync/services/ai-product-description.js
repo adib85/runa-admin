@@ -37,11 +37,36 @@ function getLangConfig(language) {
   return LANG_CONFIG[language] || LANG_CONFIG.ro;
 }
 
+// ─── Dimensions-only detection ────────────────────────────────────────
+
+export function isDimensionsOnly(text) {
+  if (!text) return false;
+  const clean = text.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  if (clean.length === 0 || clean.length > 100) return false;
+  return /^\s*dimensiuni\b/i.test(clean);
+}
+
+const BAG_WALLET_PATTERN = /^(geanta|genti|borseta|rucsac|portofel|portcard|portofele)/;
+
+function stripDiacritics(text) {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+export function isBagProduct(title, productType) {
+  const t = stripDiacritics((title || "").trim().toLowerCase());
+  const p = stripDiacritics((productType || "").trim().toLowerCase());
+  return BAG_WALLET_PATTERN.test(t) || BAG_WALLET_PATTERN.test(p);
+}
+
 // ─── Gemini: Google Search description ───────────────────────────────
 
-export function buildDescriptionPrompt(sku, { language = "ro" } = {}) {
+export function buildDescriptionPrompt(sku, { language = "ro", dimensionsText = null } = {}) {
   console.log(`  [AI Desc] Building prompt for SKU: "${sku}" (lang: ${language})`);
   const lang = getLangConfig(language);
+
+  const dimensionsRule = dimensionsText
+    ? `\n11. IMPORTANT: Include these exact product dimensions at the end of the features list: "${dimensionsText}"`
+    : "";
   
   return `Search Google for EXACTLY "${sku}". 
 Search ONLY "${sku}" - do NOT add extra words to the search (no product type, no brand name, no assumptions).
@@ -86,7 +111,7 @@ STRICT RULES:
 7. Use <br> tags for ALL line breaks in the description
 8. Maximum 800 characters for the description
 9. Do NOT fabricate data. If you cannot find the product, set found to false
-10. ${lang.languageRule}`;
+10. ${lang.languageRule}${dimensionsRule}`;
 }
 
 export async function searchWithGrounding(prompt, maxRetries = 3, { aiClient = genAI, keyLabel = "primary", language = "ro", geminiModel = null } = {}) {
@@ -242,7 +267,7 @@ Look at ALL the product images carefully and determine if the Google search resu
 
 // ─── Gemini: Description from image ──────────────────────────────────
 
-export async function generateDescriptionFromImage(title, imageUrls, { language = "ro", geminiModel = null } = {}) {
+export async function generateDescriptionFromImage(title, imageUrls, { language = "ro", geminiModel = null, dimensionsText = null } = {}) {
   if (!imageUrls || imageUrls.length === 0) {
     console.log(`  [AI Vision] No images available for "${title}"`);
     return null;
@@ -309,7 +334,7 @@ STRICT RULES:
 5. The ENTIRE response must be in ${lang.languageName} language
 6. Be elegant and sophisticated in tone
 7. Use <br> tags for ALL line breaks
-8. Maximum 800 characters total`;
+8. Maximum 800 characters total${dimensionsText ? `\n9. IMPORTANT: Include these exact product dimensions at the end of the features list: "${dimensionsText}"` : ""}`;
 
     const result = await geminiWithRetry(() => model.generateContent([prompt, ...imageParts]));
 
@@ -445,7 +470,7 @@ export async function generateAIDescription(product, { language = "ro", geminiMo
 
   // ── Step 1: Google Search + validate against product images ──
   if (sku && groundingClients.length > 0) {
-    const prompt = buildDescriptionPrompt(sku, { language });
+    const prompt = buildDescriptionPrompt(sku, { language, dimensionsText: product.dimensionsText });
     const totalKeys = groundingClients.length;
     const startIdx = groundingRoundRobinIndex;
     groundingRoundRobinIndex = (groundingRoundRobinIndex + 1) % totalKeys;
@@ -497,7 +522,7 @@ export async function generateAIDescription(product, { language = "ro", geminiMo
   }
 
   // ── Step 2: Generate description from images (fallback) ──
-  const imageDescription = await generateDescriptionFromImage(product.title, imageList, { language, geminiModel: activeModel });
+  const imageDescription = await generateDescriptionFromImage(product.title, imageList, { language, geminiModel: activeModel, dimensionsText: product.dimensionsText });
   if (imageDescription) {
     const source = groundingError429 ? "ai_image_grounding_429" : "ai_image";
     console.log(`  [AI Desc] ✓ Using image-based description for "${product.title}" (source: ${source})`);

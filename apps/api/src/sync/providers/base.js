@@ -16,7 +16,7 @@ import { config } from "@runa/config";
 import { neo4jService, openaiService, pubnubService, dynamodbService } from "../services/index.js";
 import { shopifyCategories } from "../utils/categories.js";
 import { delay, retryOnDeadlock, geminiWithRetry, mapWithConcurrency } from "../utils/index.js";
-import { generateAIDescription, rewriteDescriptionFromImage } from "../services/ai-product-description.js";
+import { generateAIDescription, rewriteDescriptionFromImage, isDimensionsOnly, isBagProduct } from "../services/ai-product-description.js";
 
 export class BaseProvider {
   constructor(config) {
@@ -366,7 +366,8 @@ Return exactly one category.`,
       }
 
       // ── Phase 1: Run description + properties in PARALLEL ──
-      const needsDescription = !product.body_html || product.body_html.trim() === "";
+      const hasDimensionsOnly = isDimensionsOnly(product.body_html) && isBagProduct(product.title, product.product_type);
+      const needsDescription = !product.body_html || product.body_html.trim() === "" || hasDimensionsOnly;
       const descriptionPromise = (needsDescription || this.rewriteDescriptions)
         ? (async () => {
             const imageUrls = (product.images || []).map(img => img.src || img).filter(Boolean);
@@ -376,7 +377,8 @@ Return exactly one category.`,
               vendor: product.vendor,
               image: product.image || imageUrls[0] || null,
               images: imageUrls.length > 0 ? imageUrls.join(",") : null,
-              existingDescription: product.body_html || "",
+              existingDescription: hasDimensionsOnly ? "" : (product.body_html || ""),
+              dimensionsText: hasDimensionsOnly ? product.body_html.replace(/<[^>]*>/g, "").trim() : null,
             };
             const aiResult = this.skipGrounding
               ? await rewriteDescriptionFromImage(descProduct, { language: this.descriptionLanguage, geminiModel: this.geminiModel })
