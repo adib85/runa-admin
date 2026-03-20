@@ -46,15 +46,11 @@ export function isDimensionsOnly(text) {
   return /^\s*dimensiuni\b/i.test(clean);
 }
 
-const BAG_WALLET_PATTERN = /^(geanta|genti|borseta|rucsac|portofel|portcard|portofele)/;
-
-function stripDiacritics(text) {
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
+const BAG_WALLET_PATTERN = /^(geant.|gen.i|borset.|rucsac|portofel|portcard|portofele)/i;
 
 export function isBagProduct(title, productType) {
-  const t = stripDiacritics((title || "").trim().toLowerCase());
-  const p = stripDiacritics((productType || "").trim().toLowerCase());
+  const t = (title || "").trim();
+  const p = (productType || "").trim();
   return BAG_WALLET_PATTERN.test(t) || BAG_WALLET_PATTERN.test(p);
 }
 
