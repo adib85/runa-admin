@@ -11,7 +11,6 @@ conda activate myenv
 cd /home/ec2-user/runa-admin
 
 SHOP_DOMAIN="${SHOP_DOMAIN:-k8xbf0-5t.myshopify.com}"
-ACCESS_TOKEN="${ACCESS_TOKEN:?Set ACCESS_TOKEN env var}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-flash-lite-preview}"
 LOG_FILE="/home/ec2-user/runa-admin/logs/sync-runwayher-$(date +%Y-%m-%d_%H%M).log"
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -22,7 +21,7 @@ echo "════════════════════════�
 
 echo ""
 echo "[Step 1/5] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
-node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" "$ACCESS_TOKEN" --demographic woman --rewrite-descriptions --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" --demographic woman --rewrite-descriptions --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "[Step 2/5] Cleaning up stale products from Neo4j..." | tee -a "$LOG_FILE"
@@ -38,7 +37,7 @@ node apps/api/src/scripts/sync-lambda-similar-products.js "$SHOP_DOMAIN" --missi
 
 echo ""
 echo "[Step 5/5] Pushing descriptions from Neo4j to Shopify..." | tee -a "$LOG_FILE"
-node apps/api/src/scripts/sync-shopify-descriptions.js "$SHOP_DOMAIN" "$ACCESS_TOKEN" --missing 2>&1 | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-shopify-descriptions.js "$SHOP_DOMAIN" --missing 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"

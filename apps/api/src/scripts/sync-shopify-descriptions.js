@@ -8,7 +8,7 @@
  * description when it differs from the Neo4j one.
  *
  * Usage:
- *   node apps/api/src/scripts/sync-shopify-descriptions.js <shop-domain> <access-token> [options]
+ *   node apps/api/src/scripts/sync-shopify-descriptions.js <shop-domain> [access-token] [options]
  *
  * Options:
  *   --dry-run               Check products without writing anything to Shopify
@@ -35,15 +35,30 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 import neo4j from "neo4j-driver";
+import fetch from "node-fetch";
 import { GraphQLClient, gql } from "graphql-request";
 import { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD } from "../sync/services/config.js";
+
+const APP_SERVER_URL = "https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/production/healthiny-app";
+
+async function fetchAccessTokenFromDB(shopDomain) {
+  const url = `${APP_SERVER_URL}?action=getUser&shop=${shopDomain}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const token = data?.data?.accessToken;
+  if (!token) {
+    throw new Error(`No accessToken found in database for shop "${shopDomain}"`);
+  }
+  console.log(`  Access token fetched from database for ${shopDomain}`);
+  return token;
+}
 
 // ─── CLI args ────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 const positional = args.filter((a, i) => !a.startsWith('-') && (i === 0 || args[i - 1] !== '--handle'));
 const SHOP_DOMAIN = positional[0] || process.env.SHOP_DOMAIN || "k8xbf0-5t.myshopify.com";
-const ACCESS_TOKEN = positional[1] || process.env.ACCESS_TOKEN;
+let ACCESS_TOKEN = positional[1] || process.env.ACCESS_TOKEN;
 
 const dryRun = args.includes("--dry-run");
 const forceAll = args.includes("--force");
@@ -56,14 +71,9 @@ const singleHandle = handleIdx !== -1 ? args[handleIdx + 1] : null;
 
 const RATE_LIMIT_DELAY_MS = 500;
 
-// ─── Shopify GraphQL client ──────────────────────────────────────────
+// ─── Shopify GraphQL client (initialized in main after token resolution) ─────
 
-const shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
-  headers: {
-    "X-Shopify-Access-Token": ACCESS_TOKEN,
-    "Content-Type": "application/json"
-  }
-});
+let shopifyClient;
 
 const UPDATE_PRODUCT_MUTATION = gql`
   mutation productUpdate($input: ProductInput!) {
@@ -194,6 +204,17 @@ async function updateShopifyDescription(productId, newDescription, maxRetries = 
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
+  if (!ACCESS_TOKEN) {
+    ACCESS_TOKEN = await fetchAccessTokenFromDB(SHOP_DOMAIN);
+  }
+
+  shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
+    headers: {
+      "X-Shopify-Access-Token": ACCESS_TOKEN,
+      "Content-Type": "application/json"
+    }
+  });
+
   console.log(`\n═══════════════════════════════════════════════════════════`);
   console.log(`  Sync Shopify Descriptions`);
   console.log(`  Store:  ${SHOP_DOMAIN}`);

@@ -30,7 +30,22 @@ const __dirname = path.dirname(__filename);
 const rootEnv = path.resolve(__dirname, "../../../../.env");
 dotenv.config({ path: rootEnv });
 
+import fetch from "node-fetch";
 import { SyncOrchestrator } from "../sync/index.js";
+
+const APP_SERVER_URL = "https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/production/healthiny-app";
+
+async function fetchAccessTokenFromDB(shopDomain) {
+  const url = `${APP_SERVER_URL}?action=getUser&shop=${shopDomain}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const token = data?.data?.accessToken;
+  if (!token) {
+    throw new Error(`No accessToken found in database for shop "${shopDomain}"`);
+  }
+  console.log(`  Access token fetched from database for ${shopDomain}`);
+  return token;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -99,16 +114,16 @@ Examples:
   } else {
     // Default: Shopify and other providers
     const shopName = filteredArgs[1] || process.env.SHOP_DOMAIN;
-    const accessToken = filteredArgs[2] || process.env.ACCESS_TOKEN;
+    let accessToken = filteredArgs[2] || process.env.ACCESS_TOKEN;
 
-    if (!shopName || !accessToken) {
+    if (!shopName) {
       console.error(`
-Usage: node sync-modular.js <provider> <shop-domain> <access-token> [--force] [--demographic <value>]
+Usage: node sync-modular.js <provider> <shop-domain> [access-token] [--force] [--demographic <value>]
 
 Arguments:
   provider      The e-commerce platform (shopify, vtex, woocommerce, vrex)
   shop-domain   The store domain
-  access-token  The API access token
+  access-token  The API access token (optional — auto-fetched from database if omitted)
 
 Options:
   --force, -f              Process ALL products (skip existing product check)
@@ -116,12 +131,16 @@ Options:
   --rewrite-descriptions   Regenerate AI descriptions for ALL products (even those with existing descriptions)
 
 Examples:
-  node sync-modular.js shopify my-store.myshopify.com shpat_xxx
-  node sync-modular.js shopify my-store.myshopify.com shpat_xxx --force
-  node sync-modular.js shopify my-store.myshopify.com shpat_xxx --demographic unisex
-  node sync-modular.js shopify my-store.myshopify.com shpat_xxx --force --rewrite-descriptions
+  node sync-modular.js shopify my-store.myshopify.com
+  node sync-modular.js shopify my-store.myshopify.com --force
+  node sync-modular.js shopify my-store.myshopify.com --demographic unisex
+  node sync-modular.js shopify my-store.myshopify.com --force --rewrite-descriptions
       `);
       process.exit(1);
+    }
+
+    if (!accessToken) {
+      accessToken = await fetchAccessTokenFromDB(shopName);
     }
 
     config = {
