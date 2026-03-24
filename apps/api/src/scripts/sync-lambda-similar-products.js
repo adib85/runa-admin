@@ -72,9 +72,11 @@ async function deleteSimilarProductsCache(productHandle, storeId, languages = ["
 
 // ─── Lambda: refresh similar products widget ─────────────────────────
 
-async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null } = {}) {
+async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null, skipImages = false, candidateLimit = null } = {}) {
   let url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar`;
   if (geminiModel) url += `&geminiModel=${encodeURIComponent(geminiModel)}`;
+  if (skipImages) url += `&skipImages=true`;
+  if (candidateLimit) url += `&candidateLimit=${candidateLimit}`;
 
   try {
     console.log(`   Refreshing similar products widget...`);
@@ -236,7 +238,7 @@ async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missing
 
 // ─── Single product processor ────────────────────────────────────────
 
-async function processSimilarProductsForProduct(product, { geminiModel = null } = {}) {
+async function processSimilarProductsForProduct(product, { geminiModel = null, skipImages = false, candidateLimit = null } = {}) {
   console.log(`\n   [${product.id}] ${product.title}`);
   console.log(`   Handle: ${product.handle}`);
   console.log(`   Store/Domain: ${product.storeId}`);
@@ -246,7 +248,7 @@ async function processSimilarProductsForProduct(product, { geminiModel = null } 
 
     await deleteSimilarProductsCache(product.handle, product.storeId);
 
-    const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId, { geminiModel });
+    const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId, { geminiModel, skipImages, candidateLimit });
 
     if (similarResult.success) {
       await updateSimilarProductTimestamp(product.id, product.storeId);
@@ -273,7 +275,9 @@ async function processSimilarProductsRecent(storeId, options = {}) {
     missingOnly = false,
     reindexOnly = false,
     delayBetweenRequests = 100,
-    geminiModel = null
+    geminiModel = null,
+    skipImages = false,
+    candidateLimit = null
   } = options;
 
   console.log("\n========================================");
@@ -319,7 +323,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
 
       const batchPromises = [];
       for (let i = 0; i < products.length; i++) {
-        const promise = processSimilarProductsForProduct(products[i], { geminiModel });
+        const promise = processSimilarProductsForProduct(products[i], { geminiModel, skipImages, candidateLimit });
         batchPromises.push(promise);
 
         if (i < products.length - 1) {
@@ -437,6 +441,8 @@ if (args.length === 0) {
   console.error("    --missing            Only products missing similar_product_updated_at");
   console.error("    --reindex            Only products flagged with needs_reindex=true");
   console.error("    --delay <ms>         Delay between requests in ms (default: 1000)");
+  console.error("    --skip-images        Do not send product images to the Lambda");
+  console.error("    --candidate-limit <n> Max candidate products for AI selection (default: 30)");
   process.exit(1);
 }
 
@@ -466,6 +472,8 @@ const hoursAgo = args.includes("--all") || args.includes("--missing") || reindex
 const missingOnly = args.includes("--missing");
 const delayBetweenRequests = parseInt(cliOpts.delay) || 100;
 const geminiModel = cliOpts["gemini-model"] || null;
+const skipImages = args.includes("--skip-images");
+const candidateLimit = cliOpts["candidate-limit"] ? parseInt(cliOpts["candidate-limit"]) : null;
 
 (async () => {
   try {
@@ -477,7 +485,9 @@ const geminiModel = cliOpts["gemini-model"] || null;
       missingOnly,
       reindexOnly,
       delayBetweenRequests,
-      geminiModel
+      geminiModel,
+      skipImages,
+      candidateLimit
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);
   } catch (error) {

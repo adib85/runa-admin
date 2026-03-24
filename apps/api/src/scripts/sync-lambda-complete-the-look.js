@@ -219,7 +219,8 @@ function buildLambdaUrl(product, options = {}) {
     model2 = "",
     skipCaching = false,
     profileId = "",
-    language = "en"
+    language = "en",
+    skipImages = false
   } = options;
 
   const channelId = `runa_${product.storeId}_${crypto.randomUUID()}-outfit`;
@@ -243,7 +244,8 @@ function buildLambdaUrl(product, options = {}) {
     productHandle: product.handle,
     profileId,
     language,
-    ...(options.geminiModel ? { geminiModel: options.geminiModel } : {})
+    ...(options.geminiModel ? { geminiModel: options.geminiModel } : {}),
+    ...(skipImages ? { skipImages: "true" } : {})
   });
 
   return `${LAMBDA_URL_BASE}?${params.toString()}`;
@@ -461,6 +463,7 @@ if (args.length === 0) {
   console.error("    --missing            Only products missing complete_the_look_updated_at");
   console.error("    --reindex            Only products flagged with needs_reindex=true");
   console.error("    --language <lang>    Language code (default: en)");
+  console.error("    --skip-images        Do not send product images to the Lambda");
   process.exit(1);
 }
 
@@ -490,6 +493,7 @@ const hoursAgo = args.includes("--all") || args.includes("--missing") || reindex
 const missingOnly = args.includes("--missing");
 const language = cliOpts.language || "en";
 const geminiModel = cliOpts["gemini-model"] || null;
+const skipImages = args.includes("--skip-images");
 
 (async () => {
   try {
@@ -509,7 +513,8 @@ const geminiModel = cliOpts["gemini-model"] || null;
         tokens: 1024,
         temperature: 1,
         language,
-        geminiModel
+        geminiModel,
+        skipImages
       }
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);
