@@ -11,8 +11,22 @@ conda activate myenv
 cd /home/ec2-user/runa-admin
 
 SHOP_DOMAIN="${SHOP_DOMAIN:-wp557k-d1.myshopify.com}"
-ACCESS_TOKEN="${ACCESS_TOKEN:?Set ACCESS_TOKEN env var}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.1-flash-lite-preview}"
+
+APP_SERVER_URL="https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/production/healthiny-app"
+echo "Fetching ACCESS_TOKEN from database for $SHOP_DOMAIN..."
+ACCESS_TOKEN=$(curl -s "${APP_SERVER_URL}?action=getUser&shop=${SHOP_DOMAIN}" | node -e "
+  let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+    try { const r=JSON.parse(d); process.stdout.write(r.data?.accessToken||''); }
+    catch(e){ process.stderr.write('Failed to parse response\n'); process.exit(1); }
+  });
+")
+
+if [ -z "$ACCESS_TOKEN" ]; then
+  echo "ERROR: Could not fetch ACCESS_TOKEN from database for shop $SHOP_DOMAIN"
+  exit 1
+fi
+echo "ACCESS_TOKEN fetched successfully."
 LOG_FILE="/home/ec2-user/runa-admin/logs/sync-runawayhim-$(date +%Y-%m-%d_%H%M).log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
