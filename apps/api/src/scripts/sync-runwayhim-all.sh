@@ -25,7 +25,7 @@ node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" --demographic m
 
 echo ""
 echo "[Step 2/5] Cleaning up stale products from Neo4j..." | tee -a "$LOG_FILE"
-node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" 2>&1 | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" --max-delete-pct 50 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "[Step 3/5] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
