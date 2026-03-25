@@ -37,7 +37,7 @@ node apps/api/src/scripts/sync-lambda-similar-products.js "$SHOP_DOMAIN" --missi
 
 echo ""
 echo "[Step 5/5] Pushing descriptions from Neo4j to Shopify..." | tee -a "$LOG_FILE"
-node apps/api/src/scripts/sync-shopify-descriptions.js "$SHOP_DOMAIN" --missing 2>&1 | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-shopify-descriptions.js "$SHOP_DOMAIN" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
