@@ -273,19 +273,29 @@ async function main() {
   const startFrom = parseInt(opts.startFrom) || 0;
   const skipCtl = args.includes("--skip-ctl");
   const skipSimilar = args.includes("--skip-similar");
+  const checkOnly = args.includes("--check-only");
+  const dryRun = args.includes("--dry-run");
+
+  const modeLabel = checkOnly ? "CHECK ONLY" : dryRun ? "DRY RUN (stamp timestamps only)" : "BACKFILL";
 
   console.log("\n========================================");
-  console.log("DYFASHION 30-DAY BACKFILL TEST");
+  console.log(`DYFASHION 30-DAY ${modeLabel}`);
   console.log("========================================");
   console.log(`Store: ${STORE_ID}`);
   console.log(`Published between: ${FROM_DAYS} days ago → ${TO_DAYS} days ago`);
   console.log(`(skipping last ${TO_DAYS} days — already processed by daily cron)`);
   console.log(`Filter: missing CTL or Similar Products timestamps`);
-  console.log(`Batch size: ${batchSize}`);
-  console.log(`Max products: ${maxProducts || "UNLIMITED"}`);
-  console.log(`Starting from: ${startFrom}`);
-  console.log(`Complete The Look: ${skipCtl ? "SKIPPED" : "ON"}`);
-  console.log(`Similar Products: ${skipSimilar ? "SKIPPED" : "ON"}`);
+  if (checkOnly) {
+    console.log(`Mode: CHECK ONLY — no changes will be made`);
+  } else if (dryRun) {
+    console.log(`Mode: DRY RUN — only update Neo4j timestamps for products with existing cache`);
+  } else {
+    console.log(`Batch size: ${batchSize}`);
+    console.log(`Max products: ${maxProducts || "UNLIMITED"}`);
+    console.log(`Starting from: ${startFrom}`);
+    console.log(`Complete The Look: ${skipCtl ? "SKIPPED" : "ON"}`);
+    console.log(`Similar Products: ${skipSimilar ? "SKIPPED" : "ON"}`);
+  }
   console.log("========================================\n");
 
   // ── Diagnostic: check what data actually exists ──
@@ -338,6 +348,133 @@ async function main() {
 
   if (total === 0) {
     console.log("No products found matching the filter. Check diagnostics above.");
+    return;
+  }
+
+  // ── Check-only mode ──
+  if (checkOnly) {
+    console.log("=== CHECK-ONLY: Verifying cache entries in DynamoDB ===\n");
+    const sampleSize = Math.min(total, 20);
+    const products = await fetchProductsBatch(STORE_ID, 0, sampleSize);
+
+    let cacheFound = 0, cacheEmpty = 0;
+    for (const product of products) {
+      const domain = product.storeId.toLowerCase();
+      const handle = product.handle.toLowerCase();
+      const ctlCacheId = `${domain}_${handle}_en`;
+      const simCacheId = `${domain}_similar_products_${handle}_en`;
+
+      console.log(`\n  [${product.id}] ${product.title}`);
+      console.log(`    Handle: ${product.handle}`);
+      console.log(`    CTL needed: ${!product.ctlUpdatedAt ? "YES" : "no (already done)"}`);
+      console.log(`    Similar needed: ${!product.simUpdatedAt ? "YES" : "no (already done)"}`);
+
+      // Check CTL cache
+      try {
+        const ctlResult = await dynamodb.get({ TableName: CACHE_TABLE, Key: { id: ctlCacheId } }).promise();
+        if (ctlResult.Item) {
+          console.log(`    CTL cache FOUND: ${ctlCacheId}`);
+          console.log(`      Created: ${new Date(ctlResult.Item.createdAt).toISOString()}`);
+          console.log(`      Has data.outfits: ${!!(ctlResult.Item.data?.outfits)}`);
+          cacheFound++;
+        } else {
+          console.log(`    CTL cache EMPTY: ${ctlCacheId}`);
+          cacheEmpty++;
+        }
+      } catch (err) {
+        console.log(`    CTL cache ERROR: ${err.message}`);
+      }
+
+      // Check Similar cache
+      try {
+        const simResult = await dynamodb.get({ TableName: CACHE_TABLE, Key: { id: simCacheId } }).promise();
+        if (simResult.Item) {
+          console.log(`    Similar cache FOUND: ${simCacheId}`);
+          console.log(`      Created: ${new Date(simResult.Item.createdAt).toISOString()}`);
+          cacheFound++;
+        } else {
+          console.log(`    Similar cache EMPTY: ${simCacheId}`);
+          cacheEmpty++;
+        }
+      } catch (err) {
+        console.log(`    Similar cache ERROR: ${err.message}`);
+      }
+    }
+
+    console.log(`\n=== CHECK-ONLY SUMMARY ===`);
+    console.log(`Products checked: ${products.length} / ${total}`);
+    console.log(`Cache entries found: ${cacheFound}`);
+    console.log(`Cache entries empty: ${cacheEmpty}`);
+    console.log(`\nNo changes were made.`);
+    return;
+  }
+
+  // ── Dry-run mode: check cache and stamp Neo4j timestamps ──
+  if (dryRun) {
+    console.log("=== DRY RUN: Checking cache & stamping Neo4j timestamps ===\n");
+    let skip = startFrom;
+    let stamped = 0, skipped = 0, noCache = 0;
+
+    while (true) {
+      const products = await fetchProductsBatch(STORE_ID, skip, batchSize);
+      if (products.length === 0) break;
+
+      for (const product of products) {
+        const domain = product.storeId.toLowerCase();
+        const handle = product.handle.toLowerCase();
+
+        const needsCtl = !product.ctlUpdatedAt;
+        const needsSimilar = !product.simUpdatedAt;
+
+        if (!needsCtl && !needsSimilar) {
+          skipped++;
+          continue;
+        }
+
+        console.log(`  [${product.id}] ${product.title}`);
+
+        if (needsCtl) {
+          const ctlCacheId = `${domain}_${handle}_en`;
+          try {
+            const r = await dynamodb.get({ TableName: CACHE_TABLE, Key: { id: ctlCacheId } }).promise();
+            if (r.Item && r.Item.data?.outfits) {
+              await updateTimestamp(product.id, product.storeId, "complete_the_look_updated_at");
+              console.log(`    CTL: cache exists → timestamp stamped`);
+              stamped++;
+            } else {
+              console.log(`    CTL: no cache found — needs full processing`);
+              noCache++;
+            }
+          } catch (err) {
+            console.log(`    CTL: error — ${err.message}`);
+          }
+        }
+
+        if (needsSimilar) {
+          const simCacheId = `${domain}_similar_products_${handle}_en`;
+          try {
+            const r = await dynamodb.get({ TableName: CACHE_TABLE, Key: { id: simCacheId } }).promise();
+            if (r.Item && r.Item.data) {
+              await updateTimestamp(product.id, product.storeId, "similar_product_updated_at");
+              console.log(`    Similar: cache exists → timestamp stamped`);
+              stamped++;
+            } else {
+              console.log(`    Similar: no cache found — needs full processing`);
+              noCache++;
+            }
+          } catch (err) {
+            console.log(`    Similar: error — ${err.message}`);
+          }
+        }
+      }
+
+      skip += batchSize;
+    }
+
+    console.log(`\n=== DRY RUN COMPLETE ===`);
+    console.log(`Timestamps stamped: ${stamped}`);
+    console.log(`Already done (skipped): ${skipped}`);
+    console.log(`No cache (needs full run): ${noCache}`);
     return;
   }
 
