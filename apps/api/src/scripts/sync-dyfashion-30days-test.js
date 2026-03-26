@@ -2,8 +2,9 @@
 
 /**
  * DyFashion 30-Day Backfill Test
- * Processes products updated between 5 and 30 days ago (skips last 5 days already processed).
- * Runs both Complete The Look and Similar Products.
+ * Processes products CREATED between 5 and 30 days ago that are missing
+ * Complete The Look or Similar Products timestamps.
+ * Skips last 5 days (already handled by daily cron).
  *
  * Usage:
  *   node apps/api/src/scripts/sync-dyfashion-30days-test.js [options]
@@ -31,8 +32,6 @@ import AWS from "aws-sdk";
 import { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, AWS_REGION } from "../sync/services/config.js";
 
 const STORE_ID = "dyfashion.avanticart.ro";
-const FROM_DAYS = 30;
-const TO_DAYS = 5;
 
 const LAMBDA_URL_BASE = "https://7gduqkaho5pvkb6rfvfcfeg6ca0ymnid.lambda-url.us-east-1.on.aws/";
 const SIMILAR_PRODUCTS_LAMBDA_URL = "https://ztqjtsoqzv5jgmv2v55jnrqokq0klhwg.lambda-url.us-east-1.on.aws/";
@@ -47,10 +46,15 @@ function getDriver() {
   return neo4j.driver(NEO4J_URI, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD));
 }
 
-const DATE_RANGE_FILTER = `
-  AND p.updated_at IS NOT NULL
-  AND datetime(p.updated_at) >= datetime() - duration('P${FROM_DAYS}D')
-  AND datetime(p.updated_at) < datetime() - duration('P${TO_DAYS}D')
+const FROM_DAYS = 30;
+const TO_DAYS = 5;
+
+// Products created between 5–30 days ago that are missing CTL or similar timestamps
+const BACKFILL_FILTER = `
+  AND p.createdAt IS NOT NULL
+  AND p.createdAt >= datetime() - duration('P${FROM_DAYS}D')
+  AND p.createdAt < datetime() - duration('P${TO_DAYS}D')
+  AND (p.complete_the_look_updated_at IS NULL OR p.similar_product_updated_at IS NULL)
 `;
 
 async function countProducts(storeId) {
@@ -61,7 +65,7 @@ async function countProducts(storeId) {
       `MATCH (p:Product)
        WHERE p.storeId = $storeId
          AND p.handle IS NOT NULL AND p.handle <> ''
-         ${DATE_RANGE_FILTER}
+         ${BACKFILL_FILTER}
        RETURN count(p) as total`,
       { storeId }
     );
@@ -80,8 +84,10 @@ async function fetchProductsBatch(storeId, skip, limit) {
       `MATCH (p:Product)
        WHERE p.storeId = $storeId
          AND p.handle IS NOT NULL AND p.handle <> ''
-         ${DATE_RANGE_FILTER}
-       RETURN p.id as id, p.title as title, p.handle as handle, p.storeId as storeId
+         ${BACKFILL_FILTER}
+       RETURN p.id as id, p.title as title, p.handle as handle, p.storeId as storeId,
+              p.complete_the_look_updated_at as ctlUpdatedAt,
+              p.similar_product_updated_at as simUpdatedAt
        ORDER BY p.updated_at DESC
        SKIP $skip
        LIMIT $limit`,
@@ -91,7 +97,9 @@ async function fetchProductsBatch(storeId, skip, limit) {
       id: r.get("id"),
       title: r.get("title"),
       handle: r.get("handle"),
-      storeId: r.get("storeId")
+      storeId: r.get("storeId"),
+      ctlUpdatedAt: r.get("ctlUpdatedAt"),
+      simUpdatedAt: r.get("simUpdatedAt")
     }));
   } finally {
     await session.close();
@@ -189,7 +197,15 @@ async function processProduct(product, { skipCtl, skipSimilar }) {
 
   const result = { productId: product.id, title: product.title, handle: product.handle };
 
-  if (!skipCtl) {
+  const needsCtl = !skipCtl && !product.ctlUpdatedAt;
+  const needsSimilar = !skipSimilar && !product.simUpdatedAt;
+
+  if (!needsCtl && !needsSimilar) {
+    console.log(`   ⏭️  Already has both timestamps, skipping`);
+    return result;
+  }
+
+  if (needsCtl) {
     try {
       const d = await processCompleteTheLook(product);
       console.log(`   ✅ Complete The Look (${d}ms)`);
@@ -200,9 +216,11 @@ async function processProduct(product, { skipCtl, skipSimilar }) {
       result.ctlStatus = "error";
       result.ctlError = err.message;
     }
+  } else if (!skipCtl) {
+    console.log(`   ⏭️  Complete The Look already done`);
   }
 
-  if (!skipSimilar) {
+  if (needsSimilar) {
     try {
       const d = await processSimilarProducts(product);
       console.log(`   ✅ Similar Products (${d}ms)`);
@@ -213,6 +231,8 @@ async function processProduct(product, { skipCtl, skipSimilar }) {
       result.similarStatus = "error";
       result.similarError = err.message;
     }
+  } else if (!skipSimilar) {
+    console.log(`   ⏭️  Similar Products already done`);
   }
 
   return result;
@@ -249,8 +269,9 @@ async function main() {
   console.log("DYFASHION 30-DAY BACKFILL TEST");
   console.log("========================================");
   console.log(`Store: ${STORE_ID}`);
-  console.log(`Date range: ${FROM_DAYS} days ago → ${TO_DAYS} days ago`);
-  console.log(`(skipping last ${TO_DAYS} days — already processed)`);
+  console.log(`Created between: ${FROM_DAYS} days ago → ${TO_DAYS} days ago`);
+  console.log(`(skipping last ${TO_DAYS} days — already processed by daily cron)`);
+  console.log(`Filter: missing CTL or Similar Products timestamps`);
   console.log(`Batch size: ${batchSize}`);
   console.log(`Max products: ${maxProducts || "UNLIMITED"}`);
   console.log(`Starting from: ${startFrom}`);
@@ -258,7 +279,7 @@ async function main() {
   console.log(`Similar Products: ${skipSimilar ? "SKIPPED" : "ON"}`);
   console.log("========================================\n");
 
-  console.log("Counting products (updated 5–30 days ago)...");
+  console.log("Counting products (created 5–30 days ago, missing CTL/Similar)...");
   const total = await countProducts(STORE_ID);
   console.log(`Total products to process: ${total}\n`);
 
