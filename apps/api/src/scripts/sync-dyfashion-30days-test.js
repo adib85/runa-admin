@@ -125,17 +125,26 @@ async function updateTimestamp(productId, storeId, field) {
 
 // ─── Cache deletion ──────────────────────────────────────────────────
 
-async function deleteCache(productHandle, storeId, prefix = "") {
-  const languages = ["en"];
-  const deletions = languages.map(lang => {
-    const cacheId = prefix
-      ? `${storeId.toLowerCase()}_${prefix}_${productHandle.toLowerCase()}_${lang}`
-      : `${storeId}_${productHandle}_${lang}`;
-    return dynamodb.delete({ TableName: CACHE_TABLE, Key: { id: cacheId } }).promise()
+async function deleteAllCacheEntries(productId, productHandle, storeId) {
+  const domain = storeId.toLowerCase();
+  const handle = productHandle.toLowerCase();
+  const cacheIds = [
+    // CTL cache (Lambda format): {domain}_{handle}_{lang}
+    `${domain}_${handle}_en`,
+    // Similar products cache: {domain}_similar_products_{handle}_{lang}
+    `${domain}_similar_products_${handle}_en`,
+  ];
+
+  const deletions = cacheIds.map(cacheId =>
+    dynamodb.delete({ TableName: CACHE_TABLE, Key: { id: cacheId } }).promise()
       .then(() => ({ success: true, cacheId }))
-      .catch(err => ({ success: false, cacheId, error: err.message }));
-  });
-  return Promise.all(deletions);
+      .catch(err => ({ success: false, cacheId, error: err.message }))
+  );
+
+  const results = await Promise.all(deletions);
+  const deleted = results.filter(r => r.success).map(r => r.cacheId);
+  if (deleted.length > 0) console.log(`   Deleted ${deleted.length} cache entries`);
+  return results;
 }
 
 // ─── Complete The Look ───────────────────────────────────────────────
@@ -164,7 +173,7 @@ function buildCtlUrl(product) {
 }
 
 async function processCompleteTheLook(product) {
-  await deleteCache(product.handle, product.storeId);
+  await deleteAllCacheEntries(product.id, product.handle, product.storeId);
   const url = buildCtlUrl(product);
   const start = Date.now();
   const res = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
@@ -178,7 +187,7 @@ async function processCompleteTheLook(product) {
 // ─── Similar Products ────────────────────────────────────────────────
 
 async function processSimilarProducts(product) {
-  await deleteCache(product.handle, product.storeId, "similar_products");
+  await deleteAllCacheEntries(product.id, product.handle, product.storeId);
   const url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${product.storeId}&productHandle=${product.handle}&mode=similar`;
   const start = Date.now();
   const res = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
