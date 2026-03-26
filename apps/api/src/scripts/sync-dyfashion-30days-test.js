@@ -49,11 +49,11 @@ function getDriver() {
 const FROM_DAYS = 30;
 const TO_DAYS = 5;
 
-// Products created between 5–30 days ago that are missing CTL or similar timestamps
+// Products published between 5–30 days ago that are missing CTL or similar timestamps
 const BACKFILL_FILTER = `
-  AND p.createdAt IS NOT NULL
-  AND p.createdAt >= datetime() - duration('P${FROM_DAYS}D')
-  AND p.createdAt < datetime() - duration('P${TO_DAYS}D')
+  AND p.published_date IS NOT NULL
+  AND datetime(p.published_date) >= datetime() - duration('P${FROM_DAYS}D')
+  AND datetime(p.published_date) < datetime() - duration('P${TO_DAYS}D')
   AND (p.complete_the_look_updated_at IS NULL OR p.similar_product_updated_at IS NULL)
 `;
 
@@ -269,7 +269,7 @@ async function main() {
   console.log("DYFASHION 30-DAY BACKFILL TEST");
   console.log("========================================");
   console.log(`Store: ${STORE_ID}`);
-  console.log(`Created between: ${FROM_DAYS} days ago → ${TO_DAYS} days ago`);
+  console.log(`Published between: ${FROM_DAYS} days ago → ${TO_DAYS} days ago`);
   console.log(`(skipping last ${TO_DAYS} days — already processed by daily cron)`);
   console.log(`Filter: missing CTL or Similar Products timestamps`);
   console.log(`Batch size: ${batchSize}`);
@@ -279,12 +279,56 @@ async function main() {
   console.log(`Similar Products: ${skipSimilar ? "SKIPPED" : "ON"}`);
   console.log("========================================\n");
 
-  console.log("Counting products (created 5–30 days ago, missing CTL/Similar)...");
+  // ── Diagnostic: check what data actually exists ──
+  console.log("Running diagnostics...\n");
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const diag = await session.run(
+      `MATCH (p:Product)
+       WHERE p.storeId = $storeId AND p.handle IS NOT NULL AND p.handle <> ''
+       RETURN
+         count(p) as total,
+         count(p.createdAt) as hasCreatedAt,
+         count(p.updated_at) as hasUpdatedAt,
+         count(p.complete_the_look_updated_at) as hasCtl,
+         count(p.similar_product_updated_at) as hasSimilar,
+         min(toString(p.createdAt)) as minCreatedAt,
+         max(toString(p.createdAt)) as maxCreatedAt,
+         min(p.updated_at) as minUpdatedAt,
+         max(p.updated_at) as maxUpdatedAt`,
+      { storeId: STORE_ID }
+    );
+    const r = diag.records[0];
+    console.log(`  Total products:              ${r.get("total")}`);
+    console.log(`  With createdAt:              ${r.get("hasCreatedAt")}`);
+    console.log(`  With updated_at:             ${r.get("hasUpdatedAt")}`);
+    console.log(`  With CTL timestamp:          ${r.get("hasCtl")}`);
+    console.log(`  With Similar timestamp:      ${r.get("hasSimilar")}`);
+    console.log(`  createdAt range:             ${r.get("minCreatedAt") || "N/A"} → ${r.get("maxCreatedAt") || "N/A"}`);
+    console.log(`  updated_at range:            ${r.get("minUpdatedAt") || "N/A"} → ${r.get("maxUpdatedAt") || "N/A"}`);
+    console.log("");
+
+    const missingBoth = await session.run(
+      `MATCH (p:Product)
+       WHERE p.storeId = $storeId AND p.handle IS NOT NULL AND p.handle <> ''
+         AND (p.complete_the_look_updated_at IS NULL OR p.similar_product_updated_at IS NULL)
+       RETURN count(p) as total`,
+      { storeId: STORE_ID }
+    );
+    console.log(`  Missing CTL or Similar:      ${missingBoth.records[0].get("total")}`);
+    console.log("");
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+
+  console.log("Counting products (published 5–30 days ago, missing CTL/Similar)...");
   const total = await countProducts(STORE_ID);
   console.log(`Total products to process: ${total}\n`);
 
   if (total === 0) {
-    console.log("No products found in that date range. Done.");
+    console.log("No products found matching the filter. Check diagnostics above.");
     return;
   }
 
