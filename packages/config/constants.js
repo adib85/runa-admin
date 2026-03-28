@@ -17,6 +17,15 @@ export const PRICING = {
       inputPerTokenUSD: 0.10 / 1e6,
       outputPerTokenUSD: 0.40 / 1e6,
       cachedInputPerTokenUSD: 0.025 / 1e6
+    },
+    "gemini-3.1-flash-lite-preview": {
+      inputPerTokenUSD: 0.25 / 1e6,
+      outputPerTokenUSD: 1.50 / 1e6
+    },
+    "gemini-3-flash-preview": {
+      inputPerTokenUSD: 0.10 / 1e6,
+      outputPerTokenUSD: 0.40 / 1e6,
+      cachedInputPerTokenUSD: 0.025 / 1e6
     }
   }
 };
