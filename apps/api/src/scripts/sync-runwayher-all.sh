@@ -20,28 +20,36 @@ echo "  RunwayHer Full Sync — $(date)" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 1/6] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
+echo "[Step 1/8] Syncing products from Shopify to Neo4j..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" --demographic woman --rewrite-descriptions --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 2/6] Cleaning up stale products from Neo4j..." | tee -a "$LOG_FILE"
+echo "[Step 2/8] Cleaning up stale products from Neo4j..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" --max-delete-pct 50 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 3/6] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
+echo "[Step 3/8] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-complete-the-look.js "$SHOP_DOMAIN" --missing --gemini-model "$GEMINI_MODEL" --skip-images 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 4/6] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
+echo "[Step 4/8] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-similar-products.js "$SHOP_DOMAIN" --missing --gemini-model "$GEMINI_MODEL" --skip-images --candidate-limit 15 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 5/6] Pushing descriptions from Neo4j to Shopify..." | tee -a "$LOG_FILE"
+echo "[Step 5/8] Pushing descriptions from Neo4j to Shopify..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-shopify-descriptions.js "$SHOP_DOMAIN" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 6/6] Classifying product types via Gemini..." | tee -a "$LOG_FILE"
+echo "[Step 6/8] Classifying product types via Gemini..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-shopify-product-types.js "$SHOP_DOMAIN" --preset her --missing --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 7/8] Tagging occasions + style lanes (Naomi)..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-shopify-naomi-tags.js "$SHOP_DOMAIN" --missing --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 8/8] Generating Naomi curated outfits..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-naomi-curated-outfits.js "$SHOP_DOMAIN" --gemini-model "$GEMINI_MODEL" 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
