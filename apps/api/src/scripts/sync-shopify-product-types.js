@@ -162,7 +162,7 @@ const BATCH_SIZE = batchSizeIdx !== -1 ? parseInt(args[batchSizeIdx + 1], 10) : 
 const geminiModelIdx = args.indexOf("--gemini-model");
 const GEMINI_MODEL = geminiModelIdx !== -1
   ? args[geminiModelIdx + 1]
-  : process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
+  : "gemini-3.1-flash-lite-preview";
 
 const RATE_LIMIT_DELAY_MS = 500;
 
