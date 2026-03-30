@@ -38,7 +38,10 @@ import neo4j from "neo4j-driver";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import AWS from "aws-sdk";
+import { GraphQLClient, gql } from "graphql-request";
 import { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, AWS_REGION } from "../sync/services/config.js";
+
+const APP_SERVER_URL = "https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/production/healthiny-app";
 
 const LAMBDA_URL_BASE = "https://7gduqkaho5pvkb6rfvfcfeg6ca0ymnid.lambda-url.us-east-1.on.aws/";
 
@@ -287,6 +290,114 @@ async function saveCuratedOutfits(outfits) {
   return cacheId;
 }
 
+// ─── Shopify collections (homepage outfits) ─────────────────────────
+
+let shopifyClient;
+
+async function fetchAccessTokenFromDB(shopDomain) {
+  const url = `${APP_SERVER_URL}?action=getUser&shop=${shopDomain}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  const token = data?.data?.accessToken;
+  if (!token) throw new Error(`No accessToken found for "${shopDomain}"`);
+  return token;
+}
+
+const OCCASION_HANDLES = {
+  "date-night": "date-night-styled-by-naomi",
+  "office-ready": "office-ready-styled-by-naomi",
+  "vacation": "vacation-edit-styled-by-naomi",
+  "casual": "casual-everyday-styled-by-naomi",
+  "evening": "evening-events-styled-by-naomi",
+};
+
+const GET_COLLECTION_BY_HANDLE = gql`
+  query getCollection($handle: String!) {
+    collectionByHandle(handle: $handle) {
+      id
+      productsCount
+    }
+  }
+`;
+
+const COLLECTION_REMOVE_PRODUCTS = gql`
+  mutation collectionRemoveProducts($id: ID!, $productIds: [ID!]!) {
+    collectionRemoveProducts(id: $id, productIds: $productIds) {
+      userErrors { field message }
+    }
+  }
+`;
+
+const COLLECTION_ADD_PRODUCTS = gql`
+  mutation collectionAddProducts($id: ID!, $productIds: [ID!]!) {
+    collectionAddProducts(id: $id, productIds: $productIds) {
+      userErrors { field message }
+    }
+  }
+`;
+
+const GET_COLLECTION_PRODUCTS = gql`
+  query getCollectionProducts($id: ID!, $first: Int!) {
+    collection(id: $id) {
+      products(first: $first) {
+        edges { node { id } }
+      }
+    }
+  }
+`;
+
+function extractProductIds(outfitData) {
+  const ids = [];
+  try {
+    const outfits = outfitData?.outfits || outfitData?.data?.outfits || [];
+    for (const outfit of outfits) {
+      const products = outfit.products_for_outfit || outfit.products || [];
+      for (const p of products) {
+        if (p.id) ids.push(String(p.id));
+      }
+    }
+  } catch (e) { /* best effort */ }
+  return ids;
+}
+
+async function refreshHomepageCollection(occasionId, heroId, outfitData) {
+  const handle = OCCASION_HANDLES[occasionId];
+  if (!handle) return;
+
+  const { collectionByHandle } = await shopifyClient.request(GET_COLLECTION_BY_HANDLE, { handle });
+  if (!collectionByHandle) {
+    console.log(`    ⚠ Collection "${handle}" not found — run create-naomi-collections.js first`);
+    return;
+  }
+
+  const collectionGid = collectionByHandle.id;
+
+  const { collection } = await shopifyClient.request(GET_COLLECTION_PRODUCTS, {
+    id: collectionGid, first: 50,
+  });
+  const oldProductIds = (collection?.products?.edges || []).map(e => e.node.id);
+
+  if (oldProductIds.length > 0) {
+    await shopifyClient.request(COLLECTION_REMOVE_PRODUCTS, {
+      id: collectionGid, productIds: oldProductIds,
+    });
+  }
+
+  const complementIds = extractProductIds(outfitData);
+  const allIds = [heroId, ...complementIds]
+    .map(id => id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`);
+
+  const uniqueIds = [...new Set(allIds)];
+
+  if (uniqueIds.length > 0) {
+    await shopifyClient.request(COLLECTION_ADD_PRODUCTS, {
+      id: collectionGid, productIds: uniqueIds,
+    });
+  }
+
+  console.log(`    Collection "${handle}" updated: ${uniqueIds.length} products`);
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 function delay(ms) {
@@ -294,6 +405,14 @@ function delay(ms) {
 }
 
 async function main() {
+  const accessToken = await fetchAccessTokenFromDB(SHOP_DOMAIN);
+  shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
+    headers: {
+      "X-Shopify-Access-Token": accessToken,
+      "Content-Type": "application/json"
+    }
+  });
+
   console.log(`\n═══════════════════════════════════════════════════════════`);
   console.log(`  Naomi Curated Outfits`);
   console.log(`  Store:    ${SHOP_DOMAIN}`);
@@ -376,6 +495,12 @@ async function main() {
           generatedAt: new Date().toISOString(),
         });
         stats.outfitsGenerated++;
+
+        try {
+          await refreshHomepageCollection(occasion.id, hero.id, data);
+        } catch (collErr) {
+          console.log(`    ⚠ Collection update failed: ${collErr.message}`);
+        }
       } catch (error) {
         console.error(`  ✗ ERROR: ${error.message}`);
         stats.errors++;
