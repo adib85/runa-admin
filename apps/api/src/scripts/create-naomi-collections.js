@@ -207,7 +207,7 @@ async function main() {
           appliedDisjunctively: false,
           rules: [
             { column: "TAG", relation: "EQUALS", condition: "naomi:pick" },
-            { column: "PRODUCT_TYPE", relation: "EQUALS", condition: productType },
+            { column: "TYPE", relation: "EQUALS", condition: productType },
           ],
         },
       });

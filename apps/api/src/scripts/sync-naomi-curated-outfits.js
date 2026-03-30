@@ -315,7 +315,6 @@ const GET_COLLECTION_BY_HANDLE = gql`
   query getCollection($handle: String!) {
     collectionByHandle(handle: $handle) {
       id
-      productsCount
     }
   }
 `;
