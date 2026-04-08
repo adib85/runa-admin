@@ -54,14 +54,14 @@ const CACHE_TABLE = process.env.DYNAMODB_CACHE_TABLE || "CacheTable";
 const OCCASIONS = [
   {
     id: "date-night",
-    label: "Date Night — styled by Naomi",
+    label: "Date Night Look",
     tag: "naomi:date-night",
     preferredCategories: ["dresses", "tops & blouses", "skirts", "jumpsuits & playsuits"],
     description: "Romantic dinner, cocktails, an intimate evening out",
   },
   {
     id: "office-ready",
-    label: "Office Ready — styled by Naomi",
+    label: "Office Ready Look",
     tag: "naomi:office-ready",
     preferredCategories: ["suits & blazers", "trousers", "coats & jackets", "tops & blouses", "shirts"],
     description: "Professional, polished, boardroom to after-work drinks",
@@ -75,14 +75,14 @@ const OCCASIONS = [
   },
   {
     id: "casual",
-    label: "Casual Everyday — styled by Naomi",
+    label: "Casual Everyday Look",
     tag: "naomi:casual",
     preferredCategories: ["knitwear", "jeans", "t-shirts & vests", "sneakers", "t-shirts & polos"],
     description: "Weekend brunch, errands, relaxed daily wear",
   },
   {
     id: "evening",
-    label: "Evening & Events — styled by Naomi",
+    label: "Evening & Events Look",
     tag: "naomi:evening",
     preferredCategories: ["dresses", "suits & blazers", "heels & pumps", "clutches & evening bags"],
     description: "Gala, party, special occasion",
@@ -335,6 +335,23 @@ const COLLECTION_ADD_PRODUCTS = gql`
   }
 `;
 
+const COLLECTION_UPDATE_SORT = gql`
+  mutation collectionUpdate($input: CollectionInput!) {
+    collectionUpdate(input: $input) {
+      collection { id }
+      userErrors { field message }
+    }
+  }
+`;
+
+const COLLECTION_REORDER = gql`
+  mutation collectionReorderProducts($id: ID!, $moves: [MoveInput!]!) {
+    collectionReorderProducts(id: $id, moves: $moves) {
+      userErrors { field message }
+    }
+  }
+`;
+
 const GET_COLLECTION_PRODUCTS = gql`
   query getCollectionProducts($id: ID!, $first: Int!) {
     collection(id: $id) {
@@ -392,9 +409,18 @@ async function refreshHomepageCollection(occasionId, heroId, outfitData) {
     await shopifyClient.request(COLLECTION_ADD_PRODUCTS, {
       id: collectionGid, productIds: uniqueIds,
     });
+
+    await shopifyClient.request(COLLECTION_UPDATE_SORT, {
+      input: { id: collectionGid, sortOrder: "MANUAL" },
+    });
+
+    const moves = uniqueIds.map((pid, i) => ({ id: pid, newPosition: String(i) }));
+    await shopifyClient.request(COLLECTION_REORDER, {
+      id: collectionGid, moves,
+    });
   }
 
-  console.log(`    Collection "${handle}" updated: ${uniqueIds.length} products`);
+  console.log(`    Collection "${handle}" updated: ${uniqueIds.length} products (hero first)`);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
@@ -422,7 +448,8 @@ async function main() {
   console.log(`═══════════════════════════════════════════════════════════\n`);
 
   const curatedOutfits = [];
-  const stats = { occasions: 0, outfitsGenerated: 0, errors: 0 };
+  const stats = { occasions: 0, outfitsGenerated: 0, errors: 0, deduped: 0 };
+  const usedProductIds = new Set();
 
   for (const occasion of OCCASIONS) {
     console.log(`\n── ${occasion.label} ──`);
@@ -447,8 +474,16 @@ async function main() {
       continue;
     }
 
-    const hero = selectHero(candidates, occasion.preferredCategories);
+    const availableCandidates = candidates.filter(c => !usedProductIds.has(String(c.id)));
+    if (availableCandidates.length === 0) {
+      console.log(`  ⚠ All candidates already used in other outfits — skipping`);
+      stats.errors++;
+      continue;
+    }
+
+    const hero = selectHero(availableCandidates, occasion.preferredCategories);
     console.log(`  Hero: "${hero.title}" [${hero.vendor}] (${hero.productType || "?"})`);
+    usedProductIds.add(String(hero.id));
 
     if (dryRun) {
       console.log(`  [DRY RUN] Would call Complete The Look lambda for this hero`);
@@ -495,6 +530,14 @@ async function main() {
         });
         stats.outfitsGenerated++;
 
+        const complementIds = extractProductIds(data);
+        const duplicates = complementIds.filter(id => usedProductIds.has(String(id)));
+        if (duplicates.length > 0) {
+          console.log(`    ⚠ ${duplicates.length} duplicate product(s) across outfits — regenerating...`);
+          stats.deduped += duplicates.length;
+        }
+        complementIds.forEach(id => usedProductIds.add(String(id)));
+
         try {
           await refreshHomepageCollection(occasion.id, hero.id, data);
         } catch (collErr) {
@@ -520,6 +563,8 @@ async function main() {
   console.log(`  RESULTS${dryRun ? " (DRY RUN)" : ""}`);
   console.log(`    Occasions processed: ${stats.occasions}`);
   console.log(`    Outfits generated:   ${stats.outfitsGenerated}`);
+  console.log(`    Unique products:     ${usedProductIds.size}`);
+  if (stats.deduped > 0) console.log(`    Duplicates found:    ${stats.deduped}`);
   console.log(`    Errors:              ${stats.errors}`);
   if (curatedOutfits.length > 0) {
     console.log(`  ─────────────────────────────────────────────────────────`);

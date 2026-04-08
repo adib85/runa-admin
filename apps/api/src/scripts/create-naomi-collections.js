@@ -36,11 +36,11 @@ const APP_SERVER_URL = "https://enofvc3o7f.execute-api.us-east-1.amazonaws.com/p
 // ─── Homepage occasion collections (manual) ─────────────────────────
 
 const OCCASION_COLLECTIONS = [
-  { handle: "date-night-styled-by-naomi",     title: "Date Night — styled by Naomi" },
-  { handle: "office-ready-styled-by-naomi",   title: "Office Ready — styled by Naomi" },
-  { handle: "vacation-edit-styled-by-naomi",  title: "Vacation Edit — styled by Naomi" },
-  { handle: "casual-everyday-styled-by-naomi", title: "Casual Everyday — styled by Naomi" },
-  { handle: "evening-events-styled-by-naomi", title: "Evening & Events — styled by Naomi" },
+  { handle: "date-night-styled-by-naomi",     title: "Date Night Look" },
+  { handle: "office-ready-styled-by-naomi",   title: "Office Ready Look" },
+  { handle: "vacation-edit-styled-by-naomi",  title: "Vacation Edit Look" },
+  { handle: "casual-everyday-styled-by-naomi", title: "Casual Everyday Look" },
+  { handle: "evening-events-styled-by-naomi", title: "Evening & Events Look" },
 ];
 
 // ─── CLI args ────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ function delay(ms) {
 
 async function getExistingCollections() {
   const allCollections = [];
-  const queries = ["naomis-picks", "styled-by-naomi"];
+  const queries = ["naomis-picks", "styled-by-naomi", "Naomi's Picks"];
 
   for (const q of queries) {
     const { collections } = await shopifyClient.request(GET_COLLECTIONS_QUERY, {
@@ -149,8 +149,31 @@ async function getProductTypesWithPicks() {
 
 // ─── Main ────────────────────────────────────────────────────────────
 
-function toHandle(productType) {
-  return "naomis-picks-" + productType.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+async function getVendorsWithPicks() {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `MATCH (p:Product)
+       WHERE p.storeId = $storeId
+         AND p.naomi_pick = true
+         AND p.vendor IS NOT NULL AND trim(p.vendor) <> ''
+       RETURN p.vendor AS vendor, count(p) AS cnt
+       ORDER BY cnt DESC`,
+      { storeId: SHOP_DOMAIN }
+    );
+    return result.records.map(r => ({
+      vendor: r.get("vendor"),
+      count: r.get("cnt").toInt(),
+    }));
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
+function toHandle(name) {
+  return "naomis-picks-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
 }
 
 async function main() {
@@ -185,6 +208,12 @@ async function main() {
   console.log(`    Found ${productTypes.length} product types with Naomi picks\n`);
 
   for (const { productType, count } of productTypes) {
+    if (count < 5) {
+      console.log(`    SKIP "${productType}" (only ${count} picks — need at least 5)`);
+      stats.skipped++;
+      continue;
+    }
+
     const handle = toHandle(productType);
     const title = `Naomi's Picks — ${productType}`;
 
@@ -244,6 +273,54 @@ async function main() {
       stats.created++;
     } catch (error) {
       console.error(`    ERROR "${occ.title}": ${error.message}`);
+      stats.errors++;
+    }
+
+    await delay(500);
+  }
+
+  // ── Brand page collections (automated, tag + vendor) ──
+
+  console.log(`\n[4] Brand page collections (automated)...\n`);
+  const vendors = await getVendorsWithPicks();
+  console.log(`    Found ${vendors.length} brands with Naomi picks\n`);
+
+  for (const { vendor, count } of vendors) {
+    if (count < 5) {
+      stats.skipped++;
+      continue;
+    }
+
+    const handle = toHandle(vendor);
+    const title = `Naomi's Picks — ${vendor}`;
+
+    if (existingHandles.has(handle)) {
+      console.log(`    SKIP "${title}" (already exists)`);
+      stats.skipped++;
+      continue;
+    }
+
+    if (dryRun) {
+      console.log(`    WOULD CREATE "${title}" (${count} picks) [automated]`);
+      stats.created++;
+      continue;
+    }
+
+    try {
+      const collection = await createCollection({
+        title,
+        ruleSet: {
+          appliedDisjunctively: false,
+          rules: [
+            { column: "TAG", relation: "EQUALS", condition: "naomi:pick" },
+            { column: "VENDOR", relation: "EQUALS", condition: vendor },
+          ],
+        },
+      });
+      console.log(`    CREATED "${collection.title}" → ${collection.handle}`);
+      stats.created++;
+    } catch (error) {
+      console.error(`    ERROR "${title}": ${error.message}`);
       stats.errors++;
     }
 

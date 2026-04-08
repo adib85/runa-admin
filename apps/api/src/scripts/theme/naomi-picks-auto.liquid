@@ -1,0 +1,243 @@
+{%- liquid
+  assign naomi_handle = 'naomis-picks-' | append: collection.title | handleize
+  assign naomi_collection = collections[naomi_handle]
+  assign max_products = section.settings.max_products | default: 12
+-%}
+
+{%- if naomi_collection != blank and naomi_collection.products.size > 0 -%}
+<div
+  class="section section--page-width color-{{ section.settings.color_scheme }} naomi-picks__section"
+  style="padding-top: {{ section.settings.padding_top }}px; padding-bottom: {{ section.settings.padding_bottom }}px;"
+>
+  <div class="naomi-picks__header" style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px;">
+    <div>
+      <h2 style="font-family: var(--font-heading--family); font-weight: var(--font-heading--weight); letter-spacing: 0.06em; text-transform: uppercase; font-size: 1.25rem; margin: 0;">
+        {{ section.settings.heading }}
+      </h2>
+      {%- if section.settings.subheading != blank -%}
+        <p style="font-family: var(--font-body--family); color: #888; margin-top: 4px; font-size: 0.8rem;">
+          {{ section.settings.subheading }}
+        </p>
+      {%- endif -%}
+    </div>
+    <a href="{{ naomi_collection.url }}" style="font-family: var(--font-body--family); font-size: 0.85rem; color: inherit; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap;">
+      View all
+    </a>
+  </div>
+
+  <div class="naomi-picks__carousel-wrapper" style="position: relative;">
+    <button class="naomi-picks__arrow naomi-picks__arrow--left" aria-label="Scroll left" style="display: none;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+
+    <div class="naomi-picks__carousel" style="
+      display: flex;
+      gap: {{ section.settings.gap }}px;
+      overflow-x: auto;
+      scroll-behavior: smooth;
+      scroll-snap-type: x mandatory;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    ">
+      {%- for product in naomi_collection.products limit: max_products -%}
+        <a href="{{ product.url }}" class="naomi-picks__item" style="
+          flex: 0 0 calc((100% - {{ section.settings.gap | times: 3 }}px) / {{ section.settings.columns }});
+          scroll-snap-align: start;
+          text-decoration: none;
+          color: inherit;
+          min-width: 0;
+        ">
+          {%- if product.featured_image -%}
+            <div style="overflow: hidden;">
+              <img
+                src="{{ product.featured_image | image_url: width: 600 }}"
+                srcset="{{ product.featured_image | image_url: width: 300 }} 300w, {{ product.featured_image | image_url: width: 600 }} 600w, {{ product.featured_image | image_url: width: 900 }} 900w"
+                sizes="(max-width: 749px) 45vw, 25vw"
+                alt="{{ product.title | escape }}"
+                loading="lazy"
+                width="{{ product.featured_image.width }}"
+                height="{{ product.featured_image.height }}"
+                style="width: 100%; aspect-ratio: 3/4; object-fit: cover; display: block; transition: transform 0.3s ease;"
+                onmouseover="this.style.transform='scale(1.03)'"
+                onmouseout="this.style.transform='scale(1)'"
+              >
+            </div>
+          {%- endif -%}
+          <div style="padding: 8px 0;">
+            <div class="h5" style="--color: var(--color-foreground); --width: fit-content;">
+              <p>{{ product.title }}</p>
+            </div>
+            <div class="h6 text-left" style="--color: var(--color-foreground);">
+              {%- if product.compare_at_price > product.price -%}
+                <span class="price">{{ product.price | money }}</span>
+                <span class="compare-at-price">{{ product.compare_at_price | money }}</span>
+              {%- else -%}
+                <span class="price">{{ product.price | money }}</span>
+              {%- endif -%}
+            </div>
+          </div>
+        </a>
+      {%- endfor -%}
+    </div>
+
+    <button class="naomi-picks__arrow naomi-picks__arrow--right" aria-label="Scroll right">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+  </div>
+</div>
+
+<style>
+  .naomi-picks__carousel::-webkit-scrollbar { display: none; }
+
+  .naomi-picks__arrow {
+    position: absolute;
+    top: 35%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid #ddd;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.2s, box-shadow 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .naomi-picks__arrow:hover {
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  }
+  .naomi-picks__arrow--left { left: -16px; }
+  .naomi-picks__arrow--right { right: -16px; }
+
+  @media (max-width: 749px) {
+    .naomi-picks__item {
+      flex: 0 0 45% !important;
+    }
+    .naomi-picks__arrow { display: none !important; }
+  }
+</style>
+
+<script>
+  (function() {
+    const wrapper = document.querySelector('.naomi-picks__section');
+    if (!wrapper) return;
+
+    function checkFilters() {
+      const params = new URLSearchParams(window.location.search);
+      const hasFilters = Array.from(params.keys()).some(k =>
+        k.startsWith('filter.') || k === 'q'
+      ) || (params.has('sort_by') && params.get('sort_by') !== 'best-selling');
+      const wasVisible = wrapper.style.display !== 'none';
+      wrapper.style.display = hasFilters ? 'none' : '';
+      if (hasFilters && wasVisible) {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      }
+    }
+
+    checkFilters();
+    const origPushState = history.pushState;
+    history.pushState = function() { origPushState.apply(this, arguments); checkFilters(); };
+    const origReplaceState = history.replaceState;
+    history.replaceState = function() { origReplaceState.apply(this, arguments); checkFilters(); };
+    window.addEventListener('popstate', checkFilters);
+
+    const section = wrapper.querySelector('.naomi-picks__carousel-wrapper');
+    if (!section) return;
+    const carousel = section.querySelector('.naomi-picks__carousel');
+    const leftBtn = section.querySelector('.naomi-picks__arrow--left');
+    const rightBtn = section.querySelector('.naomi-picks__arrow--right');
+    if (!carousel || !leftBtn || !rightBtn) return;
+
+    const scrollAmount = () => carousel.offsetWidth * 0.8;
+
+    const updateArrows = () => {
+      leftBtn.style.display = carousel.scrollLeft > 10 ? 'flex' : 'none';
+      rightBtn.style.display = carousel.scrollLeft + carousel.offsetWidth < carousel.scrollWidth - 10 ? 'flex' : 'none';
+    };
+
+    leftBtn.addEventListener('click', () => { carousel.scrollBy({ left: -scrollAmount(), behavior: 'smooth' }); });
+    rightBtn.addEventListener('click', () => { carousel.scrollBy({ left: scrollAmount(), behavior: 'smooth' }); });
+    carousel.addEventListener('scroll', updateArrows);
+    updateArrows();
+  })();
+</script>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Naomi's Picks",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Naomi's Picks"
+    },
+    {
+      "type": "text",
+      "id": "subheading",
+      "label": "Subheading",
+      "default": "Handpicked by Naomi"
+    },
+    {
+      "type": "range",
+      "id": "max_products",
+      "label": "Max products",
+      "min": 4,
+      "max": 24,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "type": "range",
+      "id": "columns",
+      "label": "Visible columns",
+      "min": 2,
+      "max": 5,
+      "step": 1,
+      "default": 4
+    },
+    {
+      "type": "range",
+      "id": "gap",
+      "label": "Gap (px)",
+      "min": 4,
+      "max": 32,
+      "step": 4,
+      "default": 16
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "label": "Padding top",
+      "min": 0,
+      "max": 80,
+      "step": 4,
+      "default": 40
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "label": "Padding bottom",
+      "min": 0,
+      "max": 80,
+      "step": 4,
+      "default": 40
+    }
+  ],
+  "presets": [
+    {
+      "name": "Naomi's Picks"
+    }
+  ]
+}
+{% endschema %}
