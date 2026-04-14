@@ -35,24 +35,13 @@ app.use(cors({
 app.use(morgan("dev"));
 app.use(express.json());
 
-// Root route — redirect to /demo if query params present, otherwise API info
-app.get("/", (req, res, next) => {
+// Root route — always redirect to /demo
+app.get("/", (req, res) => {
   if (req.query.url || req.query.website || req.query.store) {
     const param = req.query.url || req.query.website || req.query.store;
     return res.redirect(`/demo?url=${encodeURIComponent(param)}`);
   }
-  if (existsSync(WEB_DIST)) return next();
-  res.json({
-    name: "Runa Admin API",
-    version: "1.0.0",
-    endpoints: {
-      health: "/health",
-      auth: "/api/auth",
-      stores: "/api/stores",
-      products: "/api/products",
-      sync: "/api/sync"
-    }
-  });
+  return res.redirect("/demo");
 });
 
 // Health check
