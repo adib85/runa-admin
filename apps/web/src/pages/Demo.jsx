@@ -529,6 +529,11 @@ export default function Demo() {
 
       {(phase === 'loading' || phase === 'error') && (
         <div className="text-center max-w-lg w-full animate-fade-in">
+          {/* Store being analyzed */}
+          <p className="text-white/40 text-xs uppercase tracking-widest mb-8">
+            Styling <span className="text-white/70 font-medium">{inputUrl}</span>
+          </p>
+
           <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
 
           {/* AI Agent */}
