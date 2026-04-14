@@ -51,11 +51,16 @@ Your task:
    - NOT a basic/plain item (no plain white tees, no generic socks)
    - Has an image (image field is not null)
 
-2. OUTFIT BUILDING: Pick 3-5 items from the complementary collections that create a cohesive outfit with the anchor:
-   - Pick from DIFFERENT collections (e.g. one from Shoes, one from Bags, one from Jewellery)
+2. OUTFIT BUILDING: You MUST pick exactly 4 items from the complementary collections that create a cohesive outfit with the anchor:
+   - You MUST pick from 4 DIFFERENT collections (e.g. one from Shoes, one from Bags, one from Belts, one from Scarves)
+   - ALWAYS include SHOES — every outfit needs footwear
+   - If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses — dresses already cover the torso. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear like a coat/blazer that complements the dress
+   - If the anchor is a TOP or BLOUSE: pick bottoms (pants/skirt), shoes, bags, jewelry
    - Consider color coordination and style coherence across all pieces
-   - Consider occasion matching (don't mix formal shoes with beach shorts)
+   - Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
+   - All items must feel like they belong to the SAME occasion and style
    - Each item must have an image (image field is not null)
+   - Do NOT return fewer than 4 items
 
 3. Give the outfit a short name.
 
@@ -289,6 +294,19 @@ function formatGrouped(groups) {
     .join("\n\n");
 }
 
+async function fetchImageAsBase64(url) {
+  try {
+    const res = await fetchWithTimeout(url, 5000);
+    if (!res.ok) return null;
+    const buffer = await res.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    return { base64, contentType };
+  } catch {
+    return null;
+  }
+}
+
 async function buildOutfit(mainProducts, complementaryProducts, storeName, prompts, selectedCollections) {
   const model = getGeminiModel(true);
 
@@ -300,7 +318,24 @@ async function buildOutfit(mainProducts, complementaryProducts, storeName, promp
     .replace("{{mainCollections}}", formatGrouped(mainGrouped))
     .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
 
-  const result = await model.generateContent(prompt);
+  // Fetch a few hero images from main collections so Gemini can see colors/style
+  const mainImages = [];
+  for (const [, { products }] of Object.entries(mainGrouped)) {
+    for (const p of products.slice(0, 2)) {
+      if (p.image && mainImages.length < 5) {
+        const img = await fetchImageAsBase64(p.image);
+        if (img) mainImages.push({ ...img, title: p.title });
+      }
+    }
+  }
+
+  const parts = [prompt];
+  for (const img of mainImages) {
+    parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+    parts.push(`(Image of "${img.title}")`);
+  }
+
+  const result = await model.generateContent(parts);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const outfit = JSON.parse(text);
 
@@ -343,100 +378,131 @@ async function validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeNa
     const anchorDesc = `"${outfit.anchor.title}" ($${outfit.anchor.price})`;
     const itemDescs = outfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
 
-    const valResult = await validator.generateContent(
-      `You are a fashion expert reviewing an outfit for style coherence.
+    const valParts = [];
+
+    // Send all product images for visual validation
+    const allOutfitItems = [{ ...outfit.anchor, label: "ANCHOR" }, ...outfit.items.map((item, i) => ({ ...item, label: `ITEM ${i}` }))];
+    const imagePromises = allOutfitItems
+      .filter(p => p.image)
+      .map(async (p) => {
+        const img = await fetchImageAsBase64(p.image);
+        return img ? { ...img, label: p.label, title: p.title } : null;
+      });
+    const images = (await Promise.all(imagePromises)).filter(Boolean);
+
+    for (const img of images) {
+      valParts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+      valParts.push(`(${img.label}: "${img.title}")`);
+    }
+
+    valParts.push(`You are a fashion expert reviewing an outfit for style coherence. Look at ALL the product images above.
 
 Anchor product: ${anchorDesc}
 Complementary items:
 ${itemDescs}
 
 Which items DO NOT match the anchor? Consider:
+- Redundant layering (corset/bustier/top over a dress — dresses don't need another top)
 - Occasion mismatch (ski boots with cocktail dress, flip-flops with blazer, etc.)
 - Season mismatch (winter coat with summer sandals)
-- Style clash (sportswear with formal evening wear)
+- Style clash (sportswear with formal evening wear, denim patches on a cocktail outfit)
+- Color clash (clashing patterns or colors that don't complement each other)
 - Gender mismatch
 
-Return ONLY a JSON array of the INDEX numbers (0-based) of items to REMOVE. If all items are fine, return [].
-Example: [1, 3] means remove items at index 1 and 3.
-Return ONLY the JSON array, nothing else.`
+Return ONLY valid JSON, no markdown:
+{
+  "remove": [0, 2],
+  "verdict": "good" | "retry_with_different_anchor"
+}
+
+"remove": array of INDEX numbers of items to remove. Empty [] if all fine.
+"verdict": "good" if the outfit works (even after removing some items), or "retry_with_different_anchor" if the anchor itself is problematic or the overall combination is unsalvageable and a completely different outfit should be tried.`
     );
+    const valResult = await validator.generateContent(valParts);
     const valText = valResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
-    const removeIndexes = JSON.parse(valText);
+    const validation = JSON.parse(valText);
 
-    if (!Array.isArray(removeIndexes) || removeIndexes.length === 0) return outfit;
+    const removeIndexes = validation.remove || validation;
+    const verdict = validation.verdict || "good";
 
-    const removedItems = removeIndexes.map(i => outfit.items[i]?.title).filter(Boolean);
-    const removeSet = new Set(removeIndexes);
-    outfit.items = outfit.items.filter((_, i) => !removeSet.has(i));
+    // If all fine, return as-is
+    if ((!Array.isArray(removeIndexes) || removeIndexes.length === 0) && verdict === "good") {
+      return outfit;
+    }
 
-    // If too many items removed, retry outfit generation with feedback
-    if (outfit.items.length < 2) {
-      console.log(`[Demo] Outfit validation removed ${removedItems.length} items, retrying with feedback...`);
-      const model = getGeminiModel(true);
-      const retryPrompt = prompts.buildOutfit
-        .replace("{{storeName}}", storeName)
-        .replace("{{mainCollections}}", formatGrouped(mainGrouped))
-        .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
+    // Remove bad items
+    if (Array.isArray(removeIndexes) && removeIndexes.length > 0) {
+      const removeSet = new Set(removeIndexes);
+      outfit.items = outfit.items.filter((_, i) => !removeSet.has(i));
+    }
 
-      const feedbackPrompt = `${retryPrompt}
+    // If verdict is good and enough items remain, keep it
+    if (verdict === "good" && outfit.items.length >= 2) {
+      return outfit;
+    }
 
-IMPORTANT: A previous attempt produced a bad outfit. These items were REJECTED for not matching the anchor:
-${removedItems.map(t => `- "${t}" — style/occasion mismatch`).join("\n")}
+    // Retry with a completely different anchor
+    console.log(`[Demo] Outfit validation: verdict="${verdict}", retrying with different anchor...`);
+    const model = getGeminiModel(true);
+    const retryPrompt = prompts.buildOutfit
+      .replace("{{storeName}}", storeName)
+      .replace("{{mainCollections}}", formatGrouped(mainGrouped))
+      .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
 
-Do NOT pick similar items. Choose items that truly match the anchor's style, occasion, and season.`;
+    const feedbackPrompt = `${retryPrompt}
 
-      const retryResult = await model.generateContent(feedbackPrompt);
-      const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
-      const retryOutfit = JSON.parse(retryText);
+IMPORTANT — PREVIOUS ATTEMPT FAILED:
+The previous outfit with anchor "${outfit.anchor.title}" was rejected because the complementary items didn't match.
+You MUST pick a DIFFERENT anchor product (not "${outfit.anchor.title}") and build a completely new outfit.
+Pick an anchor that is easier to style — something versatile that pairs naturally with shoes, bags, and accessories.`;
 
-      // Validate retry against real products
-      const allGrouped = { ...mainGrouped, ...compGrouped };
-      const allProducts = Object.values(allGrouped).flatMap(g => g.products);
-      const productMap = new Map(allProducts.map(p => [p.id, p]));
+    const retryResult = await model.generateContent(feedbackPrompt);
+    const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    const retryOutfit = JSON.parse(retryText);
 
-      if (retryOutfit.anchor?.id && productMap.has(retryOutfit.anchor.id)) {
-        const real = productMap.get(retryOutfit.anchor.id);
-        retryOutfit.anchor = { ...retryOutfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-      }
-      if (retryOutfit.items) {
-        retryOutfit.items = retryOutfit.items
-          .filter(item => productMap.has(item.id))
-          .map(item => {
-            const real = productMap.get(item.id);
-            return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-          });
-      }
+    // Validate retry against real products
+    const allGrouped = { ...mainGrouped, ...compGrouped };
+    const allProducts = Object.values(allGrouped).flatMap(g => g.products);
+    const productMap = new Map(allProducts.map(p => [p.id, p]));
 
-      // Validate retry outfit coherence (no further retries to avoid loops)
-      if (retryOutfit.anchor && retryOutfit.items?.length > 0) {
-        try {
-          const val2 = getGeminiModel(true);
-          const anchorDesc2 = `"${retryOutfit.anchor.title}" ($${retryOutfit.anchor.price})`;
-          const itemDescs2 = retryOutfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
-          const val2Result = await val2.generateContent(
-            `You are a fashion expert. Does this outfit make sense?
+    if (retryOutfit.anchor?.id && productMap.has(retryOutfit.anchor.id)) {
+      const real = productMap.get(retryOutfit.anchor.id);
+      retryOutfit.anchor = { ...retryOutfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+    }
+    if (retryOutfit.items) {
+      retryOutfit.items = retryOutfit.items
+        .filter(item => productMap.has(item.id))
+        .map(item => {
+          const real = productMap.get(item.id);
+          return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+        });
+    }
 
+    // Final validation (no more retries)
+    if (retryOutfit.anchor && retryOutfit.items?.length > 0) {
+      try {
+        const val2 = getGeminiModel(true);
+        const anchorDesc2 = `"${retryOutfit.anchor.title}" ($${retryOutfit.anchor.price})`;
+        const itemDescs2 = retryOutfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
+        const val2Result = await val2.generateContent(
+          `You are a fashion expert. Does this outfit make sense?
 Anchor: ${anchorDesc2}
 Items:
 ${itemDescs2}
-
 Return ONLY a JSON array of INDEX numbers of items to REMOVE for style/occasion/season mismatch. Return [] if all fine.`
-          );
-          const val2Text = val2Result.response.text().replace(/```json\n?|\n?```/g, "").trim();
-          const removeIndexes2 = JSON.parse(val2Text);
-          if (Array.isArray(removeIndexes2) && removeIndexes2.length > 0) {
-            const removeSet2 = new Set(removeIndexes2);
-            retryOutfit.items = retryOutfit.items.filter((_, i) => !removeSet2.has(i));
-          }
-        } catch (err) {
-          console.error("Retry validation failed (non-blocking):", err.message);
+        );
+        const val2Text = val2Result.response.text().replace(/```json\n?|\n?```/g, "").trim();
+        const removeIndexes2 = JSON.parse(val2Text);
+        if (Array.isArray(removeIndexes2) && removeIndexes2.length > 0) {
+          const removeSet2 = new Set(removeIndexes2);
+          retryOutfit.items = retryOutfit.items.filter((_, i) => !removeSet2.has(i));
         }
+      } catch (err) {
+        console.error("Retry validation failed (non-blocking):", err.message);
       }
-
-      return retryOutfit;
     }
 
-    return outfit;
+    return retryOutfit;
   } catch (err) {
     console.error("Outfit validation failed (non-blocking):", err.message);
     return outfit;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 const API_URL = '/api';
 const RUNA_URL = 'https://www.askruna.ai';
@@ -202,7 +202,7 @@ function ResultsView({ data }) {
       </div>
 
       {/* Product Demo Section */}
-      <div className="max-w-4xl mx-auto px-6 py-12">
+      <div className="max-w-4xl mx-auto px-6 py-12 pb-28">
         {/* Simulated PDP */}
         <div className="border border-neutral-200 rounded-2xl overflow-hidden shadow-soft">
           {/* Browser chrome */}
@@ -274,7 +274,11 @@ function ResultsView({ data }) {
                     Complete the Look
                   </h3>
                   <div className="mt-3 mb-5 border-t-2 border-neutral-900" />
-                  <div className="grid grid-cols-4 gap-5">
+                  <div className={`grid gap-5 ${
+                    outfit.items?.length <= 2 ? 'grid-cols-2' :
+                    outfit.items?.length === 3 ? 'grid-cols-3' :
+                    'grid-cols-4'
+                  }`}>
                     {outfit.items?.map((item) => (
                       <ComplementaryCard key={item.id} product={item} />
                     ))}
@@ -341,7 +345,9 @@ function ResultsView({ data }) {
 
 export default function Demo() {
   const { domain: urlDomain } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const websiteParam = searchParams.get('website') || searchParams.get('url') || searchParams.get('store');
   const [inputUrl, setInputUrl] = useState('');
   const [phase, setPhase] = useState('landing'); // landing | loading | results | error
   const [currentStep, setCurrentStep] = useState('scan');
@@ -422,13 +428,14 @@ export default function Demo() {
     };
   }, [addMessage]);
 
-  // Auto-start if domain is in URL
+  // Auto-start if domain is in URL path or query param
   useEffect(() => {
-    if (urlDomain) {
-      setInputUrl(urlDomain);
-      startAnalysis(urlDomain);
+    const domain = urlDomain || websiteParam;
+    if (domain) {
+      setInputUrl(domain);
+      startAnalysis(domain);
     }
-  }, [urlDomain, startAnalysis]);
+  }, [urlDomain, websiteParam, startAnalysis]);
 
   // Cleanup on unmount
   useEffect(() => {
