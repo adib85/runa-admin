@@ -71,7 +71,8 @@ function LogMessages({ messages }) {
   return (
     <div
       ref={containerRef}
-      className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 max-w-md mx-auto mt-6 max-h-48 overflow-y-auto"
+      className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 max-w-md mx-auto mt-6 max-h-48 overflow-y-auto scrollbar-hide"
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
       {messages.map((msg, i) => (
         <div

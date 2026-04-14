@@ -209,6 +209,11 @@
   background: #d4d4d4;
 }
 
+/* Hidden scrollbar utility */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; }

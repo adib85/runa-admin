@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import DemoNav from '../components/DemoNav';
 
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
@@ -91,9 +92,11 @@ export default function DemoSearches() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-12">
+    <div>
+      <DemoNav />
+      <div className="max-w-3xl mx-auto px-6 py-12">
       <div className="mb-10">
-        <h1 className="text-2xl font-light tracking-tight text-neutral-900">Demo Searches</h1>
+        <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
         <p className="text-sm text-neutral-500 mt-2">
           {data.totalSearches} searches · {data.cached} stores analyzed
         </p>
@@ -150,6 +153,7 @@ export default function DemoSearches() {
       {previewOutfit && (
         <OutfitPreview outfit={previewOutfit} onClose={() => setPreviewOutfit(null)} />
       )}
+      </div>
     </div>
   );
 }

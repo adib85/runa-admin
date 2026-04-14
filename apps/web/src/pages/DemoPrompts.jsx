@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import DemoNav from '../components/DemoNav';
 
 export default function DemoPrompts() {
   const [prompts, setPrompts] = useState(null);
@@ -146,10 +147,12 @@ Collection "Belts" (belts):
   ];
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-12">
+    <div>
+      <DemoNav />
+      <div className="max-w-3xl mx-auto px-6 py-12">
       <div className="flex items-center justify-between mb-10">
         <div>
-          <h1 className="text-2xl font-light tracking-tight text-neutral-900">Demo Prompts</h1>
+          <h1 className="text-2xl font-light tracking-tight text-neutral-900">Prompts</h1>
           <p className="text-sm text-neutral-500 mt-2">
             Edit the AI prompts used for demo outfit generation
           </p>
@@ -259,6 +262,7 @@ Collection "Belts" (belts):
         >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
+      </div>
       </div>
     </div>
   );
