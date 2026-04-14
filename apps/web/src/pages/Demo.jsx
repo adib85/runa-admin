@@ -530,9 +530,15 @@ export default function Demo() {
       {(phase === 'loading' || phase === 'error') && (
         <div className="text-center max-w-lg w-full animate-fade-in">
           {/* Store being analyzed */}
-          <p className="text-white/40 text-xs uppercase tracking-widest mb-8">
-            Styling <span className="text-white/70 font-medium">{inputUrl}</span>
-          </p>
+          <div className="mb-10">
+            <p className="text-white font-light italic text-xl tracking-tight">Runa</p>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="text-purple-400 text-sm">✦</span>
+              <p className="text-neutral-400 text-sm">
+                Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
+              </p>
+            </div>
+          </div>
 
           <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
 
