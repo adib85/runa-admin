@@ -471,14 +471,14 @@ export default function Demo() {
   return (
     <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center px-6">
       {phase === 'landing' && (
-        <div className="text-center max-w-2xl animate-fade-in">
-          <a href={RUNA_URL} target="_blank" rel="noopener noreferrer" className="inline-block text-2xl font-light italic text-white/60 hover:text-white/80 transition-colors mb-10 tracking-tight">
-            Runa
+        <div className="text-center max-w-2xl animate-fade-in px-4">
+          <a href={RUNA_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-white/50 hover:text-white/70 transition-colors mb-12">
+            <span className="text-3xl font-light italic tracking-tight">Runa</span>
           </a>
-          <h1 className="text-4xl sm:text-5xl font-bold text-white leading-tight mb-4">
+          <h1 className="text-3xl sm:text-5xl font-bold text-white leading-tight mb-5">
             Ready to see your store styled by AI?
           </h1>
-          <p className="text-neutral-400 text-lg mb-10">
+          <p className="text-neutral-400 text-base sm:text-lg mb-10">
             Paste your website URL. See results in 30 seconds.
           </p>
 
@@ -488,12 +488,12 @@ export default function Demo() {
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
               placeholder="runwayher.com or yourstore.myshopify.com"
-              className="flex-1 px-5 py-4 rounded-xl bg-neutral-900 border border-neutral-800 text-white text-base sm:text-sm placeholder-neutral-500 focus:outline-none focus:border-neutral-600 transition-colors"
+              className="flex-1 px-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white text-base sm:text-sm placeholder-neutral-500 focus:outline-none focus:border-white/25 transition-colors"
               autoFocus
             />
             <button
               type="submit"
-              className="px-6 py-4 bg-white text-neutral-900 text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+              className="px-7 py-4 bg-white text-neutral-900 text-sm font-bold rounded-2xl hover:bg-neutral-200 transition-all flex items-center justify-center gap-2 whitespace-nowrap shadow-lg shadow-white/10"
             >
               Style My Products
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -502,14 +502,14 @@ export default function Demo() {
             </button>
           </form>
 
-          <div className="flex items-center justify-center gap-6 mt-8">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mt-10">
             <a
               href={RUNA_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-neutral-500 text-xs hover:text-neutral-300 transition-colors flex items-center gap-1.5"
+              className="text-neutral-500 text-sm py-2 hover:text-neutral-300 transition-colors flex items-center gap-2"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
               </svg>
               Book a 15-min Walkthrough
@@ -518,16 +518,16 @@ export default function Demo() {
               href={RUNA_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-neutral-500 text-xs hover:text-neutral-300 transition-colors flex items-center gap-1.5"
+              className="text-neutral-500 text-sm py-2 hover:text-neutral-300 transition-colors flex items-center gap-2"
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
               </svg>
               Request Access
             </a>
           </div>
 
-          <p className="text-neutral-700 text-xs mt-6">
+          <p className="text-neutral-700 text-xs mt-8">
             The Agentic Merchant for Fashion
           </p>
         </div>
@@ -535,31 +535,28 @@ export default function Demo() {
 
       {(phase === 'loading' || phase === 'error') && (
         <div className="text-center max-w-lg w-full animate-fade-in">
-          {/* Store being analyzed */}
-          <div className="mb-10">
+          {/* Runa logo with spinning border */}
+          <div className="mb-8">
+            <div className="relative w-20 h-20 mx-auto mb-4">
+              {phase === 'loading' && (
+                <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-purple-500 border-r-purple-500/30 animate-spin" />
+              )}
+              <div className="absolute inset-1 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                <span className="text-white text-2xl font-light italic tracking-tight">R</span>
+              </div>
+            </div>
             <p className="text-white font-light italic text-xl tracking-tight">Runa</p>
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <span className="text-purple-400 text-sm">✦</span>
+            <div className="flex items-center justify-center gap-2 mt-1.5">
               <p className="text-neutral-400 text-sm">
-                Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
+                {phase === 'error'
+                  ? 'Analysis failed'
+                  : <>Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span></>
+                }
               </p>
             </div>
           </div>
 
           <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
-
-          {/* AI Agent */}
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-white/10 border border-white/20 flex items-center justify-center">
-              <span className="text-white text-lg">✦</span>
-            </div>
-            <div className="text-left">
-              <p className="text-white font-light italic text-base tracking-tight">Runa</p>
-              <p className="text-neutral-500 text-xs">
-                {phase === 'error' ? 'Analysis failed' : 'Styling your catalog...'}
-              </p>
-            </div>
-          </div>
 
           <LogMessages messages={messages} />
 
