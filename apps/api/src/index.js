@@ -2,7 +2,12 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import { fileURLToPath } from "url";
+import { dirname, join, resolve } from "path";
 import { config } from "@runa/config";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WEB_DIST = resolve(__dirname, "../../web/dist");
 
 // Import routes
 import authRoutes from "./routes/auth.js";
@@ -20,26 +25,11 @@ const app = express();
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: process.env.CORS_ORIGIN || "*",
   credentials: true
 }));
 app.use(morgan("dev"));
 app.use(express.json());
-
-// Root route
-app.get("/", (req, res) => {
-  res.json({
-    name: "Runa Admin API",
-    version: "1.0.0",
-    endpoints: {
-      health: "/health",
-      auth: "/api/auth",
-      stores: "/api/stores",
-      products: "/api/products",
-      sync: "/api/sync"
-    }
-  });
-});
 
 // Health check
 app.get("/health", (req, res) => {
@@ -53,6 +43,16 @@ app.use("/api/products", productsRoutes);
 app.use("/api/sync", syncRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/demo", demoRoutes);
+
+// Serve frontend static files in production
+import { existsSync } from "fs";
+if (existsSync(WEB_DIST)) {
+  app.use(express.static(WEB_DIST));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) return next();
+    res.sendFile(join(WEB_DIST, "index.html"));
+  });
+}
 
 // Error handler
 app.use(errorHandler);
