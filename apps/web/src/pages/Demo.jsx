@@ -479,7 +479,7 @@ export default function Demo() {
             Ready to see your store styled by AI?
           </h1>
           <p className="text-neutral-400 text-lg mb-10">
-            Paste your Shopify URL. See results in 60 seconds.
+            Paste your website URL. See results in 30 seconds.
           </p>
 
           <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-xl mx-auto">
