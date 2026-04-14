@@ -476,7 +476,7 @@ export default function Demo() {
             Paste your Shopify URL. See results in 60 seconds.
           </p>
 
-          <form onSubmit={handleSubmit} className="flex items-center gap-3 max-w-xl mx-auto">
+          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-xl mx-auto">
             <input
               type="text"
               value={inputUrl}
@@ -487,7 +487,7 @@ export default function Demo() {
             />
             <button
               type="submit"
-              className="px-6 py-4 bg-white text-neutral-900 text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all flex items-center gap-2 whitespace-nowrap"
+              className="px-6 py-4 bg-white text-neutral-900 text-sm font-semibold rounded-xl hover:bg-neutral-100 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
             >
               Style My Products
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
