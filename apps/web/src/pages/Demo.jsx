@@ -273,11 +273,9 @@ function ResultsView({ data }) {
                   <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide">
                     Complete the Look
                   </h3>
-                  <div className="mt-3 mb-5 border-t-2 border-neutral-900" />
+                  <div className="mt-3 mb-5 border-t border-neutral-200" />
                   <div className={`grid gap-5 ${
-                    outfit.items?.length <= 2 ? 'grid-cols-2' :
-                    outfit.items?.length === 3 ? 'grid-cols-3' :
-                    'grid-cols-4'
+                    outfit.items?.length >= 4 ? 'grid-cols-4' : 'grid-cols-3'
                   }`}>
                     {outfit.items?.map((item) => (
                       <ComplementaryCard key={item.id} product={item} />
