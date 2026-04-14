@@ -428,6 +428,12 @@ export default function Demo() {
     };
   }, [addMessage]);
 
+  // Set page title
+  useEffect(() => {
+    document.title = 'Runa — AI Styling Demo';
+    return () => { document.title = 'Runa Admin'; };
+  }, []);
+
   // Auto-start if domain is in URL path or query param
   useEffect(() => {
     const domain = urlDomain || websiteParam;
