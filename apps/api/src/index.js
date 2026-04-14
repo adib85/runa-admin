@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import { fileURLToPath } from "url";
 import { dirname, join, resolve } from "path";
+import { existsSync } from "fs";
 import { config } from "@runa/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,13 +24,32 @@ import { errorHandler } from "./middleware/error.js";
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
   origin: process.env.CORS_ORIGIN || "*",
   credentials: true
 }));
 app.use(morgan("dev"));
 app.use(express.json());
+
+// Root route (API info when no frontend built)
+app.get("/", (req, res, next) => {
+  if (existsSync(WEB_DIST)) return next();
+  res.json({
+    name: "Runa Admin API",
+    version: "1.0.0",
+    endpoints: {
+      health: "/health",
+      auth: "/api/auth",
+      stores: "/api/stores",
+      products: "/api/products",
+      sync: "/api/sync"
+    }
+  });
+});
 
 // Health check
 app.get("/health", (req, res) => {
@@ -45,7 +65,6 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/demo", demoRoutes);
 
 // Serve frontend static files in production
-import { existsSync } from "fs";
 if (existsSync(WEB_DIST)) {
   app.use(express.static(WEB_DIST));
   app.get("*", (req, res, next) => {
