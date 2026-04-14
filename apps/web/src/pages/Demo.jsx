@@ -168,15 +168,15 @@ function ResultsView({ data }) {
       </div>
 
       {/* Demo Preview Banner */}
-      <div className="bg-neutral-950 pt-14 pb-10 text-center px-6">
-        <span className="inline-block px-4 py-1.5 rounded-full bg-white/10 text-neutral-300 text-xs font-semibold uppercase tracking-wider mb-6">
+      <div className="bg-white pt-14 pb-10 text-center px-6">
+        <span className="inline-block px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold uppercase tracking-wider mb-6">
           Demo Preview
         </span>
-        <h1 className="text-3xl sm:text-4xl font-bold text-white mb-3">
-          Here's how <em className="not-italic font-light">Runa</em> would style{' '}
-          <span className="text-white/70">{store.name}</span>
+        <h1 className="text-3xl sm:text-4xl font-bold text-neutral-900 mb-3">
+          Here's how <em className="not-italic font-light italic">Runa</em> would style{' '}
+          <span className="text-purple-600">{store.name}</span>
         </h1>
-        <p className="text-neutral-400 max-w-lg mx-auto text-sm sm:text-base">
+        <p className="text-neutral-500 max-w-lg mx-auto text-sm sm:text-base">
           This is a quick preview using a sample of your products.
           Hire Runa to unlock styling across your entire catalog —
           with more outfits, better matching, and real-time updates.
@@ -186,7 +186,7 @@ function ResultsView({ data }) {
             href={RUNA_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-6 py-3 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-100 transition-colors"
+            className="px-6 py-3 bg-neutral-900 text-white text-sm font-semibold rounded-full hover:bg-neutral-800 transition-colors"
           >
             Hire Runa
           </a>
@@ -194,7 +194,7 @@ function ResultsView({ data }) {
             href={RUNA_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-6 py-3 border border-neutral-600 text-neutral-300 text-sm font-semibold rounded-full hover:bg-white/5 transition-colors"
+            className="px-6 py-3 border border-neutral-300 text-neutral-700 text-sm font-semibold rounded-full hover:bg-neutral-50 transition-colors"
           >
             Live Demo with an Expert
           </a>
@@ -353,6 +353,9 @@ export default function Demo() {
   const [messages, setMessages] = useState([]);
   const [result, setResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [previewImages, setPreviewImages] = useState([]);
+  const [productCount, setProductCount] = useState(0);
+  const [stylingMsg, setStylingMsg] = useState(0);
   const eventSourceRef = useRef(null);
 
   const addMessage = useCallback((text, type = 'info') => {
@@ -366,6 +369,7 @@ export default function Demo() {
     setMessages([]);
     setResult(null);
     setErrorMsg('');
+    setPreviewImages([]);
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -391,7 +395,11 @@ export default function Demo() {
       addMessage(data.message, 'info');
 
       if (data.productCount) {
+        setProductCount(data.productCount);
         addMessage(`Found ${data.productCount} products`, 'done');
+      }
+      if (data.previewImages) {
+        setPreviewImages(data.previewImages);
       }
     });
 
@@ -425,6 +433,23 @@ export default function Demo() {
       es.close();
     };
   }, [addMessage]);
+
+  const stylingMessages = [
+    'Classifying products...',
+    'Analyzing color palettes...',
+    'Matching style patterns...',
+    'Building your outfit...',
+    'Selecting the perfect pieces...',
+    'Finalizing your look...',
+  ];
+
+  useEffect(() => {
+    if (previewImages.length === 0) return;
+    const interval = setInterval(() => {
+      setStylingMsg(prev => (prev + 1) % stylingMessages.length);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [previewImages]);
 
   // Set page title
   useEffect(() => {
@@ -556,7 +581,27 @@ export default function Demo() {
 
           <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
 
-          <LogMessages messages={messages} />
+          {previewImages.length > 0 ? (
+            <div className="mt-6 max-w-lg mx-auto animate-fade-in">
+              <p className="text-neutral-400 text-sm mb-5 flex items-center justify-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse" />
+                {stylingMessages[stylingMsg].replace('products', `${productCount} products`)}
+              </p>
+              <div className="grid grid-cols-6 gap-2">
+                {previewImages.map((img, i) => (
+                  <div
+                    key={i}
+                    className="aspect-square bg-white rounded-lg overflow-hidden shadow-sm animate-fade-in"
+                    style={{ animationDelay: `${i * 50}ms` }}
+                  >
+                    <img src={img} alt="" className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <LogMessages messages={messages} />
+          )}
 
           {phase === 'error' && (
             <div className="mt-6 space-y-3">

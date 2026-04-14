@@ -707,10 +707,38 @@ router.get("/analyze", async (req, res) => {
           useCollectionApproach = false;
         } else {
           const totalProducts = mainProducts.length + complementaryProducts.length;
+          const allFetched = [...mainProducts, ...complementaryProducts];
+          const byCollection = {};
+          const collectionTitles = {};
+          for (const c of [...(selectedCollections?.main || []), ...(selectedCollections?.complementary || [])]) {
+            collectionTitles[c.handle] = c.title;
+          }
+          for (const p of allFetched) {
+            if (!p.image) continue;
+            if (!byCollection[p.collection]) byCollection[p.collection] = [];
+            byCollection[p.collection].push(p.image);
+          }
+          const allCollectionImages = Object.entries(byCollection)
+            .map(([handle, images]) => ({
+              title: collectionTitles[handle] || handle,
+              images,
+            }));
+          const previewRows = [];
+          let idx = 0;
+          while (previewRows.length < 24 && idx < 10) {
+            for (const col of allCollectionImages) {
+              if (idx < col.images.length && previewRows.length < 24) {
+                previewRows.push(col.images[idx]);
+              }
+            }
+            idx++;
+          }
+
           sendSSE(res, "status", {
             step: "products",
             message: `Found ${totalProducts} products across ${validMain.length + validComp.length} collections`,
             productCount: totalProducts,
+            previewImages: previewRows,
           });
 
           // Step 4: Gemini #2 — Build outfit
