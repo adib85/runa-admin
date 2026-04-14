@@ -35,23 +35,25 @@ Return ONLY valid JSON, no markdown:
 
   buildOutfit: `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
 
-MAIN COLLECTION PRODUCTS (pick the anchor from here):
-{{mainProducts}}
+CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent or fabricate products, prices, or image URLs.
 
-COMPLEMENTARY COLLECTION PRODUCTS (pick outfit items from here):
-{{complementaryProducts}}
+===== MAIN COLLECTIONS (pick the ANCHOR product from one of these) =====
+{{mainCollections}}
+
+===== COMPLEMENTARY COLLECTIONS (pick 3-5 items from these to complete the look) =====
+{{complementaryCollections}}
 
 Your task:
-1. ANCHOR SELECTION: From the main collection products, pick the BEST anchor product. Choose something:
+1. ANCHOR SELECTION: Pick the BEST anchor product from one of the main collections. Choose something:
    - Visually striking and photogenic (it will be the hero image)
    - Mid-to-high price range (shows value)
-   - Versatile enough to pair with multiple complementary items
+   - Versatile enough to pair with items from the complementary collections
    - NOT a basic/plain item (no plain white tees, no generic socks)
    - Has an image (image field is not null)
 
-2. OUTFIT BUILDING: From the complementary products, pick 3-5 items that create a cohesive outfit with the anchor:
-   - Each item should be from a DIFFERENT category (don't pick 2 pairs of shoes)
-   - Consider color coordination and style coherence
+2. OUTFIT BUILDING: Pick 3-5 items from the complementary collections that create a cohesive outfit with the anchor:
+   - Pick from DIFFERENT collections (e.g. one from Shoes, one from Bags, one from Jewellery)
+   - Consider color coordination and style coherence across all pieces
    - Consider occasion matching (don't mix formal shoes with beach shorts)
    - Each item must have an image (image field is not null)
 
@@ -104,6 +106,10 @@ async function loadPrompts() {
 router.get("/prompts", async (req, res) => {
   const prompts = await loadPrompts();
   res.json({ prompts });
+});
+
+router.get("/prompts/defaults", (req, res) => {
+  res.json({ prompts: DEFAULT_PROMPTS });
 });
 
 router.put("/prompts", async (req, res) => {
@@ -232,13 +238,15 @@ async function fetchAllProducts(domain, limit = 250) {
 
 // ─── Gemini Calls ────────────────────────────────────────────────────
 
-function getGeminiModel() {
+function getGeminiModel(useLite = true) {
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
-  return genAI.getGenerativeModel({ model: config.gemini.liteModel });
+  return genAI.getGenerativeModel({
+    model: useLite ? config.gemini.liteModel : config.gemini.model,
+  });
 }
 
 async function selectCollections(collections, prompts) {
-  const model = getGeminiModel();
+  const model = getGeminiModel(true);
   const collectionList = collections
     .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle})`)
     .join("\n");
@@ -251,28 +259,70 @@ async function selectCollections(collections, prompts) {
   return JSON.parse(text);
 }
 
-async function buildOutfit(mainProducts, complementaryProducts, storeName, prompts) {
-  const model = getGeminiModel();
+function groupByCollection(products, selectedCollections) {
+  const handleToTitle = {};
+  [...(selectedCollections?.main || []), ...(selectedCollections?.complementary || [])]
+    .forEach(c => { handleToTitle[c.handle] = c.title; });
 
-  const formatProducts = (products) =>
-    products.map(p => ({
+  const groups = {};
+  for (const p of products) {
+    const key = p.collection;
+    if (!groups[key]) groups[key] = { title: handleToTitle[key] || key, products: [] };
+    groups[key].products.push({
       id: p.id,
       title: p.title,
+      handle: p.handle,
       type: p.type,
       price: p.price,
       tags: p.tags.slice(0, 5),
       image: p.image,
-      collection: p.collection,
-    }));
+    });
+  }
+  return groups;
+}
+
+function formatGrouped(groups) {
+  return Object.entries(groups)
+    .map(([handle, { title, products }]) =>
+      `Collection "${title}" (${handle}):\n${JSON.stringify(products)}`
+    )
+    .join("\n\n");
+}
+
+async function buildOutfit(mainProducts, complementaryProducts, storeName, prompts, selectedCollections) {
+  const model = getGeminiModel(true);
+
+  const mainGrouped = groupByCollection(mainProducts, selectedCollections);
+  const compGrouped = groupByCollection(complementaryProducts, selectedCollections);
 
   const prompt = prompts.buildOutfit
     .replace("{{storeName}}", storeName)
-    .replace("{{mainProducts}}", JSON.stringify(formatProducts(mainProducts)))
-    .replace("{{complementaryProducts}}", JSON.stringify(formatProducts(complementaryProducts)));
+    .replace("{{mainCollections}}", formatGrouped(mainGrouped))
+    .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
 
   const result = await model.generateContent(prompt);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
-  return JSON.parse(text);
+  const outfit = JSON.parse(text);
+
+  // Validate products exist in actual data
+  const allProducts = [...mainProducts, ...complementaryProducts];
+  const productMap = new Map(allProducts.map(p => [p.id, p]));
+
+  if (outfit.anchor?.id && productMap.has(outfit.anchor.id)) {
+    const real = productMap.get(outfit.anchor.id);
+    outfit.anchor = { ...outfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+  }
+
+  if (outfit.items) {
+    outfit.items = outfit.items
+      .filter(item => productMap.has(item.id))
+      .map(item => {
+        const real = productMap.get(item.id);
+        return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+      });
+  }
+
+  return outfit;
 }
 
 // ─── DynamoDB Cache ──────────────────────────────────────────────────
@@ -442,7 +492,7 @@ router.get("/analyze", async (req, res) => {
         sendSSE(res, "status", { step: "products", message: "Loading products..." });
 
         const productResults = await Promise.all(
-          allHandles.map(handle => fetchCollectionProducts(domain, handle, 50))
+          allHandles.map(handle => fetchCollectionProducts(domain, handle, 30))
         );
 
         // Map products to main vs complementary, drop empty collections
@@ -481,7 +531,7 @@ router.get("/analyze", async (req, res) => {
 
           // Step 4: Gemini #2 — Build outfit
           sendSSE(res, "status", { step: "style", message: "Styling your outfit..." });
-          const outfit = await buildOutfit(mainProducts, complementaryProducts, store.name, prompts);
+          const outfit = await buildOutfit(mainProducts, complementaryProducts, store.name, prompts, selectedCollections);
 
           const completeData = {
             store: { name: store.name, domain },
@@ -523,7 +573,7 @@ router.get("/analyze", async (req, res) => {
     sendSSE(res, "status", { step: "style", message: "Styling your outfit..." });
 
     // Use all products as both main and complementary candidates
-    const outfit = await buildOutfit(allProducts, allProducts, store.name, prompts);
+    const outfit = await buildOutfit(allProducts, allProducts, store.name, prompts, null);
 
     const completeData = {
       store: { name: store.name, domain },
