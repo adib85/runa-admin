@@ -488,7 +488,7 @@ export default function Demo() {
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
               placeholder="runwayher.com or yourstore.myshopify.com"
-              className="flex-1 px-5 py-4 rounded-xl bg-neutral-900 border border-neutral-800 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-neutral-600 transition-colors"
+              className="flex-1 px-5 py-4 rounded-xl bg-neutral-900 border border-neutral-800 text-white text-base sm:text-sm placeholder-neutral-500 focus:outline-none focus:border-neutral-600 transition-colors"
               autoFocus
             />
             <button
