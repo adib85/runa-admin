@@ -322,7 +322,125 @@ async function buildOutfit(mainProducts, complementaryProducts, storeName, promp
       });
   }
 
-  return outfit;
+  // Validate outfit coherence
+  const validatedOutfit = await validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeName);
+
+  // Recalculate total
+  if (validatedOutfit.anchor && validatedOutfit.items) {
+    const total = [validatedOutfit.anchor, ...validatedOutfit.items]
+      .reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
+    validatedOutfit.total_price = total.toFixed(2);
+  }
+
+  return validatedOutfit;
+}
+
+async function validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeName) {
+  if (!outfit.anchor || !outfit.items?.length) return outfit;
+
+  try {
+    const validator = getGeminiModel(true);
+    const anchorDesc = `"${outfit.anchor.title}" ($${outfit.anchor.price})`;
+    const itemDescs = outfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
+
+    const valResult = await validator.generateContent(
+      `You are a fashion expert reviewing an outfit for style coherence.
+
+Anchor product: ${anchorDesc}
+Complementary items:
+${itemDescs}
+
+Which items DO NOT match the anchor? Consider:
+- Occasion mismatch (ski boots with cocktail dress, flip-flops with blazer, etc.)
+- Season mismatch (winter coat with summer sandals)
+- Style clash (sportswear with formal evening wear)
+- Gender mismatch
+
+Return ONLY a JSON array of the INDEX numbers (0-based) of items to REMOVE. If all items are fine, return [].
+Example: [1, 3] means remove items at index 1 and 3.
+Return ONLY the JSON array, nothing else.`
+    );
+    const valText = valResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    const removeIndexes = JSON.parse(valText);
+
+    if (!Array.isArray(removeIndexes) || removeIndexes.length === 0) return outfit;
+
+    const removedItems = removeIndexes.map(i => outfit.items[i]?.title).filter(Boolean);
+    const removeSet = new Set(removeIndexes);
+    outfit.items = outfit.items.filter((_, i) => !removeSet.has(i));
+
+    // If too many items removed, retry outfit generation with feedback
+    if (outfit.items.length < 2) {
+      console.log(`[Demo] Outfit validation removed ${removedItems.length} items, retrying with feedback...`);
+      const model = getGeminiModel(true);
+      const retryPrompt = prompts.buildOutfit
+        .replace("{{storeName}}", storeName)
+        .replace("{{mainCollections}}", formatGrouped(mainGrouped))
+        .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
+
+      const feedbackPrompt = `${retryPrompt}
+
+IMPORTANT: A previous attempt produced a bad outfit. These items were REJECTED for not matching the anchor:
+${removedItems.map(t => `- "${t}" — style/occasion mismatch`).join("\n")}
+
+Do NOT pick similar items. Choose items that truly match the anchor's style, occasion, and season.`;
+
+      const retryResult = await model.generateContent(feedbackPrompt);
+      const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
+      const retryOutfit = JSON.parse(retryText);
+
+      // Validate retry against real products
+      const allGrouped = { ...mainGrouped, ...compGrouped };
+      const allProducts = Object.values(allGrouped).flatMap(g => g.products);
+      const productMap = new Map(allProducts.map(p => [p.id, p]));
+
+      if (retryOutfit.anchor?.id && productMap.has(retryOutfit.anchor.id)) {
+        const real = productMap.get(retryOutfit.anchor.id);
+        retryOutfit.anchor = { ...retryOutfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+      }
+      if (retryOutfit.items) {
+        retryOutfit.items = retryOutfit.items
+          .filter(item => productMap.has(item.id))
+          .map(item => {
+            const real = productMap.get(item.id);
+            return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+          });
+      }
+
+      // Validate retry outfit coherence (no further retries to avoid loops)
+      if (retryOutfit.anchor && retryOutfit.items?.length > 0) {
+        try {
+          const val2 = getGeminiModel(true);
+          const anchorDesc2 = `"${retryOutfit.anchor.title}" ($${retryOutfit.anchor.price})`;
+          const itemDescs2 = retryOutfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
+          const val2Result = await val2.generateContent(
+            `You are a fashion expert. Does this outfit make sense?
+
+Anchor: ${anchorDesc2}
+Items:
+${itemDescs2}
+
+Return ONLY a JSON array of INDEX numbers of items to REMOVE for style/occasion/season mismatch. Return [] if all fine.`
+          );
+          const val2Text = val2Result.response.text().replace(/```json\n?|\n?```/g, "").trim();
+          const removeIndexes2 = JSON.parse(val2Text);
+          if (Array.isArray(removeIndexes2) && removeIndexes2.length > 0) {
+            const removeSet2 = new Set(removeIndexes2);
+            retryOutfit.items = retryOutfit.items.filter((_, i) => !removeSet2.has(i));
+          }
+        } catch (err) {
+          console.error("Retry validation failed (non-blocking):", err.message);
+        }
+      }
+
+      return retryOutfit;
+    }
+
+    return outfit;
+  } catch (err) {
+    console.error("Outfit validation failed (non-blocking):", err.message);
+    return outfit;
+  }
 }
 
 // ─── DynamoDB Cache ──────────────────────────────────────────────────
