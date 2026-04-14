@@ -10,6 +10,8 @@ import Stores from './pages/Stores';
 import StoreDetail from './pages/StoreDetail';
 import Products from './pages/Products';
 import Settings from './pages/Settings';
+import Demo from './pages/Demo';
+import DemoPrompts from './pages/DemoPrompts';
 
 // AI Tools Pages
 import AIMerchant from './pages/AIMerchant';
@@ -18,6 +20,7 @@ import AIStylist from './pages/AIStylist';
 import AIStudio from './pages/AIStudio';
 import AIConfig from './pages/AIConfig';
 import AICustom from './pages/AICustom';
+import DemoSearches from './pages/DemoSearches';
 
 // Layout
 import Layout from './components/Layout';
@@ -46,6 +49,10 @@ function App() {
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/demo" element={<Demo />} />
+      <Route path="/demo/:domain" element={<Demo />} />
+      <Route path="/demo-searches" element={<DemoSearches />} />
+      <Route path="/demo-prompts" element={<DemoPrompts />} />
 
       {/* Protected routes */}
       <Route

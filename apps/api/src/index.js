@@ -10,6 +10,7 @@ import storesRoutes from "./routes/stores.js";
 import productsRoutes from "./routes/products.js";
 import syncRoutes from "./routes/sync.js";
 import aiRoutes from "./routes/ai.js";
+import demoRoutes from "./routes/demo.js";
 
 // Import middleware
 import { errorHandler } from "./middleware/error.js";
@@ -51,6 +52,7 @@ app.use("/api/stores", storesRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/sync", syncRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/demo", demoRoutes);
 
 // Error handler
 app.use(errorHandler);
