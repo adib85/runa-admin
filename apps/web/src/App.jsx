@@ -43,6 +43,8 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+const isDemoHost = window.location.hostname.startsWith('demo.');
+
 function App() {
   return (
     <Routes>
@@ -55,34 +57,40 @@ function App() {
       <Route path="/demo-searches" element={<DemoSearches />} />
       <Route path="/demo-prompts" element={<DemoPrompts />} />
 
-      {/* Protected routes */}
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <SuperAdminProvider>
-              <Layout />
-            </SuperAdminProvider>
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<Dashboard />} />
-        <Route path="stores" element={<Stores />} />
-        <Route path="stores/:storeId" element={<StoreDetail />} />
-        <Route path="products" element={<Products />} />
-        <Route path="settings" element={<Settings />} />
-        
-        {/* AI Tools */}
-        <Route path="ai-merchant" element={<AIMerchant />} />
-        <Route path="ai-visual-merchandiser" element={<AIVisualMerchandiser />} />
-        <Route path="ai-stylist" element={<AIStylist />} />
-        <Route path="ai-studio" element={<AIStudio />} />
-        <Route path="ai-custom" element={<AICustom />} />
-        <Route path="ai-config" element={<AIConfig />} />
-      </Route>
-
-      {/* Catch all */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {isDemoHost ? (
+        <>
+          {/* On demo.askruna.ai: root shows Demo */}
+          <Route path="/" element={<Demo />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </>
+      ) : (
+        <>
+          {/* On admin.askruna.ai / localhost: root shows Dashboard */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <SuperAdminProvider>
+                  <Layout />
+                </SuperAdminProvider>
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="stores" element={<Stores />} />
+            <Route path="stores/:storeId" element={<StoreDetail />} />
+            <Route path="products" element={<Products />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="ai-merchant" element={<AIMerchant />} />
+            <Route path="ai-visual-merchandiser" element={<AIVisualMerchandiser />} />
+            <Route path="ai-stylist" element={<AIStylist />} />
+            <Route path="ai-studio" element={<AIStudio />} />
+            <Route path="ai-custom" element={<AICustom />} />
+            <Route path="ai-config" element={<AIConfig />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </>
+      )}
     </Routes>
   );
 }

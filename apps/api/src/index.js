@@ -35,13 +35,12 @@ app.use(cors({
 app.use(morgan("dev"));
 app.use(express.json());
 
-// Root route — always redirect to /demo
-app.get("/", (req, res) => {
-  if (req.query.url || req.query.website || req.query.store) {
-    const param = req.query.url || req.query.website || req.query.store;
-    return res.redirect(`/demo?url=${encodeURIComponent(param)}`);
+// Root route — serve frontend directly (handles ?url= params via React)
+app.get("/", (req, res, next) => {
+  if (existsSync(WEB_DIST)) {
+    return res.sendFile(join(WEB_DIST, "index.html"));
   }
-  return res.redirect("/demo");
+  next();
 });
 
 // Health check
