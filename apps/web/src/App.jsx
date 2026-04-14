@@ -51,6 +51,7 @@ function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/demo" element={<Demo />} />
       <Route path="/demo/:domain" element={<Demo />} />
+      <Route path="/d/:domain" element={<Demo />} />
       <Route path="/demo-searches" element={<DemoSearches />} />
       <Route path="/demo-prompts" element={<DemoPrompts />} />
 
