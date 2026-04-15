@@ -169,16 +169,16 @@ function ResultsView({ data }) {
 
       {/* Demo Preview Banner */}
       <div className="bg-white pt-8 sm:pt-14 pb-6 sm:pb-10 text-center px-6">
-        <span className="inline-block px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold uppercase tracking-wider mb-6">
+        <span className="inline-block px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-4 sm:mb-6">
           Demo Preview
         </span>
-        <h1 className="text-3xl sm:text-4xl font-bold text-neutral-900 mb-2">
-          Here's how <em className="not-italic italic">Runa</em> would style
+        <h1 className="text-xl sm:text-4xl font-bold text-neutral-900 mb-1 sm:mb-2">
+          Here's how <em className="not-italic italic font-light">Runa</em> would style
         </h1>
-        <h2 className="text-3xl sm:text-4xl font-bold text-purple-600 mb-5">
+        <h2 className="text-2xl sm:text-4xl font-bold text-purple-600 mb-3 sm:mb-5">
           {store.name}
         </h2>
-        <p className="text-neutral-500 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+        <p className="text-neutral-500 max-w-md mx-auto text-xs sm:text-base leading-relaxed">
           A quick preview using a sample of your products.
           Install Runa to unlock styling across your entire catalog.
         </p>
