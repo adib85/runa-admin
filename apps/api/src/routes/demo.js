@@ -22,8 +22,8 @@ CRITICAL RULES:
 - NEVER pick collections like "Gift Cards", "Sale", "All", "Home", "Bundles", "New Arrivals", "Best Sellers", "Activewear"
 - If a collection title looks like a brand/designer name rather than a product category, SKIP it
 - ONLY pick collections with at least 5 products (check the product count)
-- If the store has BOTH men's and women's collections, pick ONLY women's collections. Never mix genders in the same outfit selection.
-- If the store is men-only, pick men's collections.
+- GENDER RULE: Look at collection titles AND handles. If you see both men's and women's collections (e.g., "Mens: Shirts" vs "Womens: Shirts", or handles like "mens-belts" vs "womens-belts"), you MUST pick ONLY women's collections. NEVER pick any collection with "mens", "men", "homme", "uomo" in the title or handle. Pick the women's equivalent instead (e.g., pick "womens-belts" not "mens-belts").
+- If the store is men-only (no women's collections), pick men's collections.
 
 Your task:
 Pick 8-10 product category collections that are useful for outfit building. All from the SAME gender (prefer women's if both available). Include a MIX of:
@@ -88,6 +88,8 @@ Build a cohesive outfit around the anchor product above. RULES:
 
 Give the outfit a short name.
 
+IMPORTANT: You MUST return exactly 3 or 4 product IDs in the items array. NEVER return fewer than 3 items. If you cannot find 3 items, try harder.
+
 Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
 {
   "items": [<id1>, <id2>, <id3>, <id4>],
@@ -143,6 +145,42 @@ router.put("/prompts", async (req, res) => {
     res.status(500).json({ error: "Failed to save prompts" });
   }
 });
+
+// ─── Debug Tracker ───────────────────────────────────────────────────
+
+class DebugTracker {
+  constructor(enabled) {
+    this.enabled = enabled;
+    this.calls = [];
+    this.startTime = Date.now();
+  }
+
+  track(name, { inputTokens, outputTokens, inputChars, rawResponse, elapsed }) {
+    if (!this.enabled) return;
+    this.calls.push({
+      name,
+      elapsed: `${elapsed}ms`,
+      inputTokens,
+      outputTokens,
+      inputChars,
+      rawResponse: rawResponse?.substring(0, 500),
+      timestamp: Date.now() - this.startTime,
+    });
+  }
+
+  getData() {
+    if (!this.enabled) return undefined;
+    const totalInput = this.calls.reduce((s, c) => s + (c.inputTokens || 0), 0);
+    const totalOutput = this.calls.reduce((s, c) => s + (c.outputTokens || 0), 0);
+    return {
+      totalTime: `${Date.now() - this.startTime}ms`,
+      totalCalls: this.calls.length,
+      totalInputTokens: totalInput,
+      totalOutputTokens: totalOutput,
+      calls: this.calls,
+    };
+  }
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -257,7 +295,7 @@ function getGeminiModel(useLite = true) {
   });
 }
 
-async function selectCollections(collections, prompts) {
+async function selectCollections(collections, prompts, debug) {
   const model = getGeminiModel(true);
   const collectionList = collections
     .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle}, ${c.productsCount} products)`)
@@ -266,25 +304,25 @@ async function selectCollections(collections, prompts) {
   const prompt = prompts.selectCollections
     .replace("{{collectionList}}", collectionList);
 
-  console.log(`[PERF] selectCollections: ${collectionList.length} chars input`);
   const t = Date.now();
   const result = await model.generateContent(prompt);
-  console.log(`[PERF] selectCollections: ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
+  const u = result.response.usageMetadata;
+  debug.track("selectCollections", { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: prompt.length, rawResponse: result.response.text(), elapsed: Date.now() - t });
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   return JSON.parse(text);
 }
 
-async function selectAnchors(allProducts, selectedCollections, storeName, prompts) {
+async function selectAnchors(allProducts, selectedCollections, storeName, prompts, debug) {
   const model = getGeminiModel(true);
   const grouped = groupByCollection(allProducts, selectedCollections);
   const prompt = prompts.selectAnchors
     .replace("{{storeName}}", storeName)
     .replace("{{allCollections}}", formatGrouped(grouped));
 
-  console.log(`[PERF] selectAnchors: ${prompt.length} chars input`);
   const t = Date.now();
   const result = await model.generateContent(prompt);
-  console.log(`[PERF] selectAnchors: ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
+  const u = result.response.usageMetadata;
+  debug.track("selectAnchors", { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: prompt.length, rawResponse: result.response.text(), elapsed: Date.now() - t });
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const parsed = JSON.parse(text);
 
@@ -334,7 +372,7 @@ async function fetchImageAsBase64(url) {
   }
 }
 
-async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections) {
+async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections, debug) {
   const model = getGeminiModel(true);
 
   const complementary = allProducts.filter(p =>
@@ -361,21 +399,20 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
     }
   }
 
-  console.log(`[PERF] buildOutfit "${anchor.title}": ${prompt.length} chars, hasImage: ${parts.length > 1}`);
   const t = Date.now();
   const result = await model.generateContent(parts);
-  console.log(`[PERF] buildOutfit "${anchor.title}": ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
+  const u = result.response.usageMetadata;
+  debug.track(`buildOutfit "${anchor.title}"`, { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: prompt.length, rawResponse: result.response.text(), elapsed: Date.now() - t });
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const outfitData = JSON.parse(text);
 
-  // Look up full product data from IDs
   const productMap = new Map(allProducts.map(p => [p.id, p]));
   const itemIds = outfitData.items || [];
+  const validIds = itemIds.filter(id => productMap.has(id) && id !== anchor.id);
 
   const outfit = {
     anchor,
-    items: itemIds
-      .filter(id => productMap.has(id) && id !== anchor.id)
+    items: validIds
       .map(id => {
         const p = productMap.get(id);
         return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
@@ -383,9 +420,8 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
     outfit_name: outfitData.outfit_name,
   };
 
-  // Validate outfit coherence
-  const dummyGrouped = groupByCollection([anchor], selectedCollections);
-  const validatedOutfit = await validateOutfit(outfit, dummyGrouped, compGrouped, prompts, storeName);
+  // Skip heavy validation — the type/collection filtering + good prompts handle quality
+  const validatedOutfit = outfit;
 
   // Recalculate total
   if (validatedOutfit.anchor && validatedOutfit.items) {
@@ -444,6 +480,7 @@ Return ONLY valid JSON, no markdown:
     const valResult = await validator.generateContent(valParts);
     console.log(`[PERF] validation "${outfit.anchor.title}": ${Date.now()-vt}ms`);
     const valText = valResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    console.log(`[DEBUG] validation "${outfit.anchor.title}" response:`, valText);
     const validation = JSON.parse(valText);
 
     const removeIndexes = validation.remove || validation;
@@ -730,6 +767,8 @@ router.get("/analyze", async (req, res) => {
   });
 
   const domain = normalizeDomain(url);
+  const isDebug = req.query.debug === "true";
+  const debug = new DebugTracker(isDebug);
 
   try {
     // Step 0: Validate
@@ -756,7 +795,24 @@ router.get("/analyze", async (req, res) => {
     }
 
     // Filter out empty collections before sending to Gemini
-    const collectionsWithProducts = collections.filter(c => c.productsCount >= 5);
+    let collectionsWithProducts = collections.filter(c => c.productsCount >= 5);
+
+    // If store has gendered collections, keep only the dominant gender
+    const womensCollections = collectionsWithProducts.filter(c => /women|femme|donna|damen/i.test(c.title + ' ' + c.handle));
+    const mensCollections = collectionsWithProducts.filter(c => /\bmen\b|mens|homme|uomo|herren/i.test(c.title + ' ' + c.handle) && !/women|femme|donna|damen/i.test(c.title + ' ' + c.handle));
+
+    if (womensCollections.length > 0 && mensCollections.length > 0) {
+      const keepGender = womensCollections.length >= mensCollections.length ? 'women' : 'men';
+      const filtered = collectionsWithProducts.filter(c => {
+        const text = (c.title + ' ' + c.handle).toLowerCase();
+        if (keepGender === 'women') {
+          return !(/(^|\b)mens?\b|homme|uomo|herren/.test(text) && !/women|femme|donna|damen/.test(text));
+        } else {
+          return !(/(women|femme|donna|damen)/.test(text) && !/(^|\b)mens?\b|homme|uomo|herren/.test(text));
+        }
+      });
+      if (filtered.length >= 5) collectionsWithProducts = filtered;
+    }
     let useCollectionApproach = collectionsWithProducts.length >= 3;
 
     if (useCollectionApproach) {
@@ -769,7 +825,7 @@ router.get("/analyze", async (req, res) => {
       sendSSE(res, "status", { step: "scan", message: "Analyzing collections..." });
       let selectedCollections;
       try {
-        selectedCollections = await selectCollections(collectionsWithProducts, prompts);
+        selectedCollections = await selectCollections(collectionsWithProducts, prompts, debug);
       } catch (err) {
         console.error("Gemini collection selection failed:", err.message);
         useCollectionApproach = false;
@@ -848,7 +904,7 @@ router.get("/analyze", async (req, res) => {
             logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
           } else {
             // Gemini #2: Select anchors from different categories (ask for 5 to have backups)
-            const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts);
+            const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts, debug);
 
             if (anchors.length === 0) {
               useCollectionApproach = false;
@@ -859,7 +915,7 @@ router.get("/analyze", async (req, res) => {
 
               // Build outfits in parallel, first batch of 3
               const firstBatch = candidates.slice(0, 3).map(anchor =>
-                buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections)
+                buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections, debug)
                   .then(o => {
                     if (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) {
                       usedAnchorIds.add(o.anchor.id);
@@ -880,7 +936,7 @@ router.get("/analyze", async (req, res) => {
                 const backups = candidates.slice(3).filter(a => !usedAnchorIds.has(a.id));
                 const needed = 3 - outfits.length;
                 const backupBatch = backups.slice(0, needed).map(anchor =>
-                  buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections)
+                  buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections, debug)
                     .then(o => (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) ? o : null)
                     .catch(() => null)
                 );
@@ -905,6 +961,7 @@ router.get("/analyze", async (req, res) => {
           }
 
           if (completeData) {
+            if (isDebug) completeData.debug = debug.getData();
             sendSSE(res, "complete", completeData);
             return res.end();
           }
@@ -941,7 +998,7 @@ router.get("/analyze", async (req, res) => {
       return res.end();
     }
 
-    const outfit = await buildOutfitForAnchor(anchor, allProducts, store.name, prompts, null);
+    const outfit = await buildOutfitForAnchor(anchor, allProducts, store.name, prompts, null, debug);
 
     const completeData = {
       store: { name: store.name, domain },
@@ -950,6 +1007,7 @@ router.get("/analyze", async (req, res) => {
       productCount: allProducts.length,
       collectionCount: collections.length,
     };
+    if (isDebug) completeData.debug = debug.getData();
     sendSSE(res, "complete", completeData);
     saveDemoResult(domain, store.name, completeData).catch(() => {});
     logDemoSearch(domain, store.name, false, req.ip).catch(() => {});

@@ -144,7 +144,7 @@ function ComplementaryCard({ product }) {
 // ─── Results View ────────────────────────────────────────────────────
 
 function ResultsView({ data, setResult }) {
-  const { store, outfit, alternativeOutfits = [] } = data;
+  const { store, outfit, alternativeOutfits = [], debug } = data;
 
   return (
     <div className="min-h-screen bg-white">
@@ -394,6 +394,38 @@ function ResultsView({ data, setResult }) {
 
       </div>
 
+      {/* Debug Panel */}
+      {debug && (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-28">
+          <div className="mt-8 border border-neutral-200 rounded-xl overflow-hidden">
+            <div className="bg-neutral-100 px-5 py-3 flex items-center justify-between">
+              <span className="text-xs font-bold text-neutral-600 uppercase tracking-wider">Debug Info</span>
+              <span className="text-xs text-neutral-400">{debug.totalTime} · {debug.totalCalls} calls · {debug.totalInputTokens} in / {debug.totalOutputTokens} out</span>
+            </div>
+            <div className="divide-y divide-neutral-100">
+              {debug.calls?.map((call, i) => (
+                <div key={i} className="px-5 py-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-neutral-900">{call.name}</span>
+                    <div className="flex items-center gap-3 text-xs text-neutral-400">
+                      <span>{call.elapsed}</span>
+                      <span>{call.inputTokens} in / {call.outputTokens} out</span>
+                      <span>{call.inputChars} chars</span>
+                    </div>
+                  </div>
+                  {call.rawResponse && (
+                    <details>
+                      <summary className="text-xs text-neutral-400 cursor-pointer hover:text-neutral-600">Show response</summary>
+                      <pre className="mt-2 px-3 py-2 bg-neutral-50 rounded text-xs text-neutral-600 font-mono overflow-x-auto whitespace-pre-wrap">{call.rawResponse}</pre>
+                    </details>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom CTA */}
       <div className="fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 text-white z-50">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -425,6 +457,7 @@ export default function Demo() {
   const navigate = useNavigate();
   const websiteParam = searchParams.get('website') || searchParams.get('url') || searchParams.get('store');
   const skipCaching = searchParams.get('skipCaching') === 'true';
+  const debugMode = searchParams.get('debug') === 'true';
   const [inputUrl, setInputUrl] = useState('');
   const [phase, setPhase] = useState('landing'); // landing | loading | results | error
   const [currentStep, setCurrentStep] = useState('scan');
@@ -457,7 +490,9 @@ export default function Demo() {
     }
 
     const encoded = encodeURIComponent(domain);
-    const params = skipCaching ? `&skipCaching=true` : '';
+    let params = '';
+    if (skipCaching) params += '&skipCaching=true';
+    if (debugMode) params += '&debug=true';
     const es = new EventSource(`${API_URL}/demo/analyze?url=${encoded}${params}`);
     eventSourceRef.current = es;
 
