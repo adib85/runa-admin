@@ -147,38 +147,38 @@ function ResultsView({ data }) {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <div className="border-b border-neutral-100 px-6 py-4 flex items-center justify-between">
+      <div className="bg-neutral-950 border-b border-white/10 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             onClick={() => window.location.href = '/demo'}
-            className="text-neutral-400 hover:text-neutral-600 transition-colors"
+            className="text-neutral-500 hover:text-neutral-300 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
           </button>
-          <a href="/demo" className="text-base font-light italic tracking-tight text-neutral-900 hover:text-neutral-600 transition-colors">
+          <a href="/demo" className="text-base font-light italic tracking-tight text-white/70 hover:text-white transition-colors">
             Runa
           </a>
         </div>
-        <div className="flex items-center gap-2 text-sm text-neutral-500">
-          <span className="text-neutral-900">✦</span>
-          Styling <span className="font-semibold text-neutral-900">{store.name}</span>
+        <div className="flex items-center gap-2 text-sm text-neutral-400">
+          <span className="text-purple-400">✦</span>
+          Styling <span className="font-semibold text-white">{store.name}</span>
         </div>
       </div>
 
       {/* Demo Preview Banner */}
-      <div className="bg-white pt-8 sm:pt-14 pb-6 sm:pb-10 text-center px-6">
-        <span className="inline-block px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-4 sm:mb-6">
+      <div className="bg-neutral-950 pt-8 sm:pt-14 pb-8 sm:pb-12 text-center px-6">
+        <span className="inline-block px-3 py-1 rounded-full bg-white/10 text-neutral-300 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-4 sm:mb-6">
           Demo Preview
         </span>
-        <h1 className="text-xl sm:text-4xl font-bold text-neutral-900 mb-1 sm:mb-2">
-          Here's how <em className="not-italic italic font-light">Runa</em> would style
+        <h1 className="text-xl sm:text-4xl font-bold text-white mb-1 sm:mb-2">
+          Here's how Runa would style
         </h1>
-        <h2 className="text-2xl sm:text-4xl font-bold text-purple-600 mb-3 sm:mb-5">
+        <h2 className="text-2xl sm:text-4xl font-bold text-purple-400 mb-3 sm:mb-5">
           {store.name}
         </h2>
-        <p className="text-neutral-500 max-w-md mx-auto text-xs sm:text-base leading-relaxed">
+        <p className="text-neutral-400 max-w-md mx-auto text-xs sm:text-base leading-relaxed">
           A quick preview using a sample of your products.
           Install Runa to unlock styling across your entire catalog.
         </p>
@@ -187,7 +187,7 @@ function ResultsView({ data }) {
             href="https://calendly.com/adrian-askruna/30min"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white text-sm font-semibold rounded-full hover:bg-purple-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-200 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
@@ -198,7 +198,7 @@ function ResultsView({ data }) {
             href={RUNA_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 border border-neutral-300 text-neutral-700 text-sm font-semibold rounded-full hover:bg-neutral-50 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 border border-neutral-600 text-neutral-300 text-sm font-semibold rounded-full hover:bg-white/5 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
@@ -209,7 +209,7 @@ function ResultsView({ data }) {
       </div>
 
       {/* Product Demo Section */}
-      <div className="max-w-4xl mx-auto px-2 sm:px-6 py-6 sm:py-12 pb-28">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12 pb-28">
         {/* Simulated PDP */}
         <div className="border border-neutral-200 rounded-2xl overflow-hidden shadow-soft">
           {/* Browser chrome */}
@@ -325,7 +325,7 @@ function ResultsView({ data }) {
         </div>
 
         {/* Footer section */}
-        <div className="mt-8 mb-6 text-center">
+        <div className="mt-6 sm:mt-8 mb-4 sm:mb-16 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 mb-8">
             <span className="text-purple-500 text-sm">✦</span>
             <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
@@ -386,6 +386,7 @@ export default function Demo() {
   const [productCount, setProductCount] = useState(0);
   const [collectionStats, setCollectionStats] = useState([]);
   const [stylingMsg, setStylingMsg] = useState(0);
+  const [anchorMsg, setAnchorMsg] = useState(0);
   const eventSourceRef = useRef(null);
 
   const addMessage = useCallback((text, type = 'info') => {
@@ -440,10 +441,9 @@ export default function Demo() {
     es.addEventListener('complete', (e) => {
       const data = JSON.parse(e.data);
       setCompletedSteps(new Set(STEPS.map(s => s.key)));
-      addMessage('Your outfit is ready!', 'done');
       setResult(data);
-
-      setTimeout(() => setPhase('results'), 1200);
+      setPhase('anchor');
+      setTimeout(() => setPhase('results'), 7000);
       es.close();
     });
 
@@ -468,13 +468,26 @@ export default function Demo() {
     };
   }, [addMessage]);
 
+  const anchorMessages = [
+    'Found the perfect anchor',
+    'Creating your outfit look...',
+  ];
+
+  useEffect(() => {
+    if (phase !== 'anchor') return;
+    const interval = setInterval(() => {
+      setAnchorMsg(prev => Math.min(prev + 1, anchorMessages.length - 1));
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [phase]);
+
   const stylingMessages = [
     'Classifying products...',
     'Analyzing color palettes...',
-    'Matching style patterns...',
-    'Building your outfit...',
-    'Selecting the perfect pieces...',
-    'Finalizing your look...',
+    'Detecting style patterns...',
+    'Mapping product categories...',
+    'Finding compatible pieces...',
+    'Selecting anchor product...',
   ];
 
   useEffect(() => {
@@ -521,6 +534,54 @@ export default function Demo() {
 
   if (phase === 'results' && result) {
     return <ResultsView data={result} />;
+  }
+
+  // ─── Anchor Preview ────────────────────────────────────────────────
+
+  if (phase === 'anchor' && result) {
+    const anchor = result.outfit?.anchor;
+    return (
+      <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center px-6 animate-fade-in">
+        {/* Same header as loading */}
+        <div className="mb-8">
+          <div className="relative w-20 h-20 mx-auto mb-4">
+            <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-purple-500 border-r-purple-500/30 animate-spin" />
+            <div className="absolute inset-1 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+              <span className="text-white text-2xl font-light italic tracking-tight">R</span>
+            </div>
+          </div>
+          <p className="text-white font-light italic text-xl tracking-tight text-center">Runa</p>
+          <div className="flex items-center justify-center gap-2 mt-1.5">
+            <p className="text-neutral-400 text-sm">
+              Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
+            </p>
+          </div>
+        </div>
+
+        <StepIndicator currentStep="style" completedSteps={new Set(STEPS.map(s => s.key))} />
+
+        <p className="text-neutral-400 text-sm mb-6 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
+          {anchorMessages[anchorMsg]}
+        </p>
+
+        {anchor && (
+          <div className="border border-white/10 bg-white/5 rounded-2xl p-5 max-w-sm w-full animate-slide-up">
+            <div className="flex items-start gap-4">
+              {anchor.image && (
+                <img src={anchor.image} alt={anchor.title} className="w-20 h-28 object-cover rounded-lg bg-white" />
+              )}
+              <div className="flex-1 pt-1">
+                <p className="text-purple-400 text-xs font-bold uppercase tracking-wider mb-1">Star Product</p>
+                <p className="text-white font-semibold text-sm leading-snug">{anchor.title}</p>
+                <p className="text-neutral-400 text-sm mt-1.5">${anchor.price}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
   }
 
   // ─── Landing / Loading / Error ─────────────────────────────────────
@@ -625,7 +686,7 @@ export default function Demo() {
                 {stylingMessages[stylingMsg].replace('products', `${productCount} products`)}
               </p>
               <div className="grid grid-cols-6 gap-2">
-                {previewImages.map((img, i) => (
+                {previewImages.slice(0, -1).map((img, i) => (
                   <div
                     key={i}
                     className="aspect-square bg-white rounded overflow-hidden animate-fade-in"
@@ -634,18 +695,13 @@ export default function Demo() {
                     <img src={img} alt="" className="w-full h-full object-cover" />
                   </div>
                 ))}
+                {productCount > previewImages.length - 1 && (
+                  <div className="aspect-square bg-white/5 rounded flex items-center justify-center animate-fade-in">
+                    <span className="text-neutral-400 text-sm font-medium">+{productCount - previewImages.length + 1}</span>
+                  </div>
+                )}
               </div>
 
-              {collectionStats.length > 0 && (
-                <div className="flex flex-wrap items-center justify-center gap-2 mt-5 mb-10">
-                  {collectionStats.map((c, i) => (
-                    <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-neutral-400 text-xs">
-                      {c.title}
-                      <span className="text-white/60 font-medium">{c.count}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
           ) : (
             <LogMessages messages={messages} />

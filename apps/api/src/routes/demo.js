@@ -564,17 +564,28 @@ async function saveDemoResult(domain, storeName, resultData) {
 async function logDemoSearch(domain, storeName, fromCache, ip) {
   try {
     const docClient = dynamoClient.getDocClient();
+    const existing = await docClient.send(new GetCommand({
+      TableName: config.dynamodb.tables.cache,
+      Key: { id: `demo_visits_${domain}` },
+    }));
+
+    const visits = existing.Item?.visits || [];
+    visits.unshift({
+      time: Date.now(),
+      fromCache,
+      ip: ip || "unknown",
+    });
+
     await docClient.send(new PutCommand({
       TableName: config.dynamodb.tables.cache,
       Item: {
-        id: `demo_log_${domain}_${Date.now()}`,
+        id: `demo_visits_${domain}`,
         storeId: DEMO_STORE_ID,
         domain,
         storeName,
-        fromCache,
-        ip: ip || "unknown",
-        searchedAt: Date.now(),
-        type: "demo_search",
+        visits: visits.slice(0, 50),
+        totalVisits: (existing.Item?.totalVisits || 0) + 1,
+        lastVisit: Date.now(),
       },
     }));
   } catch (err) {
@@ -604,47 +615,29 @@ router.get("/searches", async (req, res) => {
 
     const outfitsByDomain = {};
     results
-      .filter(r => !r.type && r.result)
+      .filter(r => r.id?.startsWith("demo_") && !r.id.startsWith("demo_visits_") && !r.id.startsWith("demo_prompts") && r.result)
       .forEach(r => {
         outfitsByDomain[r.domain] = r.result?.outfit;
       });
 
-    const searches = results
-      .filter(r => r.type === "demo_search")
-      .sort((a, b) => (b.searchedAt || 0) - (a.searchedAt || 0));
-
-    // Group searches by domain
-    const byDomain = {};
-    for (const s of searches) {
-      if (!byDomain[s.domain]) {
-        byDomain[s.domain] = {
-          domain: s.domain,
-          storeName: s.storeName,
-          visits: [],
-          totalVisits: 0,
-          lastVisit: s.searchedAt,
-          cachedHits: 0,
-          freshHits: 0,
-        };
-      }
-      byDomain[s.domain].totalVisits++;
-      if (s.fromCache) byDomain[s.domain].cachedHits++;
-      else byDomain[s.domain].freshHits++;
-      if (byDomain[s.domain].visits.length < 10) {
-        byDomain[s.domain].visits.push({
-          time: s.searchedAt,
-          fromCache: s.fromCache,
-          ip: s.ip,
-        });
-      }
-    }
-
-    const stores = Object.values(byDomain)
+    const stores = results
+      .filter(r => r.id?.startsWith("demo_visits_"))
+      .map(r => ({
+        domain: r.domain,
+        storeName: r.storeName,
+        visits: (r.visits || []).slice(0, 10),
+        totalVisits: r.totalVisits || 0,
+        lastVisit: r.lastVisit,
+        cachedHits: (r.visits || []).filter(v => v.fromCache).length,
+        freshHits: (r.visits || []).filter(v => !v.fromCache).length,
+      }))
       .sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0));
+
+    const totalSearches = stores.reduce((sum, s) => sum + s.totalVisits, 0);
 
     res.json({
       cached: Object.keys(outfitsByDomain).length,
-      totalSearches: searches.length,
+      totalSearches,
       totalStores: stores.length,
       outfitsByDomain,
       stores,
