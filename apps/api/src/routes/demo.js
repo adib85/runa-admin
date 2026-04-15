@@ -72,7 +72,7 @@ CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exac
 {{availableCollections}}
 
 Your task:
-Build a cohesive outfit around the anchor product above. You MUST pick exactly 4 items:
+Build a cohesive outfit around the anchor product above. Do NOT include the anchor product itself or any product similar to the anchor (same type/category). Pick 3-4 DIFFERENT items:
 - Pick from 4 DIFFERENT collections
 - ALWAYS include SHOES — every outfit needs footwear
 - If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear
@@ -82,7 +82,7 @@ Build a cohesive outfit around the anchor product above. You MUST pick exactly 4
 - Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
 - All items must feel like they belong to the SAME occasion and style
 - Each item must have an image (image field is not null)
-- Do NOT return fewer than 4 items
+   - Return 3-4 items
 
 Give the outfit a short name.
 
@@ -344,7 +344,7 @@ async function fetchImageAsBase64(url) {
 async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections) {
   const model = getGeminiModel(true);
 
-  const complementary = allProducts.filter(p => p.collection !== anchor.collection);
+  const complementary = allProducts.filter(p => p.id !== anchor.id && p.collection !== anchor.collection);
   const compGrouped = groupByCollection(complementary, selectedCollections);
 
   const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, handle: anchor.handle, type: anchor.type, price: anchor.price, image: anchor.image, collection: anchor.collection });
@@ -374,7 +374,7 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
   const outfit = {
     anchor,
     items: (outfitData.items || [])
-      .filter(item => productMap.has(item.id))
+      .filter(item => productMap.has(item.id) && item.id !== anchor.id)
       .map(item => {
         const real = productMap.get(item.id);
         return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
