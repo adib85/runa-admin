@@ -767,9 +767,9 @@ export default function Demo() {
             </div>
           </div>
 
-          <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />
+          {phase !== 'error' && <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />}
 
-          {previewImages.length > 0 ? (
+          {phase === 'error' ? null : previewImages.length > 0 ? (
             <div className="mt-6 max-w-lg mx-auto animate-fade-in">
               <p className="text-neutral-400 text-sm mb-5 flex items-center justify-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse" />
@@ -798,15 +798,15 @@ export default function Demo() {
           )}
 
           {phase === 'error' && (
-            <div className="mt-6 space-y-3">
-              <p className="text-red-400 text-sm">{errorMsg}</p>
+            <div className="mt-6 max-w-sm mx-auto text-center space-y-4">
+              <p className="text-neutral-300 text-sm leading-relaxed">{errorMsg}</p>
               <button
                 onClick={() => {
                   setPhase('landing');
                   setMessages([]);
                   setErrorMsg('');
                 }}
-                className="px-5 py-2.5 bg-neutral-800 text-white text-sm rounded-lg hover:bg-neutral-700 transition-colors"
+                className="px-5 py-2.5 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-200 transition-colors"
               >
                 Try another store
               </button>

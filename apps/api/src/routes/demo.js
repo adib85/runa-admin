@@ -55,6 +55,8 @@ Pick 5 anchor products for 5 DIFFERENT outfits. Each anchor must be:
 
 Ideal mix: 2 clothing pieces (dress, coat/jacket, top/blouse), 1-2 accessories or shoes, 1 knitwear/outerwear. All from DIFFERENT collections.
 
+IMPORTANT: Before picking a dress as an anchor, check if the store has shoes, bags, or jewelry collections. A dress can ONLY be styled with accessories (shoes, bags, jewelry, scarves) — NOT with other clothing like pants or tops. If the store lacks accessory collections, prefer tops or jackets as anchors instead — they can be paired with pants/skirts from the store.
+
 Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
 {
   "anchors": [<id1>, <id2>, <id3>, <id4>, <id5>]
@@ -780,7 +782,7 @@ router.get("/analyze", async (req, res) => {
     const store = await validateShopifyStore(domain);
     if (!store) {
       sendSSE(res, "error", {
-        message: "This doesn't appear to be a Shopify store, or it's not publicly accessible.",
+        message: "This doesn't appear to be a Shopify store. This demo currently works with Shopify stores only. For other platforms (WooCommerce, VTEX, Magento), contact us at adrian@askruna.ai",
       });
       return res.end();
     }
