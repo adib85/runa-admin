@@ -80,71 +80,82 @@ export default function DemoPrompts() {
     {
       key: 'selectCollections',
       label: 'Collections',
-      description: 'Gemini Call #1 — Picks 8-10 product category collections for outfit building.',
+      description: 'Gemini Call #1 — Picks 8-10 product category collections. Men\'s collections are auto-filtered out for multi-gender stores.',
       variables: [
         {
           name: '{{collectionList}}',
-          description: 'Numbered list of ALL store collections. The AI picks 8-10 that are product categories (not brands).',
-          example: `1. "'S Max Mara" (handle: s-max-mara)          ← brand (skip)
-2. "Dresses" (handle: dresses)                   ← CATEGORY ✓
-3. "Coats & Jackets" (handle: coats-jackets)     ← CATEGORY ✓
-4. "Shoes" (handle: shoes)                       ← CATEGORY ✓
-5. "Bags" (handle: bags)                         ← CATEGORY ✓
-6. "Jewellery" (handle: jewellery)               ← CATEGORY ✓
-... (can be 30-400 collections)`,
-          note: 'Returns JSON: {"collections": [{"handle":"...","title":"...","reason":"..."}]}. No main/complementary split — just 8-10 best categories.',
+          description: 'Numbered list of store collections with product counts. Each line shows: title, URL handle, and number of products. Collections with <5 products and men\'s collections (on multi-gender stores) are pre-filtered before this prompt runs.',
+          example: `1. "Womens: Dresses" (handle: womens-dresses, 292 products)
+2. "Womens: Tops" (handle: womens-tops, 819 products)
+3. "Womens: Jackets & Coats" (handle: womens-jackets-coats, 128 products)
+4. "Womens: Pants" (handle: womens-pants, 222 products)
+5. "Womens: Shoes" (handle: womens-shoes, 12 products)
+6. "Womens: Bags & Shoes" (handle: womens-bags-and-shoes, 65 products)
+7. "Womens: Accessories" (handle: womens-accessories, 130 products)
+8. "Womens: Knitwear" (handle: womens-knitwear, 120 products)
+9. "Womens: Skirts" (handle: womens-skirts, 121 products)
+10. "Womens: Earrings" (handle: womens-earrings, 39 products)
+... (typically 30-200 collections after filtering)`,
+          note: 'Must return: {"collections": [{"handle":"...","title":"...","reason":"..."}]}. Pick 8-10 CATEGORY collections (not brands). Include a mix of clothing, footwear, and accessories.',
         },
       ],
     },
     {
       key: 'selectAnchors',
       label: 'Anchor Selection',
-      description: 'Gemini Call #2 — Picks 3 anchor products from 3 different categories for 3 separate outfits.',
+      description: 'Gemini Call #2 — Picks 5 anchor product IDs from different categories. The top 3 are used, 2 are backups in case any outfit fails.',
       variables: [
         {
           name: '{{storeName}}',
-          description: 'The store display name',
-          example: 'RUNWAYHER',
+          description: 'The store display name (e.g., "BRONZE SNAKE", "RUNWAYHER")',
+          example: 'BRONZE SNAKE',
         },
         {
           name: '{{allCollections}}',
-          description: 'ALL products grouped by collection. The AI picks 3 anchors from 3 DIFFERENT collections.',
-          example: `Collection "Dresses" (dresses):
-[{"id":8342626762786,"title":"Givenchy Black Cocktail Dress","handle":"...","price":"2813.00","image":"..."}, ...]
+          description: 'All fetched products grouped by collection. Each product has only id, title, and price (slim format to save tokens). The AI sees ~400 products across 8-10 collections.',
+          example: `Collection "Womens: Dresses" (womens-dresses):
+[{"id":9087123456,"title":"Deserae Low Plunge Maxi Dress Chocolate","price":"169.00"},{"id":9087123457,"title":"Touch Mini Dress Noir","price":"109.00"}, ...]
 
-Collection "Shoes" (shoes):
-[{"id":8340846018594,"title":"Fendi Black Pumps","handle":"...","price":"954.00","image":"..."}, ...]`,
-          note: 'Returns JSON: {"anchors": [{id, title, handle, price, image, collection}, ...]}. Must pick from DIFFERENT collections (e.g., one dress, one jacket, one shoe).',
+Collection "Womens: Jackets & Coats" (womens-jackets-coats):
+[{"id":9087234567,"title":"Rhode Bomber Chocolate","price":"148.00"},{"id":9087234568,"title":"Layilla Jacket Beige","price":"148.00"}, ...]
+
+Collection "Womens: Bags & Shoes" (womens-bags-and-shoes):
+[{"id":9087345678,"title":"Elena Handle Bag Dark Choc","price":"75.00"},{"id":9087345679,"title":"Alias Mae Kruz Black","price":"249.95"}, ...]`,
+          note: 'Must return ONLY IDs: {"anchors": [9087123456, 9087234567, 9087345678, 9087456789, 9087567890]}. Pick from DIFFERENT collections. Ideal: 2 clothing, 1-2 accessories/shoes, 1 knitwear/outerwear.',
         },
       ],
     },
     {
       key: 'buildOutfit',
       label: 'Outfit Builder',
-      description: 'Gemini Call #3 (runs 3x in parallel) — Builds one outfit for a specific anchor product.',
+      description: 'Gemini Call #3 (runs 3x in parallel) — Builds one outfit around a specific anchor. The AI also receives the anchor\'s actual product IMAGE to match colors/style visually.',
       variables: [
         {
           name: '{{storeName}}',
           description: 'The store display name',
-          example: 'RUNWAYHER',
+          example: 'BRONZE SNAKE',
         },
         {
           name: '{{anchorProduct}}',
-          description: 'The specific anchor product (JSON). The outfit must be built around this product.',
-          example: `{"id":8342626762786,"title":"Givenchy Black Cocktail Dress","handle":"givenchy-black-dress","type":"Dresses","price":"2813.00","image":"https://cdn.shopify.com/...","collection":"dresses"}`,
+          description: 'The specific anchor product as JSON. The AI also receives the anchor\'s IMAGE as a separate visual input (not shown here).',
+          example: `{"id":9087123456,"title":"Deserae Low Plunge Maxi Dress Chocolate","type":"Dresses","price":"169.00","collection":"womens-dresses"}`,
+          note: 'The anchor\'s photo is sent alongside this JSON so the AI can see the actual colors, fabric, and style.',
         },
         {
           name: '{{availableCollections}}',
-          description: 'Products from all OTHER collections (excluding the anchor\'s collection). Pick 4 items from different collections.',
-          example: `Collection "Shoes" (shoes):
-[{"id":8340846018594,"title":"Fendi Black Pumps","handle":"...","price":"954.00","image":"..."}, ...]
+          description: 'Products from all OTHER collections (anchor\'s collection + same product type are excluded). Each product has id, title, price only.',
+          example: `Collection "Womens: Jackets & Coats" (womens-jackets-coats):
+[{"id":9087234567,"title":"Rhode Bomber Chocolate","price":"148.00"}, ...]
 
-Collection "Bags" (bags):
-[{"id":8335908601890,"title":"Saint Laurent Shoulder Bag","handle":"...","price":"1050.00","image":"..."}, ...]
+Collection "Womens: Bags & Shoes" (womens-bags-and-shoes):
+[{"id":9087345678,"title":"Elena Handle Bag Dark Choc","price":"75.00"}, ...]
 
-Collection "Jewellery" (jewellery):
-[{"id":8338487738402,"title":"Alessandra Rich Earrings","handle":"...","price":"318.00","image":"..."}, ...]`,
-          note: 'Returns JSON: {"items": [{id, title, handle, price, image, collection, role}, ...], "outfit_name": "...", "total_price": "..."}. Anchor is already set — just pick complementary items.',
+Collection "Womens: Earrings" (womens-earrings):
+[{"id":9087456789,"title":"Crystal Huggie Earrings Gold","price":"37.00"}, ...]
+
+Collection "Womens: Belts" (womens-belts):
+[{"id":9087567890,"title":"Marni Belt Tan","price":"49.00"}, ...]`,
+          note: 'Must return ONLY IDs + outfit name: {"items": [9087234567, 9087345678, 9087456789], "outfit_name": "Chocolate Evening"}. Return 3-4 IDs. STYLE COHERENCE is key: evening anchor = evening items, casual anchor = casual items.',
         },
       ],
     },
