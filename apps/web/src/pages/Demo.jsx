@@ -112,8 +112,8 @@ function ComplementaryCard({ product }) {
     : product.title;
 
   return (
-    <div className="group flex-shrink-0 text-center">
-      <div className="bg-white aspect-square w-36 sm:w-44 lg:w-full flex items-center justify-center p-3">
+    <div className="group flex-shrink-0 text-center w-36 sm:w-44 lg:w-full">
+      <div className="bg-white aspect-square w-full flex items-center justify-center p-3">
         {product.image ? (
           <img
             src={product.image}
@@ -124,7 +124,7 @@ function ComplementaryCard({ product }) {
           <div className="text-neutral-300 text-xs">No image</div>
         )}
       </div>
-      <div className="mt-3 w-36 sm:w-44 lg:w-full">
+      <div className="mt-3 w-full">
         <p className="text-xs font-bold text-neutral-900 uppercase tracking-wide truncate">
           {vendor}
         </p>
@@ -168,7 +168,7 @@ function ResultsView({ data }) {
       </div>
 
       {/* Demo Preview Banner */}
-      <div className="bg-white pt-14 pb-10 text-center px-6">
+      <div className="bg-white pt-8 sm:pt-14 pb-6 sm:pb-10 text-center px-6">
         <span className="inline-block px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold uppercase tracking-wider mb-6">
           Demo Preview
         </span>
@@ -182,7 +182,7 @@ function ResultsView({ data }) {
           A quick preview using a sample of your products.
           Install Runa to unlock styling across your entire catalog.
         </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
           <a
             href="https://calendly.com/adrian-askruna/30min"
             target="_blank"
@@ -209,7 +209,7 @@ function ResultsView({ data }) {
       </div>
 
       {/* Product Demo Section */}
-      <div className="max-w-4xl mx-auto px-6 py-12 pb-28">
+      <div className="max-w-4xl mx-auto px-6 py-6 sm:py-12 pb-28">
         {/* Simulated PDP */}
         <div className="border border-neutral-200 rounded-2xl overflow-hidden shadow-soft">
           {/* Browser chrome */}
@@ -333,13 +333,13 @@ function ResultsView({ data }) {
 
           <div className="flex items-center justify-center gap-12">
             <div className="text-center">
-              <p className="text-3xl font-light text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
-              <p className="text-sm text-neutral-600 mt-1.5 font-medium">Conversion Rate</p>
+              <p className="text-2xl sm:text-3xl font-light text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
+              <p className="text-xs sm:text-sm text-neutral-600 mt-1 font-medium">Conversion Rate</p>
             </div>
-            <div className="w-px h-14 bg-neutral-200" />
+            <div className="w-px h-10 sm:h-14 bg-neutral-200" />
             <div className="text-center">
-              <p className="text-3xl font-light text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
-              <p className="text-sm text-neutral-600 mt-1.5 font-medium">Average Order Value</p>
+              <p className="text-2xl sm:text-3xl font-light text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
+              <p className="text-xs sm:text-sm text-neutral-600 mt-1 font-medium">Average Order Value</p>
             </div>
           </div>
 
