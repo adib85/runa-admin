@@ -213,6 +213,7 @@ function ResultsView({ data, setResult }) {
       {/* Product Demo Section */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12 pb-28">
         {/* Simulated PDP */}
+        <div id="product-demo" />
         <div className="border border-neutral-200 rounded-2xl overflow-hidden shadow-soft">
           {/* Browser chrome */}
           <div className="bg-neutral-100 px-4 py-3 flex items-center gap-2 border-b border-neutral-200">
@@ -343,7 +344,7 @@ function ResultsView({ data, setResult }) {
                   key={i}
                   className="border border-neutral-200 rounded-xl p-4 hover:border-purple-300 cursor-pointer transition-colors"
                   onClick={() => {
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    document.getElementById('product-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     data.outfit = alt;
                     data.alternativeOutfits = [outfit, ...alternativeOutfits.filter((_, j) => j !== i)];
                     setResult({ ...data });
@@ -376,15 +377,16 @@ function ResultsView({ data, setResult }) {
             <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
           </div>
 
+          <p className="text-sm text-neutral-500 mb-6">Average lift from stores running Runa</p>
           <div className="flex items-center justify-center gap-12">
             <div className="text-center">
-              <p className="text-2xl sm:text-3xl font-light text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
-              <p className="text-xs sm:text-sm text-neutral-600 mt-1 font-medium">Conversion Rate</p>
+              <p className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
+              <p className="text-xs text-neutral-500 mt-1">Conversion Rate</p>
             </div>
-            <div className="w-px h-10 sm:h-14 bg-neutral-200" />
+            <div className="w-px h-8 sm:h-10 bg-neutral-200" />
             <div className="text-center">
-              <p className="text-2xl sm:text-3xl font-light text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
-              <p className="text-xs sm:text-sm text-neutral-600 mt-1 font-medium">Average Order Value</p>
+              <p className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
+              <p className="text-xs text-neutral-500 mt-1">Average Order Value</p>
             </div>
           </div>
 

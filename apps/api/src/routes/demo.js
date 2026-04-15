@@ -22,9 +22,11 @@ CRITICAL RULES:
 - NEVER pick collections like "Gift Cards", "Sale", "All", "Home", "Bundles", "New Arrivals", "Best Sellers", "Activewear"
 - If a collection title looks like a brand/designer name rather than a product category, SKIP it
 - ONLY pick collections with at least 5 products (check the product count)
+- If the store has BOTH men's and women's collections, pick ONLY women's collections. Never mix genders in the same outfit selection.
+- If the store is men-only, pick men's collections.
 
 Your task:
-Pick 8-10 product category collections that are useful for outfit building. Include a MIX of:
+Pick 8-10 product category collections that are useful for outfit building. All from the SAME gender (prefer women's if both available). Include a MIX of:
 - Clothing categories (dresses, tops, shirts, jackets, knitwear, coats, pants, skirts)
 - Footwear categories (shoes, boots, sandals, sneakers)
 - Accessories categories (bags, jewelry, belts, scarves)
