@@ -172,31 +172,38 @@ function ResultsView({ data }) {
         <span className="inline-block px-4 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold uppercase tracking-wider mb-6">
           Demo Preview
         </span>
-        <h1 className="text-3xl sm:text-4xl font-bold text-neutral-900 mb-3">
-          Here's how <em className="not-italic font-light italic">Runa</em> would style{' '}
-          <span className="text-purple-600">{store.name}</span>
+        <h1 className="text-3xl sm:text-4xl font-bold text-neutral-900 mb-2">
+          Here's how <em className="not-italic italic">Runa</em> would style
         </h1>
-        <p className="text-neutral-500 max-w-lg mx-auto text-sm sm:text-base">
-          This is a quick preview using a sample of your products.
-          Hire Runa to unlock styling across your entire catalog —
-          with more outfits, better matching, and real-time updates.
+        <h2 className="text-3xl sm:text-4xl font-bold text-purple-600 mb-5">
+          {store.name}
+        </h2>
+        <p className="text-neutral-500 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+          A quick preview using a sample of your products.
+          Install Runa to unlock styling across your entire catalog.
         </p>
-        <div className="flex items-center justify-center gap-4 mt-8">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-8">
           <a
-            href={RUNA_URL}
+            href="https://calendly.com/adrian-askruna/30min"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-6 py-3 bg-neutral-900 text-white text-sm font-semibold rounded-full hover:bg-neutral-800 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 text-white text-sm font-semibold rounded-full hover:bg-purple-700 transition-colors"
           >
-            Hire Runa
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+            </svg>
+            Book a Call
           </a>
           <a
             href={RUNA_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-6 py-3 border border-neutral-300 text-neutral-700 text-sm font-semibold rounded-full hover:bg-neutral-50 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 border border-neutral-300 text-neutral-700 text-sm font-semibold rounded-full hover:bg-neutral-50 transition-colors"
           >
-            Live Demo with an Expert
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+            </svg>
+            Install on Shopify
           </a>
         </div>
       </div>
@@ -317,21 +324,42 @@ function ResultsView({ data }) {
           </div>
         </div>
 
+        {/* Footer section */}
+        <div className="mt-8 mb-6 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 mb-8">
+            <span className="text-purple-500 text-sm">✦</span>
+            <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
+          </div>
+
+          <div className="flex items-center justify-center gap-12">
+            <div className="text-center">
+              <p className="text-3xl font-light text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
+              <p className="text-sm text-neutral-600 mt-1.5 font-medium">Conversion Rate</p>
+            </div>
+            <div className="w-px h-14 bg-neutral-200" />
+            <div className="text-center">
+              <p className="text-3xl font-light text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
+              <p className="text-sm text-neutral-600 mt-1.5 font-medium">Average Order Value</p>
+            </div>
+          </div>
+
+        </div>
+
       </div>
 
       {/* Bottom CTA */}
-      <div className="fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 text-white px-6 py-4 flex items-center justify-between z-50">
-        <p className="text-sm text-neutral-300">
-          Like what you see? <em className="not-italic font-light">Runa</em> costs less than an intern, works harder than a department.
-        </p>
-        <div className="flex items-center gap-3">
+      <div className="fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 text-white z-50">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+          <p className="text-sm text-neutral-300">
+            Like what you see? <em className="not-italic italic font-light">Runa</em> costs less than an intern, works harder than a department.
+          </p>
           <a
-            href={RUNA_URL}
+            href="https://calendly.com/adrian-askruna/30min"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-5 py-2 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-100 transition-colors whitespace-nowrap"
+            className="px-5 py-2 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-100 transition-colors whitespace-nowrap ml-6"
           >
-            Hire Runa
+            Book a Call
           </a>
         </div>
       </div>
@@ -346,6 +374,7 @@ export default function Demo() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const websiteParam = searchParams.get('website') || searchParams.get('url') || searchParams.get('store');
+  const skipCaching = searchParams.get('skipCaching') === 'true';
   const [inputUrl, setInputUrl] = useState('');
   const [phase, setPhase] = useState('landing'); // landing | loading | results | error
   const [currentStep, setCurrentStep] = useState('scan');
@@ -355,6 +384,7 @@ export default function Demo() {
   const [errorMsg, setErrorMsg] = useState('');
   const [previewImages, setPreviewImages] = useState([]);
   const [productCount, setProductCount] = useState(0);
+  const [collectionStats, setCollectionStats] = useState([]);
   const [stylingMsg, setStylingMsg] = useState(0);
   const eventSourceRef = useRef(null);
 
@@ -376,7 +406,8 @@ export default function Demo() {
     }
 
     const encoded = encodeURIComponent(domain);
-    const es = new EventSource(`${API_URL}/demo/analyze?url=${encoded}`);
+    const params = skipCaching ? `&skipCaching=true` : '';
+    const es = new EventSource(`${API_URL}/demo/analyze?url=${encoded}${params}`);
     eventSourceRef.current = es;
 
     es.addEventListener('status', (e) => {
@@ -400,6 +431,9 @@ export default function Demo() {
       }
       if (data.previewImages) {
         setPreviewImages(data.previewImages);
+      }
+      if (data.collectionStats) {
+        setCollectionStats(data.collectionStats);
       }
     });
 
@@ -505,12 +539,12 @@ export default function Demo() {
             Paste your website URL. See results in 30 seconds.
           </p>
 
-          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-xl mx-auto">
+          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 max-w-md mx-auto">
             <input
               type="text"
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
-              placeholder="runwayher.com or yourstore.myshopify.com"
+              placeholder="runwayher.com"
               className="flex-1 px-5 py-4 rounded-2xl bg-white/5 border border-white/10 text-white text-base sm:text-sm placeholder-neutral-500 focus:outline-none focus:border-white/25 transition-colors"
               autoFocus
             />
@@ -527,7 +561,7 @@ export default function Demo() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mt-10">
             <a
-              href={RUNA_URL}
+              href="https://calendly.com/adrian-askruna/30min"
               target="_blank"
               rel="noopener noreferrer"
               className="text-neutral-500 text-sm py-2 hover:text-neutral-300 transition-colors flex items-center gap-2"
@@ -535,7 +569,7 @@ export default function Demo() {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
               </svg>
-              Book a 15-min Walkthrough
+              Book a Call
             </a>
             <a
               href={RUNA_URL}
@@ -546,13 +580,16 @@ export default function Demo() {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
               </svg>
-              Request Access
+              Install on Shopify
             </a>
           </div>
 
           <p className="text-neutral-700 text-xs mt-8">
-            The Agentic Merchant for Fashion
+            Get started for free · 5-minute setup
           </p>
+          <a href={RUNA_URL} target="_blank" rel="noopener noreferrer" className="text-neutral-600 text-xs mt-4 inline-block hover:text-neutral-400 transition-colors">
+            askruna.ai
+          </a>
         </div>
       )}
 
@@ -591,13 +628,24 @@ export default function Demo() {
                 {previewImages.map((img, i) => (
                   <div
                     key={i}
-                    className="aspect-square bg-white rounded-lg overflow-hidden shadow-sm animate-fade-in"
+                    className="aspect-square bg-white rounded overflow-hidden animate-fade-in"
                     style={{ animationDelay: `${i * 50}ms` }}
                   >
                     <img src={img} alt="" className="w-full h-full object-cover" />
                   </div>
                 ))}
               </div>
+
+              {collectionStats.length > 0 && (
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-5 mb-10">
+                  {collectionStats.map((c, i) => (
+                    <span key={i} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-neutral-400 text-xs">
+                      {c.title}
+                      <span className="text-white/60 font-medium">{c.count}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <LogMessages messages={messages} />

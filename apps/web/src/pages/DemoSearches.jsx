@@ -95,52 +95,97 @@ export default function DemoSearches() {
     <div>
       <DemoNav />
       <div className="max-w-3xl mx-auto px-6 py-12">
-      <div className="mb-10">
-        <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
-        <p className="text-sm text-neutral-500 mt-2">
-          {data.totalSearches} searches · {data.cached} stores analyzed
-        </p>
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
+          <p className="text-sm text-neutral-500 mt-2">
+            {data.totalStores} stores · {data.totalSearches} total visits · {data.cached} cached
+          </p>
+        </div>
+        {data.cached > 0 && (
+          <button
+            onClick={async () => {
+              if (!confirm('Delete ALL cached results? Next visits will run fresh.')) return;
+              await fetch('/api/demo/cache', { method: 'DELETE' });
+              window.location.reload();
+            }}
+            className="px-4 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors"
+          >
+            Clear All Cache
+          </button>
+        )}
       </div>
 
       <div className="space-y-4">
-        {data.recentSearches?.map((s, i) => {
-          const outfit = data.outfitsByDomain?.[s.domain];
+        {data.stores?.map((store) => {
+          const outfit = data.outfitsByDomain?.[store.domain];
           return (
-            <div key={i} className="bg-white border border-neutral-100 rounded-lg px-6 py-5 flex items-center justify-between hover:border-neutral-200 transition-colors">
-              <div className="flex items-center gap-5">
-                {outfit?.anchor?.image ? (
-                  <img
-                    src={outfit.anchor.image}
-                    alt={outfit.anchor.title}
-                    className="w-14 h-14 object-cover rounded-md bg-neutral-50"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-md bg-neutral-50 flex items-center justify-center text-neutral-300 text-xs">—</div>
-                )}
-                <div>
-                  <p className="text-sm font-semibold text-neutral-900">{s.storeName || s.domain}</p>
-                  <p className="text-xs text-neutral-400 mt-1">{s.domain}</p>
+            <div key={store.domain} className="bg-white border border-neutral-100 rounded-lg overflow-hidden hover:border-neutral-200 transition-colors">
+              <div className="px-6 py-5 flex items-center justify-between">
+                <div className="flex items-center gap-5">
+                  {outfit?.anchor?.image ? (
+                    <img
+                      src={outfit.anchor.image}
+                      alt={outfit.anchor.title}
+                      className="w-14 h-14 object-cover rounded-md bg-neutral-50"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-md bg-neutral-50 flex items-center justify-center text-neutral-300 text-xs">—</div>
+                  )}
+                  <div>
+                    <p className="text-sm font-semibold text-neutral-900">{store.storeName || store.domain}</p>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      {store.domain} · {store.totalVisits} visits
+                      {store.cachedHits > 0 && <span className="text-purple-500 ml-1">({store.cachedHits} cached)</span>}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {outfit ? (
+                    <>
+                      <button
+                        onClick={() => setPreviewOutfit(outfit)}
+                        className="px-4 py-2 text-xs font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 transition-colors whitespace-nowrap"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Delete cached result for ${store.domain}?`)) return;
+                          await fetch(`/api/demo/cache/${store.domain}`, { method: 'DELETE' });
+                          window.location.reload();
+                        }}
+                        className="px-3 py-2 text-xs text-red-500 hover:bg-red-50 rounded-md transition-colors whitespace-nowrap"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-neutral-300">No result</span>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-6">
-                <p className="text-xs text-neutral-400 text-right whitespace-nowrap">
-                  {s.searchedAt ? new Date(s.searchedAt).toLocaleString() : '—'}
-                </p>
-                {outfit ? (
-                  <button
-                    onClick={() => setPreviewOutfit(outfit)}
-                    className="px-4 py-2 text-xs font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 transition-colors whitespace-nowrap"
-                  >
-                    View Outfit
-                  </button>
-                ) : (
-                  <span className="px-4 py-2 text-xs text-neutral-300 whitespace-nowrap">No result</span>
-                )}
-              </div>
+              {/* Visit history */}
+              {store.visits.length > 0 && (
+                <div className="border-t border-neutral-50 px-6 py-3 bg-neutral-50/50">
+                  <div className="flex flex-wrap gap-x-6 gap-y-1">
+                    {store.visits.map((v, i) => (
+                      <span key={i} className="text-xs text-neutral-400">
+                        {new Date(v.time).toLocaleString()}
+                        {v.fromCache && <span className="text-purple-400 ml-1">·cache</span>}
+                        {v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
+                      </span>
+                    ))}
+                    {store.totalVisits > 10 && (
+                      <span className="text-xs text-neutral-300">+{store.totalVisits - 10} more</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
-        {data.recentSearches?.length === 0 && (
+        {(!data.stores || data.stores.length === 0) && (
           <div className="text-center py-20">
             <p className="text-sm font-medium text-neutral-900 mb-1">No searches yet</p>
             <p className="text-sm text-neutral-500">

@@ -1,7 +1,7 @@
 import express from "express";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "@runa/config";
-import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamoClient } from "@runa/core/database/dynamodb";
 
 const router = express.Router();
@@ -513,6 +513,34 @@ Return ONLY a JSON array of INDEX numbers of items to REMOVE for style/occasion/
 
 const DEMO_STORE_ID = "demo_searches";
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function getCachedResult(domain) {
+  try {
+    const docClient = dynamoClient.getDocClient();
+    const result = await docClient.send(new GetCommand({
+      TableName: config.dynamodb.tables.cache,
+      Key: { id: `demo_${domain}` },
+    }));
+    return result.Item?.result || null;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCachedResult(domain) {
+  try {
+    const docClient = dynamoClient.getDocClient();
+    await docClient.send(new DeleteCommand({
+      TableName: config.dynamodb.tables.cache,
+      Key: { id: `demo_${domain}` },
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function saveDemoResult(domain, storeName, resultData) {
   try {
     const docClient = dynamoClient.getDocClient();
@@ -533,7 +561,7 @@ async function saveDemoResult(domain, storeName, resultData) {
   }
 }
 
-async function logDemoSearch(domain, storeName, fromCache) {
+async function logDemoSearch(domain, storeName, fromCache, ip) {
   try {
     const docClient = dynamoClient.getDocClient();
     await docClient.send(new PutCommand({
@@ -544,6 +572,7 @@ async function logDemoSearch(domain, storeName, fromCache) {
         domain,
         storeName,
         fromCache,
+        ip: ip || "unknown",
         searchedAt: Date.now(),
         type: "demo_search",
       },
@@ -584,15 +613,82 @@ router.get("/searches", async (req, res) => {
       .filter(r => r.type === "demo_search")
       .sort((a, b) => (b.searchedAt || 0) - (a.searchedAt || 0));
 
+    // Group searches by domain
+    const byDomain = {};
+    for (const s of searches) {
+      if (!byDomain[s.domain]) {
+        byDomain[s.domain] = {
+          domain: s.domain,
+          storeName: s.storeName,
+          visits: [],
+          totalVisits: 0,
+          lastVisit: s.searchedAt,
+          cachedHits: 0,
+          freshHits: 0,
+        };
+      }
+      byDomain[s.domain].totalVisits++;
+      if (s.fromCache) byDomain[s.domain].cachedHits++;
+      else byDomain[s.domain].freshHits++;
+      if (byDomain[s.domain].visits.length < 10) {
+        byDomain[s.domain].visits.push({
+          time: s.searchedAt,
+          fromCache: s.fromCache,
+          ip: s.ip,
+        });
+      }
+    }
+
+    const stores = Object.values(byDomain)
+      .sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0));
+
     res.json({
       cached: Object.keys(outfitsByDomain).length,
       totalSearches: searches.length,
+      totalStores: stores.length,
       outfitsByDomain,
-      recentSearches: searches.slice(0, 100),
+      stores,
     });
   } catch (err) {
     console.error("List demo searches error:", err);
     res.status(500).json({ error: "Failed to fetch demo searches" });
+  }
+});
+
+// ─── Cache Management ────────────────────────────────────────────────
+
+router.delete("/cache/:domain", async (req, res) => {
+  const ok = await deleteCachedResult(req.params.domain);
+  res.json({ success: ok, domain: req.params.domain });
+});
+
+router.delete("/cache", async (req, res) => {
+  try {
+    const docClient = dynamoClient.getDocClient();
+    const results = [];
+    let lastKey;
+    do {
+      const response = await docClient.send(new QueryCommand({
+        TableName: config.dynamodb.tables.cache,
+        IndexName: "storeId-index",
+        KeyConditionExpression: "storeId = :sid",
+        ExpressionAttributeValues: { ":sid": DEMO_STORE_ID },
+        ...(lastKey ? { ExclusiveStartKey: lastKey } : {}),
+      }));
+      results.push(...(response.Items || []));
+      lastKey = response.LastEvaluatedKey;
+    } while (lastKey);
+
+    const cached = results.filter(r => !r.type && r.result);
+    await Promise.all(cached.map(r =>
+      docClient.send(new DeleteCommand({
+        TableName: config.dynamodb.tables.cache,
+        Key: { id: r.id },
+      }))
+    ));
+    res.json({ success: true, deleted: cached.length });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to clear cache" });
   }
 });
 
@@ -676,7 +772,7 @@ router.get("/analyze", async (req, res) => {
         sendSSE(res, "status", { step: "products", message: "Loading products..." });
 
         const productResults = await Promise.all(
-          allHandles.map(handle => fetchCollectionProducts(domain, handle, 30))
+          allHandles.map(handle => fetchCollectionProducts(domain, handle, 50))
         );
 
         // Map products to main vs complementary, drop empty collections
@@ -734,26 +830,44 @@ router.get("/analyze", async (req, res) => {
             idx++;
           }
 
+          const collectionStats = [...validMain, ...validComp].map(handle => {
+            const title = collectionTitles[handle] || handle;
+            const count = allFetched.filter(p => p.collection === handle).length;
+            return { title, count };
+          });
+
           sendSSE(res, "status", {
             step: "products",
             message: `Found ${totalProducts} products across ${validMain.length + validComp.length} collections`,
             productCount: totalProducts,
             previewImages: previewRows,
+            collectionStats,
           });
 
-          // Step 4: Gemini #2 — Build outfit
+          // Step 4: Check cache or build outfit
           sendSSE(res, "status", { step: "style", message: "Styling your outfit..." });
-          const outfit = await buildOutfit(mainProducts, complementaryProducts, store.name, prompts, selectedCollections);
 
-          const completeData = {
-            store: { name: store.name, domain },
-            outfit,
-            productCount: totalProducts,
-            collectionCount: validMain.length + validComp.length,
-          };
+          const skipCaching = req.query.skipCaching === "true";
+          const cached = skipCaching ? null : await getCachedResult(domain);
+          let completeData;
+
+          if (cached) {
+            await sleep(5000);
+            completeData = cached;
+            logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
+          } else {
+            const outfit = await buildOutfit(mainProducts, complementaryProducts, store.name, prompts, selectedCollections);
+            completeData = {
+              store: { name: store.name, domain },
+              outfit,
+              productCount: totalProducts,
+              collectionCount: validMain.length + validComp.length,
+            };
+            saveDemoResult(domain, store.name, completeData).catch(() => {});
+            logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
+          }
+
           sendSSE(res, "complete", completeData);
-          saveDemoResult(domain, store.name, completeData).catch(() => {});
-          logDemoSearch(domain, store.name, false).catch(() => {});
           return res.end();
         }
       }
@@ -795,7 +909,7 @@ router.get("/analyze", async (req, res) => {
     };
     sendSSE(res, "complete", completeData);
     saveDemoResult(domain, store.name, completeData).catch(() => {});
-    logDemoSearch(domain, store.name, false).catch(() => {});
+    logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
     res.end();
   } catch (err) {
     console.error("Demo analyze error:", err);
