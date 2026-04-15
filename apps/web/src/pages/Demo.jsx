@@ -350,8 +350,11 @@ function ResultsView({ data }) {
       {/* Bottom CTA */}
       <div className="fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 text-white z-50">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <p className="text-sm text-neutral-300">
+          <p className="text-sm text-neutral-300 hidden sm:block">
             Like what you see? <em className="not-italic italic font-light">Runa</em> costs less than an intern, works harder than a department.
+          </p>
+          <p className="text-sm text-neutral-300 sm:hidden">
+            Like what you see?
           </p>
           <a
             href="https://calendly.com/adrian-askruna/30min"
