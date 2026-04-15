@@ -23,57 +23,71 @@ CRITICAL RULES:
 - If a collection title looks like a brand/designer name rather than a product category, SKIP it
 
 Your task:
-1. Pick 2-3 MAIN collection candidates — product category collections containing "hero" items like dresses, tops, shirts, jackets, knitwear, or coats.
-2. Pick 4-5 COMPLEMENTARY collection candidates — product category collections containing items that complete an outfit: shoes/boots/sandals/sneakers, pants/trousers/jeans, bags/shoulder bags, accessories, jewelry, scarves, belts, etc.
-3. Rank them by priority (best first).
+Pick 8-10 product category collections that are useful for outfit building. Include a MIX of:
+- Clothing categories (dresses, tops, shirts, jackets, knitwear, coats, pants, skirts)
+- Footwear categories (shoes, boots, sandals, sneakers)
+- Accessories categories (bags, jewelry, belts, scarves)
+
+Rank them by priority (best first).
 
 Return ONLY valid JSON, no markdown:
 {
-  "main": [{"handle": "...", "title": "...", "reason": "..."}],
-  "complementary": [{"handle": "...", "title": "...", "reason": "..."}]
+  "collections": [{"handle": "...", "title": "...", "reason": "..."}]
+}`,
+
+  selectAnchors: `You are a fashion stylist selecting 3 anchor products for 3 different "Complete the Look" outfits for {{storeName}}.
+
+CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent products.
+
+Here are the products grouped by collection:
+{{allCollections}}
+
+Your task:
+Pick 3 anchor products for 3 DIFFERENT outfits. Each anchor must be:
+- From a DIFFERENT collection/category (e.g., one dress, one top/jacket, one shoe/bag)
+- Visually striking and photogenic
+- Mid-to-high price range
+- Has an image (not null)
+- Versatile enough to pair with items from other collections
+
+Ideal mix: 1 clothing piece (dress/coat/jacket), 1 different clothing piece (top/blouse/knitwear), 1 accessory or shoe.
+
+Return ONLY valid JSON, no markdown:
+{
+  "anchors": [
+    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."},
+    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."},
+    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."}
+  ]
 }`,
 
   buildOutfit: `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
 
 CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent or fabricate products, prices, or image URLs.
 
-===== MAIN COLLECTIONS (pick the ANCHOR product from one of these) =====
-{{mainCollections}}
+===== ANCHOR PRODUCT =====
+{{anchorProduct}}
 
-===== COMPLEMENTARY COLLECTIONS (pick 3-5 items from these to complete the look) =====
-{{complementaryCollections}}
+===== AVAILABLE COLLECTIONS (pick 3-5 items from these to complete the look) =====
+{{availableCollections}}
 
 Your task:
-1. ANCHOR SELECTION: Pick the BEST anchor product from one of the main collections. Choose something:
-   - Visually striking and photogenic (it will be the hero image)
-   - Mid-to-high price range (shows value)
-   - Versatile enough to pair with items from the complementary collections
-   - NOT a basic/plain item (no plain white tees, no generic socks)
-   - Has an image (image field is not null)
+Build a cohesive outfit around the anchor product above. You MUST pick exactly 4 items:
+- Pick from 4 DIFFERENT collections
+- ALWAYS include SHOES — every outfit needs footwear
+- If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear
+- If the anchor is a TOP or BLOUSE: pick bottoms (pants/skirt), shoes, bags, jewelry
+- If the anchor is a SHOE or BAG: pick clothing items (dress/top + bottom, or a full outfit) that match
+- Consider color coordination and style coherence across all pieces
+- Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
+- All items must feel like they belong to the SAME occasion and style
+- Each item must have an image (image field is not null)
+- Do NOT return fewer than 4 items
 
-2. OUTFIT BUILDING: You MUST pick exactly 4 items from the complementary collections that create a cohesive outfit with the anchor:
-   - You MUST pick from 4 DIFFERENT collections (e.g. one from Shoes, one from Bags, one from Belts, one from Scarves)
-   - ALWAYS include SHOES — every outfit needs footwear
-   - If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses — dresses already cover the torso. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear like a coat/blazer that complements the dress
-   - If the anchor is a TOP or BLOUSE: pick bottoms (pants/skirt), shoes, bags, jewelry
-   - Consider color coordination and style coherence across all pieces
-   - Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
-   - All items must feel like they belong to the SAME occasion and style
-   - Each item must have an image (image field is not null)
-   - Do NOT return fewer than 4 items
-
-3. Give the outfit a short name.
+Give the outfit a short name.
 
 Return ONLY valid JSON, no markdown:
 {
-  "anchor": {
-    "id": <number>,
-    "title": "...",
-    "handle": "...",
-    "price": "...",
-    "image": "...",
-    "collection": "..."
-  },
   "items": [
     {
       "id": <number>,
@@ -82,11 +96,11 @@ Return ONLY valid JSON, no markdown:
       "price": "...",
       "image": "...",
       "collection": "...",
-      "role": "bottom|shoes|bag|accessory|outerwear|jewelry"
+      "role": "bottom|shoes|bag|accessory|outerwear|jewelry|top|dress"
     }
   ],
   "outfit_name": "...",
-  "total_price": "sum of all items including anchor"
+  "total_price": "sum of all items INCLUDING the anchor"
 }`,
 };
 
@@ -264,10 +278,30 @@ async function selectCollections(collections, prompts) {
   return JSON.parse(text);
 }
 
+async function selectAnchors(allProducts, selectedCollections, storeName, prompts) {
+  const model = getGeminiModel(true);
+  const grouped = groupByCollection(allProducts, selectedCollections);
+  const prompt = prompts.selectAnchors
+    .replace("{{storeName}}", storeName)
+    .replace("{{allCollections}}", formatGrouped(grouped));
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
+  const parsed = JSON.parse(text);
+
+  const productMap = new Map(allProducts.map(p => [p.id, p]));
+  return (parsed.anchors || [])
+    .filter(a => productMap.has(a.id))
+    .map(a => {
+      const real = productMap.get(a.id);
+      return { ...a, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor, collection: real.collection };
+    });
+}
+
 function groupByCollection(products, selectedCollections) {
   const handleToTitle = {};
-  [...(selectedCollections?.main || []), ...(selectedCollections?.complementary || [])]
-    .forEach(c => { handleToTitle[c.handle] = c.title; });
+  const cols = selectedCollections?.collections || [...(selectedCollections?.main || []), ...(selectedCollections?.complementary || [])];
+  cols.forEach(c => { handleToTitle[c.handle] = c.title; });
 
   const groups = {};
   for (const p of products) {
@@ -279,7 +313,7 @@ function groupByCollection(products, selectedCollections) {
       handle: p.handle,
       type: p.type,
       price: p.price,
-      tags: p.tags.slice(0, 5),
+      tags: (p.tags || []).slice(0, 5),
       image: p.image,
     });
   }
@@ -307,58 +341,50 @@ async function fetchImageAsBase64(url) {
   }
 }
 
-async function buildOutfit(mainProducts, complementaryProducts, storeName, prompts, selectedCollections) {
+async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections) {
   const model = getGeminiModel(true);
 
-  const mainGrouped = groupByCollection(mainProducts, selectedCollections);
-  const compGrouped = groupByCollection(complementaryProducts, selectedCollections);
+  const complementary = allProducts.filter(p => p.collection !== anchor.collection);
+  const compGrouped = groupByCollection(complementary, selectedCollections);
+
+  const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, handle: anchor.handle, type: anchor.type, price: anchor.price, image: anchor.image, collection: anchor.collection });
 
   const prompt = prompts.buildOutfit
     .replace("{{storeName}}", storeName)
-    .replace("{{mainCollections}}", formatGrouped(mainGrouped))
-    .replace("{{complementaryCollections}}", formatGrouped(compGrouped));
+    .replace("{{anchorProduct}}", anchorJson)
+    .replace("{{availableCollections}}", formatGrouped(compGrouped));
 
-  // Fetch a few hero images from main collections so Gemini can see colors/style
-  const mainImages = [];
-  for (const [, { products }] of Object.entries(mainGrouped)) {
-    for (const p of products.slice(0, 2)) {
-      if (p.image && mainImages.length < 5) {
-        const img = await fetchImageAsBase64(p.image);
-        if (img) mainImages.push({ ...img, title: p.title });
-      }
-    }
-  }
-
+  // Fetch anchor image for Gemini
   const parts = [prompt];
-  for (const img of mainImages) {
-    parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
-    parts.push(`(Image of "${img.title}")`);
+  if (anchor.image) {
+    const img = await fetchImageAsBase64(anchor.image);
+    if (img) {
+      parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+      parts.push(`(Image of anchor: "${anchor.title}")`);
+    }
   }
 
   const result = await model.generateContent(parts);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
-  const outfit = JSON.parse(text);
+  const outfitData = JSON.parse(text);
 
   // Validate products exist in actual data
-  const allProducts = [...mainProducts, ...complementaryProducts];
   const productMap = new Map(allProducts.map(p => [p.id, p]));
 
-  if (outfit.anchor?.id && productMap.has(outfit.anchor.id)) {
-    const real = productMap.get(outfit.anchor.id);
-    outfit.anchor = { ...outfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-  }
-
-  if (outfit.items) {
-    outfit.items = outfit.items
+  const outfit = {
+    anchor,
+    items: (outfitData.items || [])
       .filter(item => productMap.has(item.id))
       .map(item => {
         const real = productMap.get(item.id);
         return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-      });
-  }
+      }),
+    outfit_name: outfitData.outfit_name,
+  };
 
   // Validate outfit coherence
-  const validatedOutfit = await validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeName);
+  const dummyGrouped = groupByCollection([anchor], selectedCollections);
+  const validatedOutfit = await validateOutfit(outfit, dummyGrouped, compGrouped, prompts, storeName);
 
   // Recalculate total
   if (validatedOutfit.anchor && validatedOutfit.items) {
@@ -751,14 +777,11 @@ router.get("/analyze", async (req, res) => {
       }
 
       if (useCollectionApproach) {
-        const mainHandles = selectedCollections.main.map(c => c.handle);
-        const compHandles = selectedCollections.complementary.map(c => c.handle);
-        const allHandles = [...mainHandles, ...compHandles];
+        const allHandles = (selectedCollections.collections || []).map(c => c.handle);
 
         sendSSE(res, "status", {
           step: "scan",
           message: `Selected ${allHandles.length} collections for styling`,
-          collections: selectedCollections,
         });
 
         // Step 3: Fetch products from selected collections in parallel
@@ -768,77 +791,54 @@ router.get("/analyze", async (req, res) => {
           allHandles.map(handle => fetchCollectionProducts(domain, handle, 50))
         );
 
-        // Map products to main vs complementary, drop empty collections
-        let mainProducts = [];
-        let complementaryProducts = [];
-        const validMain = [];
-        const validComp = [];
+        // Flatten and drop empty collections
+        let allProducts = [];
+        const validHandles = [];
 
-        mainHandles.forEach((handle, i) => {
+        allHandles.forEach((handle, i) => {
           const products = productResults[i];
           if (products.length >= 3) {
-            mainProducts.push(...products);
-            validMain.push(handle);
+            allProducts.push(...products);
+            validHandles.push(handle);
           }
         });
 
-        compHandles.forEach((handle, i) => {
-          const idx = mainHandles.length + i;
-          const products = productResults[idx];
-          if (products.length >= 3) {
-            complementaryProducts.push(...products);
-            validComp.push(handle);
-          }
-        });
-
-        // Fallback if not enough valid collections
-        if (validMain.length === 0 || validComp.length < 2) {
+        if (validHandles.length < 3) {
           useCollectionApproach = false;
         } else {
-          const totalProducts = mainProducts.length + complementaryProducts.length;
-          const allFetched = [...mainProducts, ...complementaryProducts];
-          const byCollection = {};
+          const totalProducts = allProducts.length;
           const collectionTitles = {};
-          for (const c of [...(selectedCollections?.main || []), ...(selectedCollections?.complementary || [])]) {
+          for (const c of (selectedCollections.collections || [])) {
             collectionTitles[c.handle] = c.title;
           }
-          for (const p of allFetched) {
+
+          // Build preview images (round-robin from all collections)
+          const byCollection = {};
+          for (const p of allProducts) {
             if (!p.image) continue;
             if (!byCollection[p.collection]) byCollection[p.collection] = [];
             byCollection[p.collection].push(p.image);
           }
-          const allCollectionImages = Object.entries(byCollection)
-            .map(([handle, images]) => ({
-              title: collectionTitles[handle] || handle,
-              images,
-            }));
+          const allCollectionImages = Object.values(byCollection);
           const previewRows = [];
           let idx = 0;
           while (previewRows.length < 24 && idx < 10) {
             for (const col of allCollectionImages) {
-              if (idx < col.images.length && previewRows.length < 24) {
-                previewRows.push(col.images[idx]);
+              if (idx < col.length && previewRows.length < 24) {
+                previewRows.push(col[idx]);
               }
             }
             idx++;
           }
 
-          const collectionStats = [...validMain, ...validComp].map(handle => {
-            const title = collectionTitles[handle] || handle;
-            const count = allFetched.filter(p => p.collection === handle).length;
-            return { title, count };
-          });
-
           sendSSE(res, "status", {
             step: "classify",
-            message: `Found ${totalProducts} products across ${validMain.length + validComp.length} collections`,
+            message: `Found ${totalProducts} products across ${validHandles.length} collections`,
             productCount: totalProducts,
             previewImages: previewRows,
-            collectionStats,
           });
 
-          // Step 4: Check cache or build outfit
-
+          // Step 4: Check cache or build outfits
           const skipCaching = req.query.skipCaching === "true";
           const cached = skipCaching ? null : await getCachedResult(domain);
           let completeData;
@@ -848,19 +848,42 @@ router.get("/analyze", async (req, res) => {
             completeData = cached;
             logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
           } else {
-            const outfit = await buildOutfit(mainProducts, complementaryProducts, store.name, prompts, selectedCollections);
-            completeData = {
-              store: { name: store.name, domain },
-              outfit,
-              productCount: totalProducts,
-              collectionCount: validMain.length + validComp.length,
-            };
-            saveDemoResult(domain, store.name, completeData).catch(() => {});
-            logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
+            // Gemini #2: Select 3 anchors from different categories
+            const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts);
+
+            if (anchors.length === 0) {
+              useCollectionApproach = false;
+            } else {
+              // Gemini #3: Build outfits in parallel (one per anchor)
+              const outfitPromises = anchors.slice(0, 3).map(anchor =>
+                buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections)
+                  .catch(err => {
+                    console.error(`[Demo] Outfit build failed for ${anchor.title}:`, err.message);
+                    return null;
+                  })
+              );
+              const outfits = (await Promise.all(outfitPromises)).filter(Boolean);
+
+              if (outfits.length === 0) {
+                useCollectionApproach = false;
+              } else {
+                completeData = {
+                  store: { name: store.name, domain },
+                  outfit: outfits[0],
+                  alternativeOutfits: outfits.slice(1),
+                  productCount: totalProducts,
+                  collectionCount: validHandles.length,
+                };
+                saveDemoResult(domain, store.name, completeData).catch(() => {});
+                logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
+              }
+            }
           }
 
-          sendSSE(res, "complete", completeData);
-          return res.end();
+          if (completeData) {
+            sendSSE(res, "complete", completeData);
+            return res.end();
+          }
         }
       }
     }
@@ -887,15 +910,19 @@ router.get("/analyze", async (req, res) => {
       productCount: allProducts.length,
     });
 
-    // Split products into rough categories for the outfit call
-    sendSSE(res, "status", { step: "style", message: "Styling your outfit..." });
+    // Fallback: pick first good product as anchor, build one outfit
+    const anchor = allProducts.find(p => p.image);
+    if (!anchor) {
+      sendSSE(res, "error", { message: "No suitable products found for styling." });
+      return res.end();
+    }
 
-    // Use all products as both main and complementary candidates
-    const outfit = await buildOutfit(allProducts, allProducts, store.name, prompts, null);
+    const outfit = await buildOutfitForAnchor(anchor, allProducts, store.name, prompts, null);
 
     const completeData = {
       store: { name: store.name, domain },
       outfit,
+      alternativeOutfits: [],
       productCount: allProducts.length,
       collectionCount: collections.length,
     };

@@ -143,8 +143,8 @@ function ComplementaryCard({ product }) {
 
 // ─── Results View ────────────────────────────────────────────────────
 
-function ResultsView({ data }) {
-  const { store, outfit } = data;
+function ResultsView({ data, setResult }) {
+  const { store, outfit, alternativeOutfits = [] } = data;
 
   return (
     <div className="min-h-screen bg-white">
@@ -332,6 +332,42 @@ function ResultsView({ data }) {
             </div>
           </div>
         </div>
+
+        {/* Alternative outfits */}
+        {alternativeOutfits.length > 0 && (
+          <div className="mt-10 pt-8 border-t border-neutral-100">
+            <h3 className="text-base font-bold text-neutral-900 text-center mb-6">Try Another Look</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {alternativeOutfits.map((alt, i) => (
+                <div
+                  key={i}
+                  className="border border-neutral-200 rounded-xl p-4 hover:border-purple-300 cursor-pointer transition-colors"
+                  onClick={() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    data.outfit = alt;
+                    data.alternativeOutfits = [outfit, ...alternativeOutfits.filter((_, j) => j !== i)];
+                    setResult({ ...data });
+                  }}
+                >
+                  <div className="flex items-center gap-4">
+                    {alt.anchor?.image && (
+                      <img src={alt.anchor.image} alt={alt.anchor.title} className="w-20 h-24 object-cover rounded-lg bg-neutral-50" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-neutral-900 truncate">{alt.anchor?.title}</p>
+                      <p className="text-xs text-neutral-500 mt-1">${alt.anchor?.price}</p>
+                      <div className="flex gap-1.5 mt-2">
+                        {alt.items?.slice(0, 4).map((item, j) => (
+                          item.image && <img key={j} src={item.image} alt="" className="w-8 h-8 rounded object-cover bg-neutral-100" />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer section */}
         <div className="mt-6 sm:mt-8 mb-4 sm:mb-16 text-center">
@@ -546,7 +582,7 @@ export default function Demo() {
   // ─── Results phase ─────────────────────────────────────────────────
 
   if (phase === 'results' && result) {
-    return <ResultsView data={result} />;
+    return <ResultsView data={result} setResult={setResult} />;
   }
 
   // ─── Anchor Preview ────────────────────────────────────────────────

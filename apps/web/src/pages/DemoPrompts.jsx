@@ -79,35 +79,27 @@ export default function DemoPrompts() {
   const promptFields = [
     {
       key: 'selectCollections',
-      label: 'Collection Selection',
-      description: 'Gemini Call #1 — Receives the full list of store collections and must pick which ones to use for outfit building.',
+      label: 'Collections',
+      description: 'Gemini Call #1 — Picks 8-10 product category collections for outfit building.',
       variables: [
         {
           name: '{{collectionList}}',
-          description: 'Numbered list of ALL store collections. Each line has the collection title and its URL handle. The AI must decide which are product categories vs brand names.',
-          example: `1. "'S Max Mara" (handle: s-max-mara)          ← brand name
-2. "120% Lino" (handle: 120-lino)               ← brand name
-3. "Accessories" (handle: accessories)           ← CATEGORY ✓
-4. "Acne Studios" (handle: acne-studios)         ← brand name
-5. "Activewear" (handle: activewear-1)           ← category (skip)
-6. "Dresses" (handle: dresses)                   ← CATEGORY ✓ (main)
-7. "Coats & Jackets" (handle: coats-jackets)     ← CATEGORY ✓ (main)
-8. "Tops & Blouses" (handle: tops-blouses)       ← CATEGORY ✓ (main)
-9. "Shoes" (handle: shoes)                       ← CATEGORY ✓ (complementary)
-10. "Trousers" (handle: trousers-1)              ← CATEGORY ✓ (complementary)
-11. "Jewellery" (handle: jewellery)              ← CATEGORY ✓ (complementary)
-12. "Bags" (handle: bags)                        ← CATEGORY ✓ (complementary)
-13. "Belts" (handle: belts)                      ← CATEGORY ✓ (complementary)
-14. "Gift Cards" (handle: gift-cards)            ← skip
+          description: 'Numbered list of ALL store collections. The AI picks 8-10 that are product categories (not brands).',
+          example: `1. "'S Max Mara" (handle: s-max-mara)          ← brand (skip)
+2. "Dresses" (handle: dresses)                   ← CATEGORY ✓
+3. "Coats & Jackets" (handle: coats-jackets)     ← CATEGORY ✓
+4. "Shoes" (handle: shoes)                       ← CATEGORY ✓
+5. "Bags" (handle: bags)                         ← CATEGORY ✓
+6. "Jewellery" (handle: jewellery)               ← CATEGORY ✓
 ... (can be 30-400 collections)`,
-          note: 'The AI must return JSON with "main" (hero pieces like dresses, tops) and "complementary" (shoes, bags, accessories). Each entry needs the handle and a reason.',
+          note: 'Returns JSON: {"collections": [{"handle":"...","title":"...","reason":"..."}]}. No main/complementary split — just 8-10 best categories.',
         },
       ],
     },
     {
-      key: 'buildOutfit',
-      label: 'Outfit Builder',
-      description: 'Gemini Call #2 — Receives products from the selected collections and must pick one anchor product + 3-5 complementary items to build a complete outfit.',
+      key: 'selectAnchors',
+      label: 'Anchor Selection',
+      description: 'Gemini Call #2 — Picks 3 anchor products from 3 different categories for 3 separate outfits.',
       variables: [
         {
           name: '{{storeName}}',
@@ -115,32 +107,44 @@ export default function DemoPrompts() {
           example: 'RUNWAYHER',
         },
         {
-          name: '{{mainCollections}}',
-          description: 'Products GROUPED BY COLLECTION. Each collection has a header with its name, handle, and product count, followed by the products inside it. The AI picks the ANCHOR from one of these collections.',
+          name: '{{allCollections}}',
+          description: 'ALL products grouped by collection. The AI picks 3 anchors from 3 DIFFERENT collections.',
           example: `Collection "Dresses" (dresses):
-[{"id":8342626762786,"title":"Givenchy Black Fibres Cocktail Dress","handle":"givenchy-black-dress","type":"Dresses","price":"2813.00","tags":["Black","Clothing"],"image":"https://cdn.shopify.com/..."}, ...]
+[{"id":8342626762786,"title":"Givenchy Black Cocktail Dress","handle":"...","price":"2813.00","image":"..."}, ...]
 
-Collection "Coats & Jackets" (coats-jackets):
-[{"id":8335899754530,"title":"Givenchy Black Fibres Coat","handle":"givenchy-black-coat","type":"Coats","price":"2679.00","tags":["Black"],"image":"https://cdn.shopify.com/..."}, ...]
-
-Collection "Tops & Blouses" (tops-blouses):
-[{"id":...,"title":"...","handle":"...","type":"...","price":"...","image":"..."}, ...]`,
+Collection "Shoes" (shoes):
+[{"id":8340846018594,"title":"Fendi Black Pumps","handle":"...","price":"954.00","image":"..."}, ...]`,
+          note: 'Returns JSON: {"anchors": [{id, title, handle, price, image, collection}, ...]}. Must pick from DIFFERENT collections (e.g., one dress, one jacket, one shoe).',
+        },
+      ],
+    },
+    {
+      key: 'buildOutfit',
+      label: 'Outfit Builder',
+      description: 'Gemini Call #3 (runs 3x in parallel) — Builds one outfit for a specific anchor product.',
+      variables: [
+        {
+          name: '{{storeName}}',
+          description: 'The store display name',
+          example: 'RUNWAYHER',
         },
         {
-          name: '{{complementaryCollections}}',
-          description: 'Complementary products also GROUPED BY COLLECTION. The AI picks 3-5 items from DIFFERENT collections here to complete the outfit.',
+          name: '{{anchorProduct}}',
+          description: 'The specific anchor product (JSON). The outfit must be built around this product.',
+          example: `{"id":8342626762786,"title":"Givenchy Black Cocktail Dress","handle":"givenchy-black-dress","type":"Dresses","price":"2813.00","image":"https://cdn.shopify.com/...","collection":"dresses"}`,
+        },
+        {
+          name: '{{availableCollections}}',
+          description: 'Products from all OTHER collections (excluding the anchor\'s collection). Pick 4 items from different collections.',
           example: `Collection "Shoes" (shoes):
-[{"id":8340846018594,"title":"Fendi Black Nylon Pumps","handle":"fendi-black-pumps","type":"Shoes","price":"954.00","tags":["Black","Shoes"],"image":"https://cdn.shopify.com/..."}, ...]
+[{"id":8340846018594,"title":"Fendi Black Pumps","handle":"...","price":"954.00","image":"..."}, ...]
 
 Collection "Bags" (bags):
-[{"id":8335908601890,"title":"Saint Laurent Black Shoulder Bag","handle":"saint-laurent-bag","type":"Bags","price":"1050.00","tags":["Black","Bags"],"image":"https://cdn.shopify.com/..."}, ...]
+[{"id":8335908601890,"title":"Saint Laurent Shoulder Bag","handle":"...","price":"1050.00","image":"..."}, ...]
 
 Collection "Jewellery" (jewellery):
-[{"id":8338487738402,"title":"Alessandra Rich Silver Earrings","handle":"alessandra-rich-earrings","type":"Earrings","price":"318.00","tags":["Silver"],"image":"https://cdn.shopify.com/..."}, ...]
-
-Collection "Belts" (belts):
-[{"id":8261199298594,"title":"Prada Black Belt","handle":"prada-belt","type":"Belts","price":"672.00","tags":["Black"],"image":"https://cdn.shopify.com/..."}, ...]`,
-          note: 'The AI must return JSON with an "anchor" from a main collection + "items" from different complementary collections. Each item needs id, title, handle, price, image, collection, and role.',
+[{"id":8338487738402,"title":"Alessandra Rich Earrings","handle":"...","price":"318.00","image":"..."}, ...]`,
+          note: 'Returns JSON: {"items": [{id, title, handle, price, image, collection, role}, ...], "outfit_name": "...", "total_price": "..."}. Anchor is already set — just pick complementary items.',
         },
       ],
     },
