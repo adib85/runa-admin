@@ -112,7 +112,7 @@ function ComplementaryCard({ product }) {
     : product.title;
 
   return (
-    <div className="group flex-shrink-0 text-center min-w-[120px] w-[120px] sm:w-44 lg:w-full">
+    <div className="group flex-shrink-0 text-center min-w-[130px] w-[130px] sm:w-44 lg:w-full">
       <div className="bg-white aspect-square w-full flex items-center justify-center p-3">
         {product.image ? (
           <img
