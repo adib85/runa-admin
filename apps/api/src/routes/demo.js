@@ -80,9 +80,13 @@ Build a cohesive outfit around the anchor product above. RULES:
 - If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear
 - If the anchor is a TOP or BLOUSE: pick bottoms (pants/skirt), shoes, bags, jewelry
 - If the anchor is a SHOE or BAG: pick clothing items (dress/top + bottom, or a full outfit) that match
-- Consider color coordination and style coherence across all pieces
-- Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
-- All items must feel like they belong to the SAME occasion and style
+   - STYLE COHERENCE IS CRITICAL:
+     * First determine the anchor's occasion: casual, smart-casual, evening/cocktail, formal, streetwear, boho, sporty
+     * ALL complementary items MUST match that SAME occasion
+     * Evening/cocktail dress → elegant heels, clutch/mini bag, statement jewelry, sleek blazer. NEVER casual jackets, fluffy scarves, sneakers
+     * Casual top → jeans/casual pants, sneakers/flats, crossbody bag, simple accessories
+     * DO NOT mix casual items with evening items
+   - Color coordination: pick items that complement the anchor's colors, don't clash
 - Each item must have an image (image field is not null)
    - You MUST return exactly 3 or 4 item IDs. NEVER return fewer than 3.
 
