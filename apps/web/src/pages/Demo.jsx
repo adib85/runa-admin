@@ -112,7 +112,7 @@ function ComplementaryCard({ product }) {
     : product.title;
 
   return (
-    <div className="group flex-shrink-0 text-center w-[calc(45%-8px)] sm:w-44 lg:w-full">
+    <div className="group flex-shrink-0 text-center min-w-[140px] w-[140px] sm:w-44 lg:w-full">
       <div className="bg-white aspect-square w-full flex items-center justify-center p-3">
         {product.image ? (
           <img
@@ -312,7 +312,7 @@ function ResultsView({ data }) {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
+                <div className="flex gap-3 overflow-x-auto pb-4 snap-x">
                   {outfit.items?.map((item) => (
                     <div key={item.id} className="snap-start">
                       <ComplementaryCard product={item} />
