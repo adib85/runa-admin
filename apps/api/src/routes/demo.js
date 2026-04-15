@@ -740,8 +740,8 @@ router.get("/analyze", async (req, res) => {
         message: `Found ${collections.length} collections`,
       });
 
-      // Step 2: Gemini #1 — Select collections
-      sendSSE(res, "status", { step: "classify", message: "Analyzing collections..." });
+      // Step 2: Gemini #1 — Select collections (still scan phase visually)
+      sendSSE(res, "status", { step: "scan", message: "Analyzing collections..." });
       let selectedCollections;
       try {
         selectedCollections = await selectCollections(collections, prompts);
@@ -756,13 +756,13 @@ router.get("/analyze", async (req, res) => {
         const allHandles = [...mainHandles, ...compHandles];
 
         sendSSE(res, "status", {
-          step: "classify",
+          step: "scan",
           message: `Selected ${allHandles.length} collections for styling`,
           collections: selectedCollections,
         });
 
         // Step 3: Fetch products from selected collections in parallel
-        sendSSE(res, "status", { step: "products", message: "Loading products..." });
+        sendSSE(res, "status", { step: "scan", message: "Loading products..." });
 
         const productResults = await Promise.all(
           allHandles.map(handle => fetchCollectionProducts(domain, handle, 50))
@@ -830,7 +830,7 @@ router.get("/analyze", async (req, res) => {
           });
 
           sendSSE(res, "status", {
-            step: "products",
+            step: "classify",
             message: `Found ${totalProducts} products across ${validMain.length + validComp.length} collections`,
             productCount: totalProducts,
             previewImages: previewRows,
@@ -838,7 +838,6 @@ router.get("/analyze", async (req, res) => {
           });
 
           // Step 4: Check cache or build outfit
-          sendSSE(res, "status", { step: "style", message: "Styling your outfit..." });
 
           const skipCaching = req.query.skipCaching === "true";
           const cached = skipCaching ? null : await getCachedResult(domain);

@@ -106,9 +106,9 @@ function LogMessages({ messages }) {
 // ─── Complementary Product Card ──────────────────────────────────────
 
 function ComplementaryCard({ product }) {
-  const vendor = product.vendor || product.title.split(' ').slice(0, 2).join(' ');
-  const name = product.vendor
-    ? product.title.replace(new RegExp(`^${product.vendor}\\s*`, 'i'), '')
+  const vendor = product.vendor || '';
+  const name = vendor
+    ? product.title.replace(new RegExp(`^${vendor}\\s*`, 'i'), '') || product.title
     : product.title;
 
   return (
@@ -125,9 +125,11 @@ function ComplementaryCard({ product }) {
         )}
       </div>
       <div className="mt-3 w-full">
-        <p className="text-xs font-bold text-neutral-900 uppercase tracking-wide truncate">
-          {vendor}
-        </p>
+        {vendor && (
+          <p className="text-xs font-bold text-neutral-900 uppercase tracking-wide truncate">
+            {vendor}
+          </p>
+        )}
         <p className="text-xs text-neutral-500 mt-0.5 truncate">
           {name}
         </p>
@@ -157,8 +159,8 @@ function ResultsView({ data }) {
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
             </svg>
           </button>
-          <a href="/demo" className="text-base font-light italic tracking-tight text-white/70 hover:text-white transition-colors">
-            Runa
+          <a href={RUNA_URL} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold tracking-wide text-white/70 hover:text-white transition-colors">
+            RUNA
           </a>
         </div>
         <div className="flex items-center gap-2 text-sm text-neutral-400">
@@ -277,7 +279,7 @@ function ResultsView({ data }) {
                   </div>
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-wide">
+                  <h3 className="text-base font-bold text-neutral-900 uppercase tracking-wide">
                     Complete the Look
                   </h3>
                   <div className="mt-3 mb-5 border-t border-neutral-200" />
@@ -308,7 +310,14 @@ function ResultsView({ data }) {
                       Complete the Look
                     </h3>
                     <p className="text-xs text-neutral-400 mt-0.5">
-                      Pairs well with this {outfit.anchor?.vendor || store.name} piece
+                      {(() => {
+                        const vendors = new Set(outfit.items?.map(i => i.vendor).filter(Boolean));
+                        const anchorVendor = outfit.anchor?.vendor;
+                        const hasDifferentBrands = vendors.size > 0 && (!anchorVendor || [...vendors].some(v => v !== anchorVendor));
+                        return hasDifferentBrands && anchorVendor
+                          ? `Pairs well with this ${anchorVendor} piece`
+                          : 'Pairs well with this piece';
+                      })()}
                     </p>
                   </div>
                 </div>
@@ -417,16 +426,15 @@ export default function Demo() {
     es.addEventListener('status', (e) => {
       const data = JSON.parse(e.data);
       const stepIdx = getStepIndex(data.step);
-      const currentIdx = getStepIndex(currentStep);
 
-      if (stepIdx > currentIdx) {
+      if (stepIdx >= 0) {
         setCompletedSteps(prev => {
           const next = new Set(prev);
           STEPS.slice(0, stepIdx).forEach(s => next.add(s.key));
           return next;
         });
+        setCurrentStep(data.step);
       }
-      setCurrentStep(data.step);
       addMessage(data.message, 'info');
 
       if (data.productCount) {
@@ -443,10 +451,12 @@ export default function Demo() {
 
     es.addEventListener('complete', (e) => {
       const data = JSON.parse(e.data);
-      setCompletedSteps(new Set(STEPS.map(s => s.key)));
+      setCompletedSteps(new Set(['scan', 'classify']));
+      setCurrentStep('style');
       setResult(data);
       setPhase('anchor');
-      setTimeout(() => setPhase('results'), 7000);
+      setTimeout(() => setCompletedSteps(new Set(STEPS.map(s => s.key))), 3500);
+      setTimeout(() => setPhase('results'), 5000);
       es.close();
     });
 
@@ -553,7 +563,7 @@ export default function Demo() {
               <span className="text-white text-2xl font-light italic tracking-tight">R</span>
             </div>
           </div>
-          <p className="text-white font-light italic text-xl tracking-tight text-center">Runa</p>
+          <p className="text-white font-medium text-xl tracking-tight text-center">Runa</p>
           <div className="flex items-center justify-center gap-2 mt-1.5">
             <p className="text-neutral-400 text-sm">
               Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
@@ -561,7 +571,7 @@ export default function Demo() {
           </div>
         </div>
 
-        <StepIndicator currentStep="style" completedSteps={new Set(STEPS.map(s => s.key))} />
+        <StepIndicator currentStep="style" completedSteps={completedSteps} />
 
         <p className="text-neutral-400 text-sm mb-6 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
@@ -669,7 +679,7 @@ export default function Demo() {
                 <span className="text-white text-2xl font-light italic tracking-tight">R</span>
               </div>
             </div>
-            <p className="text-white font-light italic text-xl tracking-tight">Runa</p>
+            <p className="text-white font-medium text-xl tracking-tight">Runa</p>
             <div className="flex items-center justify-center gap-2 mt-1.5">
               <p className="text-neutral-400 text-sm">
                 {phase === 'error'
