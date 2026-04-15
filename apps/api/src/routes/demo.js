@@ -21,6 +21,7 @@ CRITICAL RULES:
 - NEVER pick collections that are BRAND NAMES (e.g., "Gucci", "Acne Studios", "Max Mara", "Bottega Veneta", etc.)
 - NEVER pick collections like "Gift Cards", "Sale", "All", "Home", "Bundles", "New Arrivals", "Best Sellers", "Activewear"
 - If a collection title looks like a brand/designer name rather than a product category, SKIP it
+- ONLY pick collections with at least 5 products (check the product count)
 
 Your task:
 Pick 8-10 product category collections that are useful for outfit building. Include a MIX of:
@@ -150,6 +151,7 @@ function sendSSE(res, event, data) {
 function normalizeDomain(input) {
   let domain = input.trim().toLowerCase();
   domain = domain.replace(/^https?:\/\//, "");
+  domain = domain.replace(/^www\./, "");
   domain = domain.replace(/\/+$/, "");
   domain = domain.split("/")[0];
   return domain;
@@ -211,6 +213,7 @@ async function fetchCollections(domain) {
       handle: c.handle,
       title: c.title,
       image: c.image?.src || null,
+      productsCount: c.products_count || 0,
     })));
   }
   if (all.length === 0) throw new Error("No collections found");
@@ -253,9 +256,9 @@ function getGeminiModel(useLite = true) {
 }
 
 async function selectCollections(collections, prompts) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel(false);
   const collectionList = collections
-    .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle})`)
+    .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle}, ${c.productsCount} products)`)
     .join("\n");
 
   const prompt = prompts.selectCollections
@@ -748,19 +751,21 @@ router.get("/analyze", async (req, res) => {
       collections = [];
     }
 
-    let useCollectionApproach = collections.length >= 3;
+    // Filter out empty collections before sending to Gemini
+    const collectionsWithProducts = collections.filter(c => c.productsCount >= 5);
+    let useCollectionApproach = collectionsWithProducts.length >= 3;
 
     if (useCollectionApproach) {
       sendSSE(res, "status", {
         step: "scan",
-        message: `Found ${collections.length} collections`,
+        message: `Found ${collectionsWithProducts.length} collections with products`,
       });
 
       // Step 2: Gemini #1 — Select collections (still scan phase visually)
       sendSSE(res, "status", { step: "scan", message: "Analyzing collections..." });
       let selectedCollections;
       try {
-        selectedCollections = await selectCollections(collections, prompts);
+        selectedCollections = await selectCollections(collectionsWithProducts, prompts);
       } catch (err) {
         console.error("Gemini collection selection failed:", err.message);
         useCollectionApproach = false;
