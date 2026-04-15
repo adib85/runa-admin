@@ -84,7 +84,7 @@ Build a cohesive outfit around the anchor product above. RULES:
 - Consider occasion matching (don't mix formal shoes with beach shorts, sportswear with evening wear)
 - All items must feel like they belong to the SAME occasion and style
 - Each item must have an image (image field is not null)
-   - Return 3-4 items
+   - You MUST return exactly 3 or 4 item IDs. NEVER return fewer than 3.
 
 Give the outfit a short name.
 
@@ -258,7 +258,7 @@ function getGeminiModel(useLite = true) {
 }
 
 async function selectCollections(collections, prompts) {
-  const model = getGeminiModel(false);
+  const model = getGeminiModel(true);
   const collectionList = collections
     .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle}, ${c.productsCount} products)`)
     .join("\n");
@@ -266,19 +266,25 @@ async function selectCollections(collections, prompts) {
   const prompt = prompts.selectCollections
     .replace("{{collectionList}}", collectionList);
 
+  console.log(`[PERF] selectCollections: ${collectionList.length} chars input`);
+  const t = Date.now();
   const result = await model.generateContent(prompt);
+  console.log(`[PERF] selectCollections: ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   return JSON.parse(text);
 }
 
 async function selectAnchors(allProducts, selectedCollections, storeName, prompts) {
-  const model = getGeminiModel(false);
+  const model = getGeminiModel(true);
   const grouped = groupByCollection(allProducts, selectedCollections);
   const prompt = prompts.selectAnchors
     .replace("{{storeName}}", storeName)
     .replace("{{allCollections}}", formatGrouped(grouped));
 
+  console.log(`[PERF] selectAnchors: ${prompt.length} chars input`);
+  const t = Date.now();
   const result = await model.generateContent(prompt);
+  console.log(`[PERF] selectAnchors: ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const parsed = JSON.parse(text);
 
@@ -301,11 +307,7 @@ function groupByCollection(products, selectedCollections) {
     groups[key].products.push({
       id: p.id,
       title: p.title,
-      handle: p.handle,
-      type: p.type,
       price: p.price,
-      tags: (p.tags || []).slice(0, 5),
-      image: p.image,
     });
   }
   return groups;
@@ -333,7 +335,7 @@ async function fetchImageAsBase64(url) {
 }
 
 async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections) {
-  const model = getGeminiModel(false);
+  const model = getGeminiModel(true);
 
   const complementary = allProducts.filter(p =>
     p.id !== anchor.id &&
@@ -342,7 +344,7 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
   );
   const compGrouped = groupByCollection(complementary, selectedCollections);
 
-  const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, handle: anchor.handle, type: anchor.type, price: anchor.price, image: anchor.image, collection: anchor.collection });
+  const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, type: anchor.type, price: anchor.price, collection: anchor.collection });
 
   const prompt = prompts.buildOutfit
     .replace("{{storeName}}", storeName)
@@ -359,7 +361,10 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
     }
   }
 
+  console.log(`[PERF] buildOutfit "${anchor.title}": ${prompt.length} chars, hasImage: ${parts.length > 1}`);
+  const t = Date.now();
   const result = await model.generateContent(parts);
+  console.log(`[PERF] buildOutfit "${anchor.title}": ${Date.now()-t}ms, ${result.response.usageMetadata?.promptTokenCount} in / ${result.response.usageMetadata?.candidatesTokenCount} out`);
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const outfitData = JSON.parse(text);
 
@@ -402,22 +407,16 @@ async function validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeNa
 
     const valParts = [];
 
-    // Send all product images for visual validation
-    const allOutfitItems = [{ ...outfit.anchor, label: "ANCHOR" }, ...outfit.items.map((item, i) => ({ ...item, label: `ITEM ${i}` }))];
-    const imagePromises = allOutfitItems
-      .filter(p => p.image)
-      .map(async (p) => {
-        const img = await fetchImageAsBase64(p.image);
-        return img ? { ...img, label: p.label, title: p.title } : null;
-      });
-    const images = (await Promise.all(imagePromises)).filter(Boolean);
-
-    for (const img of images) {
-      valParts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
-      valParts.push(`(${img.label}: "${img.title}")`);
+    // Send only anchor image for validation
+    if (outfit.anchor.image) {
+      const img = await fetchImageAsBase64(outfit.anchor.image);
+      if (img) {
+        valParts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+        valParts.push(`(Anchor: "${outfit.anchor.title}")`);
+      }
     }
 
-    valParts.push(`You are a fashion expert reviewing an outfit for style coherence. Look at ALL the product images above.
+    valParts.push(`You are a fashion expert reviewing an outfit for style coherence. The anchor product image is shown above.
 
 Anchor product: ${anchorDesc}
 Complementary items:
@@ -440,7 +439,10 @@ Return ONLY valid JSON, no markdown:
 "remove": array of INDEX numbers of items to remove. Empty [] if all fine.
 "verdict": "good" if the outfit works (even after removing some items), or "retry_with_different_anchor" if the anchor itself is problematic or the overall combination is unsalvageable and a completely different outfit should be tried.`
     );
+    console.log(`[PERF] validation "${outfit.anchor.title}": ${valParts.length} parts`);
+    const vt = Date.now();
     const valResult = await validator.generateContent(valParts);
+    console.log(`[PERF] validation "${outfit.anchor.title}": ${Date.now()-vt}ms`);
     const valText = valResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
     const validation = JSON.parse(valText);
 
@@ -465,7 +467,7 @@ Return ONLY valid JSON, no markdown:
 
     // Retry with a completely different anchor
     console.log(`[Demo] Outfit validation: verdict="${verdict}", retrying with different anchor...`);
-    const model = getGeminiModel(false);
+    const model = getGeminiModel(true);
     const retryPrompt = prompts.buildOutfit
       .replace("{{storeName}}", storeName)
       .replace("{{mainCollections}}", formatGrouped(mainGrouped))
