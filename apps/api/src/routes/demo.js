@@ -35,7 +35,7 @@ Return ONLY valid JSON, no markdown:
   "collections": [{"handle": "...", "title": "...", "reason": "..."}]
 }`,
 
-  selectAnchors: `You are a fashion stylist selecting 3 anchor products for 3 different "Complete the Look" outfits for {{storeName}}.
+  selectAnchors: `You are a fashion stylist selecting 5 anchor products for different "Complete the Look" outfits for {{storeName}}.
 
 CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent products.
 
@@ -43,22 +43,18 @@ Here are the products grouped by collection:
 {{allCollections}}
 
 Your task:
-Pick 3 anchor products for 3 DIFFERENT outfits. Each anchor must be:
+Pick 5 anchor products for 5 DIFFERENT outfits. Each anchor must be:
 - From a DIFFERENT collection/category (e.g., one dress, one top/jacket, one shoe/bag)
 - Visually striking and photogenic
 - Mid-to-high price range
 - Has an image (not null)
 - Versatile enough to pair with items from other collections
 
-Ideal mix: 1 clothing piece (dress/coat/jacket), 1 different clothing piece (top/blouse/knitwear), 1 accessory or shoe.
+Ideal mix: 2 clothing pieces (dress, coat/jacket, top/blouse), 1-2 accessories or shoes, 1 knitwear/outerwear. All from DIFFERENT collections.
 
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
 {
-  "anchors": [
-    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."},
-    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."},
-    {"id": <number>, "title": "...", "handle": "...", "price": "...", "image": "...", "collection": "..."}
-  ]
+  "anchors": [<id1>, <id2>, <id3>, <id4>, <id5>]
 }`,
 
   buildOutfit: `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
@@ -72,7 +68,10 @@ CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exac
 {{availableCollections}}
 
 Your task:
-Build a cohesive outfit around the anchor product above. Do NOT include the anchor product itself or any product similar to the anchor (same type/category). Pick 3-4 DIFFERENT items:
+Build a cohesive outfit around the anchor product above. RULES:
+- Do NOT pick any product that is the same TYPE as the anchor (no dress with dress, no coat with coat, no shoe with shoe)
+- Do NOT pick the anchor product itself
+- Pick 3-4 DIFFERENT items from DIFFERENT categories:
 - Pick from 4 DIFFERENT collections
 - ALWAYS include SHOES — every outfit needs footwear
 - If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear
@@ -86,21 +85,10 @@ Build a cohesive outfit around the anchor product above. Do NOT include the anch
 
 Give the outfit a short name.
 
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
 {
-  "items": [
-    {
-      "id": <number>,
-      "title": "...",
-      "handle": "...",
-      "price": "...",
-      "image": "...",
-      "collection": "...",
-      "role": "bottom|shoes|bag|accessory|outerwear|jewelry|top|dress"
-    }
-  ],
-  "outfit_name": "...",
-  "total_price": "sum of all items INCLUDING the anchor"
+  "items": [<id1>, <id2>, <id3>, <id4>],
+  "outfit_name": "..."
 }`,
 };
 
@@ -279,7 +267,7 @@ async function selectCollections(collections, prompts) {
 }
 
 async function selectAnchors(allProducts, selectedCollections, storeName, prompts) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel(false);
   const grouped = groupByCollection(allProducts, selectedCollections);
   const prompt = prompts.selectAnchors
     .replace("{{storeName}}", storeName)
@@ -290,12 +278,10 @@ async function selectAnchors(allProducts, selectedCollections, storeName, prompt
   const parsed = JSON.parse(text);
 
   const productMap = new Map(allProducts.map(p => [p.id, p]));
-  return (parsed.anchors || [])
-    .filter(a => productMap.has(a.id))
-    .map(a => {
-      const real = productMap.get(a.id);
-      return { ...a, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor, collection: real.collection };
-    });
+  const anchorIds = parsed.anchors || [];
+  return anchorIds
+    .filter(id => productMap.has(id))
+    .map(id => productMap.get(id));
 }
 
 function groupByCollection(products, selectedCollections) {
@@ -342,9 +328,13 @@ async function fetchImageAsBase64(url) {
 }
 
 async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel(false);
 
-  const complementary = allProducts.filter(p => p.id !== anchor.id && p.collection !== anchor.collection);
+  const complementary = allProducts.filter(p =>
+    p.id !== anchor.id &&
+    p.collection !== anchor.collection &&
+    p.type !== anchor.type
+  );
   const compGrouped = groupByCollection(complementary, selectedCollections);
 
   const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, handle: anchor.handle, type: anchor.type, price: anchor.price, image: anchor.image, collection: anchor.collection });
@@ -368,16 +358,17 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
   const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
   const outfitData = JSON.parse(text);
 
-  // Validate products exist in actual data
+  // Look up full product data from IDs
   const productMap = new Map(allProducts.map(p => [p.id, p]));
+  const itemIds = outfitData.items || [];
 
   const outfit = {
     anchor,
-    items: (outfitData.items || [])
-      .filter(item => productMap.has(item.id) && item.id !== anchor.id)
-      .map(item => {
-        const real = productMap.get(item.id);
-        return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
+    items: itemIds
+      .filter(id => productMap.has(id) && id !== anchor.id)
+      .map(id => {
+        const p = productMap.get(id);
+        return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
       }),
     outfit_name: outfitData.outfit_name,
   };
@@ -469,7 +460,7 @@ Return ONLY valid JSON, no markdown:
 
     // Retry with a completely different anchor
     console.log(`[Demo] Outfit validation: verdict="${verdict}", retrying with different anchor...`);
-    const model = getGeminiModel(true);
+    const model = getGeminiModel(false);
     const retryPrompt = prompts.buildOutfit
       .replace("{{storeName}}", storeName)
       .replace("{{mainCollections}}", formatGrouped(mainGrouped))
@@ -484,25 +475,24 @@ Pick an anchor that is easier to style — something versatile that pairs natura
 
     const retryResult = await model.generateContent(feedbackPrompt);
     const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
-    const retryOutfit = JSON.parse(retryText);
+    const retryData = JSON.parse(retryText);
 
     // Validate retry against real products
     const allGrouped = { ...mainGrouped, ...compGrouped };
     const allProducts = Object.values(allGrouped).flatMap(g => g.products);
     const productMap = new Map(allProducts.map(p => [p.id, p]));
 
-    if (retryOutfit.anchor?.id && productMap.has(retryOutfit.anchor.id)) {
-      const real = productMap.get(retryOutfit.anchor.id);
-      retryOutfit.anchor = { ...retryOutfit.anchor, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-    }
-    if (retryOutfit.items) {
-      retryOutfit.items = retryOutfit.items
-        .filter(item => productMap.has(item.id))
-        .map(item => {
-          const real = productMap.get(item.id);
-          return { ...item, title: real.title, handle: real.handle, price: real.price, image: real.image, vendor: real.vendor };
-        });
-    }
+    const retryItemIds = retryData.items || [];
+    const retryOutfit = {
+      anchor: outfit.anchor,
+      items: retryItemIds
+        .filter(id => productMap.has(id) && id !== outfit.anchor.id)
+        .map(id => {
+          const p = productMap.get(id);
+          return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
+        }),
+      outfit_name: retryData.outfit_name,
+    };
 
     // Final validation (no more retries)
     if (retryOutfit.anchor && retryOutfit.items?.length > 0) {
@@ -848,21 +838,46 @@ router.get("/analyze", async (req, res) => {
             completeData = cached;
             logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
           } else {
-            // Gemini #2: Select 3 anchors from different categories
+            // Gemini #2: Select anchors from different categories (ask for 5 to have backups)
             const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts);
 
             if (anchors.length === 0) {
               useCollectionApproach = false;
             } else {
-              // Gemini #3: Build outfits in parallel (one per anchor)
-              const outfitPromises = anchors.slice(0, 3).map(anchor =>
+              const outfits = [];
+              const usedAnchorIds = new Set();
+              const candidates = anchors.slice(0, 5);
+
+              // Build outfits in parallel, first batch of 3
+              const firstBatch = candidates.slice(0, 3).map(anchor =>
                 buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections)
+                  .then(o => {
+                    if (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) {
+                      usedAnchorIds.add(o.anchor.id);
+                      return o;
+                    }
+                    return null;
+                  })
                   .catch(err => {
                     console.error(`[Demo] Outfit build failed for ${anchor.title}:`, err.message);
                     return null;
                   })
               );
-              const outfits = (await Promise.all(outfitPromises)).filter(Boolean);
+              const firstResults = (await Promise.all(firstBatch)).filter(Boolean);
+              outfits.push(...firstResults);
+
+              // If fewer than 3 valid outfits, try backup anchors
+              if (outfits.length < 3 && candidates.length > 3) {
+                const backups = candidates.slice(3).filter(a => !usedAnchorIds.has(a.id));
+                const needed = 3 - outfits.length;
+                const backupBatch = backups.slice(0, needed).map(anchor =>
+                  buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections)
+                    .then(o => (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) ? o : null)
+                    .catch(() => null)
+                );
+                const backupResults = (await Promise.all(backupBatch)).filter(Boolean);
+                outfits.push(...backupResults);
+              }
 
               if (outfits.length === 0) {
                 useCollectionApproach = false;
