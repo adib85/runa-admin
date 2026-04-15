@@ -336,7 +336,7 @@ function ResultsView({ data, setResult }) {
         {/* Alternative outfits */}
         {alternativeOutfits.length > 0 && (
           <div className="mt-10 pt-8 border-t border-neutral-100">
-            <h3 className="text-base font-bold text-neutral-900 text-center mb-6">Try Another Look</h3>
+            <h3 className="text-base font-bold text-neutral-900 text-center mb-6">Try Another Product</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {alternativeOutfits.map((alt, i) => (
                 <div
@@ -491,8 +491,8 @@ export default function Demo() {
       setCurrentStep('style');
       setResult(data);
       setPhase('anchor');
-      setTimeout(() => setCompletedSteps(new Set(STEPS.map(s => s.key))), 3500);
-      setTimeout(() => setPhase('results'), 5000);
+      setTimeout(() => setCompletedSteps(new Set(STEPS.map(s => s.key))), 1500);
+      setTimeout(() => setPhase('results'), 3000);
       es.close();
     });
 
@@ -526,24 +526,28 @@ export default function Demo() {
     if (phase !== 'anchor') return;
     const interval = setInterval(() => {
       setAnchorMsg(prev => Math.min(prev + 1, anchorMessages.length - 1));
-    }, 3500);
+    }, 1500);
     return () => clearInterval(interval);
   }, [phase]);
 
   const stylingMessages = [
-    'Classifying products...',
+    `Classifying ${productCount || ''} products...`,
     'Analyzing color palettes...',
     'Detecting style patterns...',
     'Mapping product categories...',
     'Finding compatible pieces...',
-    'Selecting anchor product...',
+    'Selecting anchor products...',
+    'Evaluating outfit combinations...',
+    'Matching styles across categories...',
+    'Scoring color coordination...',
+    'Building complementary sets...',
   ];
 
   useEffect(() => {
     if (previewImages.length === 0) return;
     const interval = setInterval(() => {
       setStylingMsg(prev => (prev + 1) % stylingMessages.length);
-    }, 3500);
+    }, 4000);
     return () => clearInterval(interval);
   }, [previewImages]);
 
@@ -732,7 +736,7 @@ export default function Demo() {
             <div className="mt-6 max-w-lg mx-auto animate-fade-in">
               <p className="text-neutral-400 text-sm mb-5 flex items-center justify-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse" />
-                {stylingMessages[stylingMsg].replace('products', `${productCount} products`)}
+                {stylingMessages[stylingMsg]}
               </p>
               <div className="grid grid-cols-6 gap-2">
                 {previewImages.slice(0, -1).map((img, i) => (
