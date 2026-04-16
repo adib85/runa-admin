@@ -376,7 +376,7 @@ function ResultsView({ data, setResult }) {
             <span className="text-purple-500 text-sm">✦</span>
             <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
           </div>
-          <p className="text-xs text-neutral-400 mb-8 max-w-sm mx-auto leading-relaxed">
+          <p className="text-sm text-neutral-600 mb-8 max-w-sm mx-auto leading-relaxed">
             This is a preview with default styling. With Runa installed, outfits are tailored to your brand guidelines, visual identity, and merchandising rules.
           </p>
 
