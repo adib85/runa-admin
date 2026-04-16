@@ -38,7 +38,7 @@ Return ONLY valid JSON, no markdown:
   "collections": [{"handle": "...", "title": "...", "reason": "..."}]
 }`,
 
-  selectAnchors: `You are a fashion stylist selecting 5 anchor products for different "Complete the Look" outfits for {{storeName}}.
+  selectAnchors: `You are a fashion stylist selecting 3 anchor products for different "Complete the Look" outfits for {{storeName}}.
 
 CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent products.
 
@@ -46,7 +46,7 @@ Here are the products grouped by collection:
 {{allCollections}}
 
 Your task:
-Pick 5 anchor products for 5 DIFFERENT outfits. Each anchor must be:
+Pick 3 anchor products for 3 DIFFERENT outfits. Each anchor must be:
 - From a DIFFERENT collection/category (e.g., one dress, one top/jacket, one shoe/bag)
 - Visually striking and photogenic
 - Mid-to-high price range
@@ -59,7 +59,7 @@ IMPORTANT: Before picking a dress as an anchor, check if the store has shoes, ba
 
 Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
 {
-  "anchors": [<id1>, <id2>, <id3>, <id4>, <id5>]
+  "anchors": [<id1>, <id2>, <id3>]
 }`,
 
   buildOutfit: `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
@@ -914,46 +914,22 @@ router.get("/analyze", async (req, res) => {
             completeData = cached;
             logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
           } else {
-            // Gemini #2: Select anchors from different categories (ask for 5 to have backups)
+            // Gemini #2: Select 3 anchors from different categories
             const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts, debug);
 
             if (anchors.length === 0) {
               useCollectionApproach = false;
             } else {
-              const outfits = [];
-              const usedAnchorIds = new Set();
-              const candidates = anchors.slice(0, 5);
-
-              // Build outfits in parallel, first batch of 3
-              const firstBatch = candidates.slice(0, 3).map(anchor =>
+              // Build 3 outfits in parallel
+              const outfitPromises = anchors.slice(0, 3).map(anchor =>
                 buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections, debug)
-                  .then(o => {
-                    if (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) {
-                      usedAnchorIds.add(o.anchor.id);
-                      return o;
-                    }
-                    return null;
-                  })
+                  .then(o => (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) ? o : null)
                   .catch(err => {
                     console.error(`[Demo] Outfit build failed for ${anchor.title}:`, err.message);
                     return null;
                   })
               );
-              const firstResults = (await Promise.all(firstBatch)).filter(Boolean);
-              outfits.push(...firstResults);
-
-              // If fewer than 3 valid outfits, try backup anchors
-              if (outfits.length < 3 && candidates.length > 3) {
-                const backups = candidates.slice(3).filter(a => !usedAnchorIds.has(a.id));
-                const needed = 3 - outfits.length;
-                const backupBatch = backups.slice(0, needed).map(anchor =>
-                  buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections, debug)
-                    .then(o => (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) ? o : null)
-                    .catch(() => null)
-                );
-                const backupResults = (await Promise.all(backupBatch)).filter(Boolean);
-                outfits.push(...backupResults);
-              }
+              const outfits = (await Promise.all(outfitPromises)).filter(Boolean);
 
               if (outfits.length === 0) {
                 useCollectionApproach = false;
