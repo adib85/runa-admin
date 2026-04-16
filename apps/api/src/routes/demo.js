@@ -291,8 +291,7 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
 
   const complementary = allProducts.filter(p =>
     p.id !== anchor.id &&
-    p.collection !== anchor.collection &&
-    p.type !== anchor.type
+    p.collection !== anchor.collection
   );
   const compGrouped = groupByCollection(complementary, selectedCollections);
 
