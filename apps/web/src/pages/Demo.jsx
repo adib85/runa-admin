@@ -372,10 +372,13 @@ function ResultsView({ data, setResult }) {
 
         {/* Footer section */}
         <div className="mt-6 sm:mt-8 mb-4 sm:mb-16 text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 mb-8">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 mb-4">
             <span className="text-purple-500 text-sm">✦</span>
             <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
           </div>
+          <p className="text-xs text-neutral-400 mb-8 max-w-sm mx-auto leading-relaxed">
+            This is a preview with default styling. With Runa installed, outfits are tailored to your brand guidelines, visual identity, and merchandising rules.
+          </p>
 
           <p className="text-sm text-neutral-500 mb-6">Average lift from stores running Runa</p>
           <div className="flex items-center justify-center gap-12">
