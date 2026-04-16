@@ -338,16 +338,20 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
   const review = await criticOutfit(outfit, prompts, debug);
 
   let finalOutfit = outfit;
-  if (!review.approved && review.issues?.length > 0) {
+  if (!review.approved) {
     // Rebuild with critic feedback
+    const issuesList = (review.issues || []).map(i =>
+      typeof i === 'string' ? `- ${i}` : `- [${i.severity}] ${i.rule}: ${i.description}`
+    ).join("\n");
+
     const feedbackPrompt = prompt + `
 
-IMPORTANT — PREVIOUS ATTEMPT WAS REJECTED BY THE CRITIC:
-Score: ${review.score}/10
+IMPORTANT — PREVIOUS ATTEMPT WAS REJECTED BY THE CRITIC (Score: ${review.score}/10):
 Issues found:
-${review.issues.map(i => `- ${i}`).join("\n")}
+${issuesList}
+${review.fix_instruction ? `\nFIX INSTRUCTION: ${review.fix_instruction}` : ''}
 
-Fix these issues. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
+You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
 
     const t2 = Date.now();
     const retryResult = await model.generateContent([feedbackPrompt]);
@@ -424,6 +428,7 @@ Return ONLY valid JSON:
 "approved": true if score >= 7. "remove_indexes": indexes of items to remove. Empty [] if approved.`;
 
     const criticText = criticTemplate
+      .replace("{{storeName}}", outfit.anchor.vendor || "the store")
       .replace("{{anchor}}", anchorDesc)
       .replace("{{items}}", itemDescs);
 
