@@ -173,7 +173,8 @@ export default function DemoSearches() {
                       <span key={i} className="text-xs text-neutral-400">
                         {new Date(v.time).toLocaleString()}
                         {v.fromCache && <span className="text-purple-400 ml-1">·cache</span>}
-                        {v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
+                        {v.city && <span className="text-neutral-400 ml-1">·{v.city}, {v.country}</span>}
+                        {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
                       </span>
                     ))}
                     {store.totalVisits > 10 && (

@@ -652,8 +652,23 @@ async function saveDemoResult(domain, storeName, resultData) {
   }
 }
 
+async function getGeoFromIp(ip) {
+  if (!ip || ip === "unknown" || ip === "::1" || ip === "127.0.0.1") return null;
+  try {
+    const cleanIp = ip.replace(/^::ffff:/, "");
+    const res = await fetchWithTimeout(`http://ip-api.com/json/${cleanIp}?fields=country,city`, 3000);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status === "fail") return null;
+    return { country: data.country, city: data.city };
+  } catch {
+    return null;
+  }
+}
+
 async function logDemoSearch(domain, storeName, fromCache, ip) {
   try {
+    const geo = await getGeoFromIp(ip);
     const docClient = dynamoClient.getDocClient();
     const existing = await docClient.send(new GetCommand({
       TableName: config.dynamodb.tables.cache,
@@ -665,6 +680,7 @@ async function logDemoSearch(domain, storeName, fromCache, ip) {
       time: Date.now(),
       fromCache,
       ip: ip || "unknown",
+      ...(geo && { country: geo.country, city: geo.city }),
     });
 
     await docClient.send(new PutCommand({
