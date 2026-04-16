@@ -816,6 +816,7 @@ router.get("/analyze", async (req, res) => {
   const domain = normalizeDomain(url);
   const isDebug = req.query.debug === "true";
   const debug = new DebugTracker(isDebug);
+  const clientIp = req.headers["x-real-ip"] || req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip;
 
   // Allow model override via URL: ?model=lite or ?model=flash or ?model=gemini-3-flash-preview
   const modelMap = { lite: config.gemini.liteModel, flash: config.gemini.model };
@@ -952,7 +953,7 @@ router.get("/analyze", async (req, res) => {
           if (cached) {
             await sleep(5000);
             completeData = cached;
-            logDemoSearch(domain, store.name, true, req.ip).catch(() => {});
+            logDemoSearch(domain, store.name, true, clientIp).catch(() => {});
           } else {
             // Gemini #2: Select 3 anchors from different categories
             const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts, debug);
@@ -982,7 +983,7 @@ router.get("/analyze", async (req, res) => {
                   collectionCount: validHandles.length,
                 };
                 saveDemoResult(domain, store.name, completeData).catch(() => {});
-                logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
+                logDemoSearch(domain, store.name, false, clientIp).catch(() => {});
               }
             }
           }
@@ -1037,7 +1038,7 @@ router.get("/analyze", async (req, res) => {
     if (isDebug) completeData.debug = debug.getData();
     sendSSE(res, "complete", completeData);
     saveDemoResult(domain, store.name, completeData).catch(() => {});
-    logDemoSearch(domain, store.name, false, req.ip).catch(() => {});
+    logDemoSearch(domain, store.name, false, clientIp).catch(() => {});
     res.end();
   } catch (err) {
     console.error("Demo analyze error:", err);
