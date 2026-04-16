@@ -25,18 +25,6 @@ export default function DemoPrompts() {
     load();
   }, []);
 
-  async function handleLoadDefaults() {
-    if (!confirm('This will replace your current prompts with the defaults. Continue?')) return;
-    try {
-      const res = await fetch('/api/demo/prompts/defaults');
-      if (!res.ok) throw new Error('Failed to load defaults');
-      const data = await res.json();
-      setPrompts(data.prompts);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     setSaved(false);
@@ -159,6 +147,26 @@ Collection "Womens: Belts" (womens-belts):
         },
       ],
     },
+    {
+      key: 'criticOutfit',
+      label: 'Critic',
+      description: 'Gemini Call #4 (runs 3x in parallel) — Reviews each outfit with product images. If score < 7, the outfit is rebuilt with critic feedback.',
+      variables: [
+        {
+          name: '{{anchor}}',
+          description: 'The anchor product title and collection',
+          example: '"Deserae Low Plunge Maxi Dress Chocolate" (womens-dresses)',
+        },
+        {
+          name: '{{items}}',
+          description: 'Numbered list of complementary items with their collections',
+          example: `0: "Rhode Bomber Chocolate" (womens-jackets-coats)
+1: "Elena Handle Bag Dark Choc" (womens-bags-and-shoes)
+2: "Crystal Huggie Earrings Gold" (womens-earrings)`,
+          note: 'The critic also receives actual product IMAGES (anchor + all items). Returns: {"score": 8, "approved": true/false, "issues": [...], "remove_indexes": [...]}. If rejected, the outfit builder re-runs with the issues as feedback.',
+        },
+      ],
+    },
   ];
 
   return (
@@ -173,12 +181,6 @@ Collection "Womens: Belts" (womens-belts):
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleLoadDefaults}
-            className="px-4 py-2.5 text-xs font-medium text-neutral-600 border border-neutral-200 rounded hover:bg-neutral-50 transition-colors"
-          >
-            Load Defaults
-          </button>
           <button
             onClick={handleSave}
             disabled={saving}

@@ -10,99 +10,6 @@ const router = express.Router();
 
 const PROMPTS_KEY = "demo_prompts_config";
 
-const DEFAULT_PROMPTS = {
-  selectCollections: `You are a fashion stylist selecting collections from a store for outfit building.
-
-Here are the store's collections:
-{{collectionList}}
-
-CRITICAL RULES:
-- ONLY pick collections that represent PRODUCT CATEGORIES (e.g., "Dresses", "Trousers", "Shoes", "Sneakers", "Tops & Blouses", "Coats & Jackets", "Bags", "Jewellery", "Accessories", "Knitwear", "Skirts", "Sandals", "Boots", etc.)
-- NEVER pick collections that are BRAND NAMES (e.g., "Gucci", "Acne Studios", "Max Mara", "Bottega Veneta", etc.)
-- NEVER pick collections like "Gift Cards", "Sale", "All", "Home", "Bundles", "New Arrivals", "Best Sellers", "Activewear"
-- If a collection title looks like a brand/designer name rather than a product category, SKIP it
-- ONLY pick collections with at least 5 products (check the product count)
-- GENDER RULE: Look at collection titles AND handles. If you see both men's and women's collections (e.g., "Mens: Shirts" vs "Womens: Shirts", or handles like "mens-belts" vs "womens-belts"), you MUST pick ONLY women's collections. NEVER pick any collection with "mens", "men", "homme", "uomo" in the title or handle. Pick the women's equivalent instead (e.g., pick "womens-belts" not "mens-belts").
-- If the store is men-only (no women's collections), pick men's collections.
-
-Your task:
-Pick 8-10 product category collections that are useful for outfit building. All from the SAME gender (prefer women's if both available). Include a MIX of:
-- Clothing categories (dresses, tops, shirts, jackets, knitwear, coats, pants, skirts)
-- Footwear categories (shoes, boots, sandals, sneakers)
-- Accessories categories (bags, jewelry, belts, scarves)
-
-Rank them by priority (best first).
-
-Return ONLY valid JSON, no markdown:
-{
-  "collections": [{"handle": "...", "title": "...", "reason": "..."}]
-}`,
-
-  selectAnchors: `You are a fashion stylist selecting 3 anchor products for different "Complete the Look" outfits for {{storeName}}.
-
-CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent products.
-
-Here are the products grouped by collection:
-{{allCollections}}
-
-Your task:
-Pick 3 anchor products for 3 DIFFERENT outfits. Each anchor must be:
-- From a DIFFERENT collection/category (e.g., one dress, one top/jacket, one shoe/bag)
-- Visually striking and photogenic
-- Mid-to-high price range
-- Has an image (not null)
-- Versatile enough to pair with items from other collections
-
-Ideal mix: 2 clothing pieces (dress, coat/jacket, top/blouse), 1-2 accessories or shoes, 1 knitwear/outerwear. All from DIFFERENT collections.
-
-IMPORTANT: Before picking a dress as an anchor, check if the store has shoes, bags, or jewelry collections. A dress can ONLY be styled with accessories (shoes, bags, jewelry, scarves) — NOT with other clothing like pants or tops. If the store lacks accessory collections, prefer tops or jackets as anchors instead — they can be paired with pants/skirts from the store.
-
-Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
-{
-  "anchors": [<id1>, <id2>, <id3>]
-}`,
-
-  buildOutfit: `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
-
-CRITICAL: You MUST ONLY use products that exist in the data below. Copy the exact id, title, handle, price, and image from the data. NEVER invent or fabricate products, prices, or image URLs.
-
-===== ANCHOR PRODUCT =====
-{{anchorProduct}}
-
-===== AVAILABLE COLLECTIONS (pick 3-5 items from these to complete the look) =====
-{{availableCollections}}
-
-Your task:
-Build a cohesive outfit around the anchor product above. RULES:
-- Do NOT pick any product that is the same TYPE as the anchor (no dress with dress, no coat with coat, no shoe with shoe)
-- Do NOT pick the anchor product itself
-- Pick 3-4 DIFFERENT items from DIFFERENT categories:
-- Pick from 4 DIFFERENT collections
-- ALWAYS include SHOES — every outfit needs footwear
-- If the anchor is a DRESS: do NOT pick tops, corsets, bustiers, shirts, or blouses. Instead pick shoes, bags, jewelry, belts, scarves, or outerwear
-- If the anchor is a TOP or BLOUSE: pick bottoms (pants/skirt), shoes, bags, jewelry
-- If the anchor is a SHOE or BAG: pick clothing items (dress/top + bottom, or a full outfit) that match
-   - STYLE COHERENCE IS CRITICAL:
-     * First determine the anchor's occasion: casual, smart-casual, evening/cocktail, formal, streetwear, boho, sporty
-     * ALL complementary items MUST match that SAME occasion
-     * Evening/cocktail dress → elegant heels, clutch/mini bag, statement jewelry, sleek blazer. NEVER casual jackets, fluffy scarves, sneakers
-     * Casual top → jeans/casual pants, sneakers/flats, crossbody bag, simple accessories
-     * DO NOT mix casual items with evening items
-   - Color coordination: pick items that complement the anchor's colors, don't clash
-- Each item must have an image (image field is not null)
-   - You MUST return exactly 3 or 4 item IDs. NEVER return fewer than 3.
-
-Give the outfit a short name.
-
-IMPORTANT: You MUST return exactly 3 or 4 product IDs in the items array. NEVER return fewer than 3 items. If you cannot find 3 items, try harder.
-
-Return ONLY valid JSON, no markdown. Return ONLY the product IDs:
-{
-  "items": [<id1>, <id2>, <id3>, <id4>],
-  "outfit_name": "..."
-}`,
-};
-
 async function loadPrompts() {
   try {
     const docClient = dynamoClient.getDocClient();
@@ -111,23 +18,23 @@ async function loadPrompts() {
       Key: { id: PROMPTS_KEY },
     }));
     if (result.Item?.prompts) {
-      return { ...DEFAULT_PROMPTS, ...result.Item.prompts };
+      return result.Item.prompts;
     }
   } catch (err) {
-    console.error("Failed to load prompts, using defaults:", err.message);
+    console.error("Failed to load prompts:", err.message);
   }
-  return DEFAULT_PROMPTS;
+  throw new Error("No prompts found in database. Please save prompts via /demo-prompts first.");
 }
 
 // ─── Prompts CRUD ────────────────────────────────────────────────────
 
 router.get("/prompts", async (req, res) => {
-  const prompts = await loadPrompts();
-  res.json({ prompts });
-});
-
-router.get("/prompts/defaults", (req, res) => {
-  res.json({ prompts: DEFAULT_PROMPTS });
+  try {
+    const prompts = await loadPrompts();
+    res.json({ prompts });
+  } catch (err) {
+    res.status(404).json({ error: err.message });
+  }
 });
 
 router.put("/prompts", async (req, res) => {
@@ -427,17 +334,129 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
     outfit_name: outfitData.outfit_name,
   };
 
-  // Skip heavy validation — the type/collection filtering + good prompts handle quality
-  const validatedOutfit = outfit;
+  // Critic validation — if rejected, rebuild with feedback
+  const review = await criticOutfit(outfit, prompts, debug);
 
-  // Recalculate total
-  if (validatedOutfit.anchor && validatedOutfit.items) {
-    const total = [validatedOutfit.anchor, ...validatedOutfit.items]
-      .reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
-    validatedOutfit.total_price = total.toFixed(2);
+  let finalOutfit = outfit;
+  if (!review.approved && review.issues?.length > 0) {
+    // Rebuild with critic feedback
+    const feedbackPrompt = prompt + `
+
+IMPORTANT — PREVIOUS ATTEMPT WAS REJECTED BY THE CRITIC:
+Score: ${review.score}/10
+Issues found:
+${review.issues.map(i => `- ${i}`).join("\n")}
+
+Fix these issues. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
+
+    const t2 = Date.now();
+    const retryResult = await model.generateContent([feedbackPrompt]);
+    const u2 = retryResult.response.usageMetadata;
+    const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    debug.track(`rebuild "${anchor.title}"`, { inputTokens: u2?.promptTokenCount, outputTokens: u2?.candidatesTokenCount, inputChars: feedbackPrompt.length, rawResponse: retryText, elapsed: Date.now() - t2 });
+
+    try {
+      const retryData = JSON.parse(retryText);
+      const retryIds = retryData.items || [];
+      const retryItems = retryIds
+        .filter(id => productMap.has(id) && id !== anchor.id)
+        .map(id => {
+          const p = productMap.get(id);
+          return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
+        });
+
+      if (retryItems.length >= 2) {
+        finalOutfit = { anchor, items: retryItems, outfit_name: retryData.outfit_name || outfit.outfit_name };
+        console.log(`[Critic] "${anchor.title}": rebuilt outfit with ${retryItems.length} items after rejection`);
+      }
+    } catch (err) {
+      console.error(`[Critic] Rebuild parse failed for "${anchor.title}":`, err.message);
+    }
   }
 
-  return validatedOutfit;
+  // Recalculate total
+  if (finalOutfit.anchor && finalOutfit.items) {
+    const total = [finalOutfit.anchor, ...finalOutfit.items]
+      .reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
+    finalOutfit.total_price = total.toFixed(2);
+  }
+
+  return finalOutfit;
+}
+
+async function criticOutfit(outfit, prompts, debug) {
+  if (!outfit.anchor || !outfit.items?.length) return { approved: true, score: 10, issues: [] };
+
+  try {
+    const critic = getGeminiModel(true);
+    const anchorDesc = `"${outfit.anchor.title}" (${outfit.anchor.collection})`;
+    const itemDescs = outfit.items.map((item, i) =>
+      `${i}: "${item.title}" (${item.collection})`
+    ).join("\n");
+
+    const criticTemplate = prompts.criticOutfit || `You are a fashion critic reviewing an outfit for a product demo. Look at ALL the product images and be strict but fair.
+
+ANCHOR: {{anchor}}
+ITEMS:
+{{items}}
+
+VISUAL + TEXT CHECKLIST:
+1. Does this look like a cohesive outfit a real stylist would recommend? (check colors, textures, proportions in the images)
+2. Same seasonal world? (no fur/heavy textures + sandals/summer items — check visually)
+3. Same occasion? (no casual jacket with cocktail dress — check visual formality)
+4. Silhouette balanced? (no oversized + oversized)
+5. All different categories? (no two shoes, no two bags)
+6. If anchor is a dress, are there NO tops/bottoms in the complements?
+7. Color harmony? (do the actual product colors work together visually?)
+8. Does the outfit include shoes?
+9. Does the outfit include a bag (or jewelry if no bags available)?
+
+Rate the outfit 1-10. If score < 7, flag issues.
+
+Return ONLY valid JSON:
+{
+  "score": 8,
+  "approved": true/false,
+  "issues": ["issue 1", "issue 2"],
+  "remove_indexes": [0, 2]
+}
+
+"approved": true if score >= 7. "remove_indexes": indexes of items to remove. Empty [] if approved.`;
+
+    const criticText = criticTemplate
+      .replace("{{anchor}}", anchorDesc)
+      .replace("{{items}}", itemDescs);
+
+    // Fetch all outfit images in parallel
+    const allItems = [{ ...outfit.anchor, label: "ANCHOR" }, ...outfit.items.map((item, i) => ({ ...item, label: `ITEM ${i}` }))];
+    const imagePromises = allItems
+      .filter(p => p.image)
+      .map(async (p) => {
+        const img = await fetchImageAsBase64(p.image);
+        return img ? { ...img, label: p.label, title: p.title } : null;
+      });
+    const images = (await Promise.all(imagePromises)).filter(Boolean);
+
+    const parts = [];
+    for (const img of images) {
+      parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+      parts.push(`(${img.label}: "${img.title}")`);
+    }
+    parts.push(criticText);
+
+    const t = Date.now();
+    const result = await critic.generateContent(parts);
+    const u = result.response.usageMetadata;
+    const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    debug.track(`critic "${outfit.anchor.title}"`, { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: criticText.length, rawResponse: text, elapsed: Date.now() - t });
+
+    const review = JSON.parse(text);
+    console.log(`[Critic] "${outfit.anchor.title}": score ${review.score}/10, approved: ${review.approved}${review.issues?.length ? ', issues: ' + review.issues.join(', ') : ''}`);
+    return review;
+  } catch (err) {
+    console.error("Critic failed (non-blocking):", err.message);
+    return { approved: true, score: 0, issues: [] };
+  }
 }
 
 async function validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeName) {
