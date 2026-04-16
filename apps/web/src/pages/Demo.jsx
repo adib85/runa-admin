@@ -458,6 +458,7 @@ export default function Demo() {
   const websiteParam = searchParams.get('website') || searchParams.get('url') || searchParams.get('store');
   const skipCaching = searchParams.get('skipCaching') === 'true';
   const debugMode = searchParams.get('debug') === 'true';
+  const modelParam = searchParams.get('model') || '';
   const [inputUrl, setInputUrl] = useState('');
   const [phase, setPhase] = useState('landing'); // landing | loading | results | error
   const [currentStep, setCurrentStep] = useState('scan');
@@ -493,6 +494,7 @@ export default function Demo() {
     let params = '';
     if (skipCaching) params += '&skipCaching=true';
     if (debugMode) params += '&debug=true';
+    if (modelParam) params += `&model=${modelParam}`;
     const es = new EventSource(`${API_URL}/demo/analyze?url=${encoded}${params}`);
     eventSourceRef.current = es;
 

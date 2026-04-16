@@ -294,11 +294,12 @@ async function fetchAllProducts(domain, limit = 250) {
 
 // ─── Gemini Calls ────────────────────────────────────────────────────
 
+let _modelOverride = null;
+
 function getGeminiModel(useLite = true) {
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
-  return genAI.getGenerativeModel({
-    model: useLite ? config.gemini.liteModel : config.gemini.model,
-  });
+  const model = _modelOverride || (useLite ? config.gemini.liteModel : config.gemini.model);
+  return genAI.getGenerativeModel({ model });
 }
 
 async function selectCollections(collections, prompts, debug) {
@@ -775,6 +776,10 @@ router.get("/analyze", async (req, res) => {
   const domain = normalizeDomain(url);
   const isDebug = req.query.debug === "true";
   const debug = new DebugTracker(isDebug);
+
+  // Allow model override via URL: ?model=lite or ?model=flash or ?model=gemini-3-flash-preview
+  const modelMap = { lite: config.gemini.liteModel, flash: config.gemini.model };
+  _modelOverride = modelMap[req.query.model] || req.query.model || null;
 
   try {
     // Step 0: Validate
