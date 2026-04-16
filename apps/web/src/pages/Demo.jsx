@@ -130,7 +130,7 @@ function ComplementaryCard({ product }) {
             {vendor}
           </p>
         )}
-        <p className="text-xs text-neutral-500 mt-0.5 truncate">
+        <p className="text-xs text-neutral-500 mt-0.5 line-clamp-2">
           {name}
         </p>
         <p className="text-xs text-neutral-700 font-medium mt-1">
