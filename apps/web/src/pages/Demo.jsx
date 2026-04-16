@@ -113,7 +113,7 @@ function ComplementaryCard({ product }) {
 
   return (
     <div className="group flex-shrink-0 text-center min-w-[130px] w-[130px] sm:w-44 lg:w-full">
-      <div className="bg-white aspect-square w-full flex items-center justify-center p-3">
+      <div className="bg-white aspect-square w-full flex items-center justify-center">
         {product.image ? (
           <img
             src={product.image}
