@@ -1,4 +1,5 @@
 import express from "express";
+import nodeFetch from "node-fetch";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "@runa/config";
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
@@ -110,11 +111,22 @@ function normalizeDomain(input) {
   return domain;
 }
 
+const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
 async function fetchWithTimeout(url, timeoutMs = 10000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    // Use node-fetch (not native fetch) — many Shopify stores behind Cloudflare
+    // block Node's undici TLS fingerprint and return 429.
+    const res = await nodeFetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": BROWSER_UA,
+        "Accept": "application/json,text/html,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+    });
     return res;
   } finally {
     clearTimeout(timer);
@@ -556,8 +568,11 @@ You have FAILED TWICE. This is your LAST CHANCE. You MUST:
     }
   }
 
-  // No attempt was approved — return the best one we got if it's at least passable (score >= 4)
-  if (bestOutfit?.items?.length >= 2 && bestScore >= 4) {
+  // No attempt was approved — return the best one we got if it has at least 2 items
+  // AND a score of at least 3. Below 3 means the critic found multiple critical violations
+  // (e.g. 3 of same category, missing shoes when shoes exist) — those outfits look obviously
+  // broken and would damage demo credibility.
+  if (bestOutfit?.items?.length >= 2 && bestScore >= 3) {
     console.log(`[Demo] "${anchor.title}": all attempts rejected, using best (score ${bestScore}/10)`);
     return bestOutfit;
   }
