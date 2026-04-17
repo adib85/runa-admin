@@ -449,6 +449,9 @@ ${review1.fix_instruction ? `\nFIX INSTRUCTION: ${review1.fix_instruction}` : ''
 You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
 
   let lastReview = review1;
+  let bestOutfit = currentOutfit;
+  let bestScore = review1.score || 0;
+
   try {
     const t2 = Date.now();
     const result2 = await model.generateContent([rebuildPrompt, ...anchorImageParts]);
@@ -464,6 +467,10 @@ You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT it
       // --- Critic 2 ---
       lastReview = await criticOutfit(currentOutfit, prompts, debug);
       if (lastReview.approved) return currentOutfit;
+      if ((lastReview.score || 0) > bestScore) {
+        bestOutfit = currentOutfit;
+        bestScore = lastReview.score || 0;
+      }
       console.log(`[Critic] "${anchor.title}": rebuild also rejected (score ${lastReview.score}/10)`);
     }
   } catch (err) {
@@ -507,6 +514,10 @@ You have FAILED TWICE. This is your LAST CHANCE. You MUST:
 
         const review3 = await criticOutfit(currentOutfit, prompts, debug);
         if (review3.approved) return currentOutfit;
+        if ((review3.score || 0) > bestScore) {
+          bestOutfit = currentOutfit;
+          bestScore = review3.score || 0;
+        }
         console.log(`[Critic] "${anchor.title}": second rebuild also rejected (score ${review3.score}/10)`);
       }
     } catch (err) {
@@ -534,6 +545,10 @@ You have FAILED TWICE. This is your LAST CHANCE. You MUST:
 
         const review3 = await criticClothingOnlyOutfit(currentOutfit, prompts, debug);
         if (review3.approved) return currentOutfit;
+        if ((review3.score || 0) > bestScore) {
+          bestOutfit = currentOutfit;
+          bestScore = review3.score || 0;
+        }
         console.log(`[Critic] "${anchor.title}": clothing-only fallback also rejected (score ${review3.score}/10)`);
       }
     } catch (err) {
@@ -541,8 +556,13 @@ You have FAILED TWICE. This is your LAST CHANCE. You MUST:
     }
   }
 
-  // All 3 attempts failed
-  console.log(`[Demo] "${anchor.title}": all outfit attempts failed, returning null`);
+  // No attempt was approved — return the best one we got if it's at least passable (score >= 4)
+  if (bestOutfit?.items?.length >= 2 && bestScore >= 4) {
+    console.log(`[Demo] "${anchor.title}": all attempts rejected, using best (score ${bestScore}/10)`);
+    return bestOutfit;
+  }
+
+  console.log(`[Demo] "${anchor.title}": all outfit attempts failed (best score ${bestScore}/10), returning null`);
   return null;
 }
 
