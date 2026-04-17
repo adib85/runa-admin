@@ -167,62 +167,6 @@ Collection "Womens: Belts" (womens-belts):
         },
       ],
     },
-    {
-      key: 'buildOutfitClothingOnly',
-      label: 'Clothing-Only Builder',
-      description: 'Fallback Gemini call — Used when the standard builder + critic fail twice. Builds a clothing-only outfit for stores that lack shoes, bags, or accessories.',
-      variables: [
-        {
-          name: '{{storeName}}',
-          description: 'The store display name',
-          example: 'Andreea Raicu',
-        },
-        {
-          name: '{{anchorProduct}}',
-          description: 'The specific anchor product as JSON. The AI also receives the anchor\'s IMAGE as a separate visual input.',
-          example: '{"id":15255892427137,"title":"Rochie Scarlett cu aplicatie cristale neagra","type":"Rochii","price":"2200.00","collection":"amalin-ready-to-wear-rochii"}',
-          note: 'Same format as the standard outfit builder. The key difference is this prompt tells the AI that no shoes/bags/accessories exist, so it should build from clothing only.',
-        },
-        {
-          name: '{{availableCollections}}',
-          description: 'Products from all OTHER collections (anchor\'s collection excluded). Clothing-only — no shoe/bag/accessory collections present.',
-          example: `Collection "Bluze" (amalin-ready-to-wear-bluze):
-[{"id":15316039631233,"title":"Bluza cu pense Celine azur","price":"700.00"}, ...]
-
-Collection "Fuste" (amalin-ready-to-wear-fuste):
-[{"id":15255970644353,"title":"Fusta Ruby din dantela neagra","price":"950.00"}, ...]
-
-Collection "Pantaloni" (amalin-ready-to-wear-pantaloni):
-[{"id":15218824282497,"title":"Pantaloni Milan negri","price":"890.00"}, ...]`,
-          note: 'Must return: {"items": [id1, id2, id3], "outfit_name": "..."}. Build a wearable clothing-only look — focus on layering, separates, and outerwear instead of accessories.',
-        },
-      ],
-    },
-    {
-      key: 'criticClothingOnly',
-      label: 'Clothing-Only Critic',
-      description: 'Fallback critic — Reviews clothing-only outfits without penalizing for missing shoes, bags, or accessories. Used after the clothing-only builder.',
-      variables: [
-        {
-          name: '{{anchor}}',
-          description: 'The anchor product title and collection',
-          example: '"Rochie Scarlett cu aplicatie cristale neagra" (amalin-ready-to-wear-rochii)',
-        },
-        {
-          name: '{{items}}',
-          description: 'Numbered list of complementary items with their collections',
-          example: `0: "Bluza cu pense Celine azur" (amalin-ready-to-wear-bluze)
-1: "Pantaloni Milan negri" (amalin-ready-to-wear-pantaloni)
-2: "Fusta Ruby din dantela neagra" (amalin-ready-to-wear-fuste)`,
-          note: 'The critic receives product IMAGES. Same scoring as standard critic (>= 7 to approve), but missing shoes/bags/accessories are NOT violations. Focus is on category duplication, season/occasion coherence, color harmony, and wearability.',
-        },
-        {
-          name: '{{storeName}}',
-          description: 'The store display name (from product vendor field)',
-          example: 'Andreea Raicu',
-        },
-      ],
-    },
   ];
 
   return (
