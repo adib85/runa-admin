@@ -448,6 +448,7 @@ ${review1.fix_instruction ? `\nFIX INSTRUCTION: ${review1.fix_instruction}` : ''
 
 You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
 
+  let lastReview = review1;
   try {
     const t2 = Date.now();
     const result2 = await model.generateContent([rebuildPrompt, ...anchorImageParts]);
@@ -461,40 +462,83 @@ You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT it
       currentOutfit = buildOutfitObj(anchor, items2, data2.outfit_name || currentOutfit.outfit_name);
 
       // --- Critic 2 ---
-      const review2 = await criticOutfit(currentOutfit, prompts, debug);
-      if (review2.approved) return currentOutfit;
-      console.log(`[Critic] "${anchor.title}": rebuild also rejected (score ${review2.score}/10)`);
+      lastReview = await criticOutfit(currentOutfit, prompts, debug);
+      if (lastReview.approved) return currentOutfit;
+      console.log(`[Critic] "${anchor.title}": rebuild also rejected (score ${lastReview.score}/10)`);
     }
   } catch (err) {
     console.error(`[Critic] Rebuild parse failed for "${anchor.title}":`, err.message);
   }
 
-  // --- Attempt 3: Clothing-only fallback (for stores without shoes/bags/accessories) ---
-  const clothingOnlyTemplate = prompts.buildOutfitClothingOnly || DEFAULT_BUILD_OUTFIT_CLOTHING_ONLY;
-  const fallbackPrompt = clothingOnlyTemplate
-    .replace("{{storeName}}", storeName)
-    .replace("{{anchorProduct}}", anchorJson)
-    .replace("{{availableCollections}}", formatGrouped(compGrouped));
+  // --- Attempt 3: Detect catalog type and use appropriate fallback ---
+  const collectionNames = Object.keys(compGrouped).join(" ").toLowerCase();
+  const hasAccessories = /shoe|boot|sneaker|sandal|heel|pump|flat|bag|purse|clutch|jewel|earring|necklace|bracelet|accessor/i.test(collectionNames);
 
-  try {
-    const t3 = Date.now();
-    const result3 = await model.generateContent([fallbackPrompt, ...anchorImageParts]);
-    const u3 = result3.response.usageMetadata;
-    const text3 = result3.response.text().replace(/```json\n?|\n?```/g, "").trim();
-    debug.track(`clothingOnly "${anchor.title}"`, { inputTokens: u3?.promptTokenCount, outputTokens: u3?.candidatesTokenCount, inputChars: fallbackPrompt.length, rawResponse: text3, elapsed: Date.now() - t3 });
+  if (hasAccessories) {
+    // Full store: do a second standard rebuild with combined feedback from both critics
+    const combinedIssues = [...(review1.issues || []), ...(lastReview.issues || [])];
+    const combinedList = combinedIssues.map(i =>
+      typeof i === 'string' ? `- ${i}` : `- [${i.severity}] ${i.rule}: ${i.description}`
+    ).join("\n");
 
-    const data3 = JSON.parse(text3);
-    const items3 = parseOutfitItems(data3.items, productMap, anchor.id);
-    if (items3.length >= 2) {
-      currentOutfit = buildOutfitObj(anchor, items3, data3.outfit_name || currentOutfit.outfit_name);
+    const rebuild2Prompt = basePrompt + `
 
-      // --- Critic 3 (clothing-only: no shoes/bags required) ---
-      const review3 = await criticClothingOnlyOutfit(currentOutfit, prompts, debug);
-      if (review3.approved) return currentOutfit;
-      console.log(`[Critic] "${anchor.title}": clothing-only fallback also rejected (score ${review3.score}/10)`);
+IMPORTANT — TWO PREVIOUS ATTEMPTS WERE BOTH REJECTED BY THE CRITIC.
+Combined issues from both attempts:
+${combinedList}
+
+You have FAILED TWICE. This is your LAST CHANCE. You MUST:
+1. Pick items from DIFFERENT categories (one shoe, one bag, one accessory/jewelry — NO duplicates).
+2. Match the occasion and season of the anchor exactly.
+3. Ensure color harmony — stick to neutrals if unsure.
+4. Pick COMPLETELY DIFFERENT items from your previous attempts.`;
+
+    try {
+      const t3 = Date.now();
+      const result3 = await model.generateContent([rebuild2Prompt, ...anchorImageParts]);
+      const u3 = result3.response.usageMetadata;
+      const text3 = result3.response.text().replace(/```json\n?|\n?```/g, "").trim();
+      debug.track(`rebuild2 "${anchor.title}"`, { inputTokens: u3?.promptTokenCount, outputTokens: u3?.candidatesTokenCount, inputChars: rebuild2Prompt.length, rawResponse: text3, elapsed: Date.now() - t3 });
+
+      const data3 = JSON.parse(text3);
+      const items3 = parseOutfitItems(data3.items, productMap, anchor.id);
+      if (items3.length >= 2) {
+        currentOutfit = buildOutfitObj(anchor, items3, data3.outfit_name || currentOutfit.outfit_name);
+
+        const review3 = await criticOutfit(currentOutfit, prompts, debug);
+        if (review3.approved) return currentOutfit;
+        console.log(`[Critic] "${anchor.title}": second rebuild also rejected (score ${review3.score}/10)`);
+      }
+    } catch (err) {
+      console.error(`[Critic] Second rebuild failed for "${anchor.title}":`, err.message);
     }
-  } catch (err) {
-    console.error(`[Critic] Clothing-only fallback failed for "${anchor.title}":`, err.message);
+  } else {
+    // Clothing-only store: use the clothing-only builder + critic
+    const clothingOnlyTemplate = prompts.buildOutfitClothingOnly || DEFAULT_BUILD_OUTFIT_CLOTHING_ONLY;
+    const fallbackPrompt = clothingOnlyTemplate
+      .replace("{{storeName}}", storeName)
+      .replace("{{anchorProduct}}", anchorJson)
+      .replace("{{availableCollections}}", formatGrouped(compGrouped));
+
+    try {
+      const t3 = Date.now();
+      const result3 = await model.generateContent([fallbackPrompt, ...anchorImageParts]);
+      const u3 = result3.response.usageMetadata;
+      const text3 = result3.response.text().replace(/```json\n?|\n?```/g, "").trim();
+      debug.track(`clothingOnly "${anchor.title}"`, { inputTokens: u3?.promptTokenCount, outputTokens: u3?.candidatesTokenCount, inputChars: fallbackPrompt.length, rawResponse: text3, elapsed: Date.now() - t3 });
+
+      const data3 = JSON.parse(text3);
+      const items3 = parseOutfitItems(data3.items, productMap, anchor.id);
+      if (items3.length >= 2) {
+        currentOutfit = buildOutfitObj(anchor, items3, data3.outfit_name || currentOutfit.outfit_name);
+
+        const review3 = await criticClothingOnlyOutfit(currentOutfit, prompts, debug);
+        if (review3.approved) return currentOutfit;
+        console.log(`[Critic] "${anchor.title}": clothing-only fallback also rejected (score ${review3.score}/10)`);
+      }
+    } catch (err) {
+      console.error(`[Critic] Clothing-only fallback failed for "${anchor.title}":`, err.message);
+    }
   }
 
   // All 3 attempts failed
