@@ -286,8 +286,117 @@ async function fetchImageAsBase64(url) {
   }
 }
 
+function parseOutfitItems(rawItems, productMap, anchorId) {
+  return (rawItems || [])
+    .filter(id => productMap.has(id) && id !== anchorId)
+    .map(id => {
+      const p = productMap.get(id);
+      return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
+    });
+}
+
+function buildOutfitObj(anchor, items, outfitName) {
+  const outfit = { anchor, items, outfit_name: outfitName };
+  const total = [anchor, ...items].reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
+  outfit.total_price = total.toFixed(2);
+  return outfit;
+}
+
+const DEFAULT_BUILD_OUTFIT_CLOTHING_ONLY = `You are an expert fashion stylist creating a "Complete the Look" outfit for {{storeName}}.
+
+**IMPORTANT:** This store's catalog does NOT include shoes, bags, or accessories. Build a clothing-only outfit using ONLY the available products below.
+
+## INPUT
+
+### Anchor Product
+{{anchorProduct}}
+
+### Available Collections
+{{availableCollections}}
+
+## TASK
+
+Build a cohesive outfit around the anchor using 3 complementary CLOTHING items. Since no shoes/bags/accessories are available, focus on creating a complete, wearable look from clothing alone.
+
+## COMPOSITION RULES BY ANCHOR TYPE
+
+| Anchor Type | Complements |
+|---|---|
+| **Dress** | Outerwear/jacket + layering piece (cardigan, scarf-top, shrug) + contrasting bottom or second layer |
+| **Top/Blouse** | Bottom (pants/skirt) + outerwear/jacket + second top for layering OR another bottom option |
+| **Bottom (pants/skirt)** | Top + outerwear/jacket + second top or layering piece |
+| **Outerwear** | Dress OR (top + bottom) + layering piece |
+| **Knitwear** | Bottom + top for underneath OR dress + outerwear |
+
+## HARD RULES
+- Do NOT pick the anchor product itself.
+- No duplicate categories (no two skirts, no two dresses, no two pants).
+- Each item MUST be from a DIFFERENT collection than the anchor AND from each other.
+- Each item must have an image.
+- Season, occasion, color, and silhouette must be coherent.
+- If anchor has a print, all complements must be SOLID.
+
+## OUTPUT FORMAT
+
+Return ONLY valid JSON, no markdown:
+{
+  "items": [<id1>, <id2>, <id3>],
+  "outfit_name": "..."
+}`;
+
+const DEFAULT_CRITIC_CLOTHING_ONLY = `You are a senior fashion stylist auditing a clothing-only outfit. This store does NOT sell shoes, bags, or accessories — so their absence is NOT a flaw.
+
+## INPUT
+
+### Anchor Product
+{{anchor}}
+
+### Outfit Items
+{{items}}
+
+## CRITICAL VIOLATIONS (auto-fail)
+
+1. **Duplicate category** — two skirts, two pants, two dresses, two tops of the same type.
+2. **Same-type-as-anchor** — dress anchor + dress complement, top anchor + top complement.
+3. **Layer logic violation** — top/blouse added with a dress anchor (dresses don't need a top underneath unless it's outerwear).
+4. **Season mismatch** — heavy winter pieces mixed with summer pieces.
+5. **Occasion mismatch** — evening cocktail dress paired with casual hoodie, or sportswear with formal blazer.
+6. **Print + print** — anchor has a print AND a complement also has a print.
+7. **Wrong gender** — mixing menswear and womenswear.
+
+## MAJOR VIOLATIONS (deduct 2 points each)
+
+1. **Silhouette clash** — oversized + oversized, no body line anywhere.
+2. **Color overload** — more than 3 chromatic hues in one outfit.
+3. **Heavy texture clash** — tweed + boucle, velvet + tweed in same outfit.
+4. **Items don't form a wearable outfit** — e.g., 3 tops and no bottom, or pieces that can't physically be worn together.
+
+## MINOR VIOLATIONS (deduct 1 point each)
+
+1. **Color near-clash** — not forbidden but visually muddy.
+2. **Generic feel** — outfit is compliant but uninspired.
+3. **Redundant layering** — too many layers that don't add to the look.
+
+## RULES THAT DO NOT APPLY (ignore completely)
+- Missing shoes — this store has no shoes.
+- Missing bag — this store has no bags.
+- Missing accessories/jewelry — this store has no accessories.
+
+## SCORING
+
+Start at 10. Apply deductions. Approved if score >= 7.
+
+Return ONLY valid JSON, no markdown:
+{
+  "approved": true,
+  "score": 8,
+  "issues": [{"severity": "minor", "rule": "...", "description": "..."}],
+  "fix_instruction": null
+}`;
+
 async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections, debug) {
   const model = getGeminiModel(true);
+  const productMap = new Map(allProducts.map(p => [p.id, p]));
 
   const complementary = allProducts.filter(p =>
     p.id !== anchor.id &&
@@ -297,94 +406,100 @@ async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, sel
 
   const anchorJson = JSON.stringify({ id: anchor.id, title: anchor.title, type: anchor.type, price: anchor.price, collection: anchor.collection });
 
-  const prompt = prompts.buildOutfit
+  const basePrompt = prompts.buildOutfit
     .replace("{{storeName}}", storeName)
     .replace("{{anchorProduct}}", anchorJson)
     .replace("{{availableCollections}}", formatGrouped(compGrouped));
 
-  // Fetch anchor image for Gemini
-  const parts = [prompt];
+  let anchorImageParts = [];
   if (anchor.image) {
     const img = await fetchImageAsBase64(anchor.image);
     if (img) {
-      parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
-      parts.push(`(Image of anchor: "${anchor.title}")`);
+      anchorImageParts = [
+        { inlineData: { mimeType: img.contentType, data: img.base64 } },
+        `(Image of anchor: "${anchor.title}")`,
+      ];
     }
   }
 
-  const t = Date.now();
-  const result = await model.generateContent(parts);
-  const u = result.response.usageMetadata;
-  debug.track(`buildOutfit "${anchor.title}"`, { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: prompt.length, rawResponse: result.response.text(), elapsed: Date.now() - t });
-  const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
-  const outfitData = JSON.parse(text);
+  // --- Attempt 1: Standard build ---
+  const t1 = Date.now();
+  const result1 = await model.generateContent([basePrompt, ...anchorImageParts]);
+  const u1 = result1.response.usageMetadata;
+  debug.track(`buildOutfit "${anchor.title}"`, { inputTokens: u1?.promptTokenCount, outputTokens: u1?.candidatesTokenCount, inputChars: basePrompt.length, rawResponse: result1.response.text(), elapsed: Date.now() - t1 });
+  const data1 = JSON.parse(result1.response.text().replace(/```json\n?|\n?```/g, "").trim());
+  let currentOutfit = buildOutfitObj(anchor, parseOutfitItems(data1.items, productMap, anchor.id), data1.outfit_name);
 
-  const productMap = new Map(allProducts.map(p => [p.id, p]));
-  const itemIds = outfitData.items || [];
-  const validIds = itemIds.filter(id => productMap.has(id) && id !== anchor.id);
+  // --- Critic 1 ---
+  const review1 = await criticOutfit(currentOutfit, prompts, debug);
+  if (review1.approved) return currentOutfit;
 
-  const outfit = {
-    anchor,
-    items: validIds
-      .map(id => {
-        const p = productMap.get(id);
-        return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
-      }),
-    outfit_name: outfitData.outfit_name,
-  };
+  // --- Attempt 2: Rebuild with critic feedback ---
+  const formatIssues = (review) => (review.issues || []).map(i =>
+    typeof i === 'string' ? `- ${i}` : `- [${i.severity}] ${i.rule}: ${i.description}`
+  ).join("\n");
 
-  // Critic validation — if rejected, rebuild with feedback
-  const review = await criticOutfit(outfit, prompts, debug);
+  const rebuildPrompt = basePrompt + `
 
-  let finalOutfit = outfit;
-  if (!review.approved) {
-    // Rebuild with critic feedback
-    const issuesList = (review.issues || []).map(i =>
-      typeof i === 'string' ? `- ${i}` : `- [${i.severity}] ${i.rule}: ${i.description}`
-    ).join("\n");
-
-    const feedbackPrompt = prompt + `
-
-IMPORTANT — PREVIOUS ATTEMPT WAS REJECTED BY THE CRITIC (Score: ${review.score}/10):
+IMPORTANT — PREVIOUS ATTEMPT WAS REJECTED BY THE CRITIC (Score: ${review1.score}/10):
 Issues found:
-${issuesList}
-${review.fix_instruction ? `\nFIX INSTRUCTION: ${review.fix_instruction}` : ''}
+${formatIssues(review1)}
+${review1.fix_instruction ? `\nFIX INSTRUCTION: ${review1.fix_instruction}` : ''}
 
 You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT items that resolve the problems above. Do NOT repeat the same mistakes.`;
 
+  try {
     const t2 = Date.now();
-    const retryResult = await model.generateContent([feedbackPrompt]);
-    const u2 = retryResult.response.usageMetadata;
-    const retryText = retryResult.response.text().replace(/```json\n?|\n?```/g, "").trim();
-    debug.track(`rebuild "${anchor.title}"`, { inputTokens: u2?.promptTokenCount, outputTokens: u2?.candidatesTokenCount, inputChars: feedbackPrompt.length, rawResponse: retryText, elapsed: Date.now() - t2 });
+    const result2 = await model.generateContent([rebuildPrompt, ...anchorImageParts]);
+    const u2 = result2.response.usageMetadata;
+    const text2 = result2.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    debug.track(`rebuild "${anchor.title}"`, { inputTokens: u2?.promptTokenCount, outputTokens: u2?.candidatesTokenCount, inputChars: rebuildPrompt.length, rawResponse: text2, elapsed: Date.now() - t2 });
 
-    try {
-      const retryData = JSON.parse(retryText);
-      const retryIds = retryData.items || [];
-      const retryItems = retryIds
-        .filter(id => productMap.has(id) && id !== anchor.id)
-        .map(id => {
-          const p = productMap.get(id);
-          return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
-        });
+    const data2 = JSON.parse(text2);
+    const items2 = parseOutfitItems(data2.items, productMap, anchor.id);
+    if (items2.length >= 2) {
+      currentOutfit = buildOutfitObj(anchor, items2, data2.outfit_name || currentOutfit.outfit_name);
 
-      if (retryItems.length >= 2) {
-        finalOutfit = { anchor, items: retryItems, outfit_name: retryData.outfit_name || outfit.outfit_name };
-        console.log(`[Critic] "${anchor.title}": rebuilt outfit with ${retryItems.length} items after rejection`);
-      }
-    } catch (err) {
-      console.error(`[Critic] Rebuild parse failed for "${anchor.title}":`, err.message);
+      // --- Critic 2 ---
+      const review2 = await criticOutfit(currentOutfit, prompts, debug);
+      if (review2.approved) return currentOutfit;
+      console.log(`[Critic] "${anchor.title}": rebuild also rejected (score ${review2.score}/10)`);
     }
+  } catch (err) {
+    console.error(`[Critic] Rebuild parse failed for "${anchor.title}":`, err.message);
   }
 
-  // Recalculate total
-  if (finalOutfit.anchor && finalOutfit.items) {
-    const total = [finalOutfit.anchor, ...finalOutfit.items]
-      .reduce((sum, p) => sum + parseFloat(p.price || 0), 0);
-    finalOutfit.total_price = total.toFixed(2);
+  // --- Attempt 3: Clothing-only fallback (for stores without shoes/bags/accessories) ---
+  const clothingOnlyTemplate = prompts.buildOutfitClothingOnly || DEFAULT_BUILD_OUTFIT_CLOTHING_ONLY;
+  const fallbackPrompt = clothingOnlyTemplate
+    .replace("{{storeName}}", storeName)
+    .replace("{{anchorProduct}}", anchorJson)
+    .replace("{{availableCollections}}", formatGrouped(compGrouped));
+
+  try {
+    const t3 = Date.now();
+    const result3 = await model.generateContent([fallbackPrompt, ...anchorImageParts]);
+    const u3 = result3.response.usageMetadata;
+    const text3 = result3.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    debug.track(`clothingOnly "${anchor.title}"`, { inputTokens: u3?.promptTokenCount, outputTokens: u3?.candidatesTokenCount, inputChars: fallbackPrompt.length, rawResponse: text3, elapsed: Date.now() - t3 });
+
+    const data3 = JSON.parse(text3);
+    const items3 = parseOutfitItems(data3.items, productMap, anchor.id);
+    if (items3.length >= 2) {
+      currentOutfit = buildOutfitObj(anchor, items3, data3.outfit_name || currentOutfit.outfit_name);
+
+      // --- Critic 3 (clothing-only: no shoes/bags required) ---
+      const review3 = await criticClothingOnlyOutfit(currentOutfit, prompts, debug);
+      if (review3.approved) return currentOutfit;
+      console.log(`[Critic] "${anchor.title}": clothing-only fallback also rejected (score ${review3.score}/10)`);
+    }
+  } catch (err) {
+    console.error(`[Critic] Clothing-only fallback failed for "${anchor.title}":`, err.message);
   }
 
-  return finalOutfit;
+  // All 3 attempts failed
+  console.log(`[Demo] "${anchor.title}": all outfit attempts failed, returning null`);
+  return null;
 }
 
 async function criticOutfit(outfit, prompts, debug) {
@@ -459,6 +574,53 @@ Return ONLY valid JSON:
     return review;
   } catch (err) {
     console.error("Critic failed (non-blocking):", err.message);
+    return { approved: true, score: 0, issues: [] };
+  }
+}
+
+async function criticClothingOnlyOutfit(outfit, prompts, debug) {
+  if (!outfit.anchor || !outfit.items?.length) return { approved: true, score: 10, issues: [] };
+
+  try {
+    const critic = getGeminiModel(true);
+    const anchorDesc = `"${outfit.anchor.title}" (${outfit.anchor.collection})`;
+    const itemDescs = outfit.items.map((item, i) =>
+      `${i}: "${item.title}" (${item.collection})`
+    ).join("\n");
+
+    const template = prompts.criticClothingOnly || DEFAULT_CRITIC_CLOTHING_ONLY;
+    const criticText = template
+      .replace("{{storeName}}", outfit.anchor.vendor || "the store")
+      .replace("{{anchor}}", anchorDesc)
+      .replace("{{items}}", itemDescs);
+
+    const allItems = [{ ...outfit.anchor, label: "ANCHOR" }, ...outfit.items.map((item, i) => ({ ...item, label: `ITEM ${i}` }))];
+    const imagePromises = allItems
+      .filter(p => p.image)
+      .map(async (p) => {
+        const img = await fetchImageAsBase64(p.image);
+        return img ? { ...img, label: p.label, title: p.title } : null;
+      });
+    const images = (await Promise.all(imagePromises)).filter(Boolean);
+
+    const parts = [];
+    for (const img of images) {
+      parts.push({ inlineData: { mimeType: img.contentType, data: img.base64 } });
+      parts.push(`(${img.label}: "${img.title}")`);
+    }
+    parts.push(criticText);
+
+    const t = Date.now();
+    const result = await critic.generateContent(parts);
+    const u = result.response.usageMetadata;
+    const text = result.response.text().replace(/```json\n?|\n?```/g, "").trim();
+    debug.track(`criticClothingOnly "${outfit.anchor.title}"`, { inputTokens: u?.promptTokenCount, outputTokens: u?.candidatesTokenCount, inputChars: criticText.length, rawResponse: text, elapsed: Date.now() - t });
+
+    const review = JSON.parse(text);
+    console.log(`[CriticClothingOnly] "${outfit.anchor.title}": score ${review.score}/10, approved: ${review.approved}${review.issues?.length ? ', issues: ' + review.issues.map(i => typeof i === 'string' ? i : i.description).join(', ') : ''}`);
+    return review;
+  } catch (err) {
+    console.error("Clothing-only critic failed (non-blocking):", err.message);
     return { approved: true, score: 0, issues: [] };
   }
 }
@@ -972,7 +1134,10 @@ router.get("/analyze", async (req, res) => {
               const outfits = (await Promise.all(outfitPromises)).filter(Boolean);
 
               if (outfits.length === 0) {
-                useCollectionApproach = false;
+                sendSSE(res, "error", {
+                  message: "We couldn't generate a quality outfit for this store. The catalog may lack the product variety needed for styling. Contact us at adrian@askruna.ai for help.",
+                });
+                return res.end();
               } else {
                 completeData = {
                   store: { name: store.name, domain },
@@ -1026,6 +1191,13 @@ router.get("/analyze", async (req, res) => {
     }
 
     const outfit = await buildOutfitForAnchor(anchor, allProducts, store.name, prompts, null, debug);
+
+    if (!outfit || !outfit.items?.length) {
+      sendSSE(res, "error", {
+        message: "We couldn't generate a quality outfit for this store. The catalog may lack the product variety needed for styling. Contact us at adrian@askruna.ai for help.",
+      });
+      return res.end();
+    }
 
     const completeData = {
       store: { name: store.name, domain },
