@@ -215,14 +215,20 @@ async function fetchAllProducts(domain, limit = 250) {
 
 let _modelOverride = null;
 
-function getGeminiModel(useLite = true) {
+function getGeminiModel(useLite = false) {
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
   const model = _modelOverride || (useLite ? config.gemini.liteModel : config.gemini.model);
-  return genAI.getGenerativeModel({ model });
+  // Cap thinking on the heavier Flash model. Lite keeps its default (effectively no thinking).
+  const isLite = /lite/i.test(model);
+  const modelOptions = { model };
+  if (!isLite) {
+    modelOptions.generationConfig = { thinkingConfig: { thinkingBudget: 1000 } };
+  }
+  return genAI.getGenerativeModel(modelOptions);
 }
 
 async function selectCollections(collections, prompts, debug) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel();
   const collectionList = collections
     .map((c, i) => `${i + 1}. "${c.title}" (handle: ${c.handle}, ${c.productsCount} products)`)
     .join("\n");
@@ -239,7 +245,7 @@ async function selectCollections(collections, prompts, debug) {
 }
 
 async function selectAnchors(allProducts, selectedCollections, storeName, prompts, debug) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel();
   const grouped = groupByCollection(allProducts, selectedCollections);
   const prompt = prompts.selectAnchors
     .replace("{{storeName}}", storeName)
@@ -407,7 +413,7 @@ Return ONLY valid JSON, no markdown:
 }`;
 
 async function buildOutfitForAnchor(anchor, allProducts, storeName, prompts, selectedCollections, debug) {
-  const model = getGeminiModel(true);
+  const model = getGeminiModel();
   const productMap = new Map(allProducts.map(p => [p.id, p]));
 
   const complementary = allProducts.filter(p =>
@@ -585,7 +591,7 @@ async function criticOutfit(outfit, prompts, debug) {
   if (!outfit.anchor || !outfit.items?.length) return { approved: true, score: 10, issues: [] };
 
   try {
-    const critic = getGeminiModel(true);
+    const critic = getGeminiModel();
     const anchorDesc = `"${outfit.anchor.title}" (${outfit.anchor.collection})`;
     const itemDescs = outfit.items.map((item, i) =>
       `${i}: "${item.title}" (${item.collection})`
@@ -661,7 +667,7 @@ async function criticClothingOnlyOutfit(outfit, prompts, debug) {
   if (!outfit.anchor || !outfit.items?.length) return { approved: true, score: 10, issues: [] };
 
   try {
-    const critic = getGeminiModel(true);
+    const critic = getGeminiModel();
     const anchorDesc = `"${outfit.anchor.title}" (${outfit.anchor.collection})`;
     const itemDescs = outfit.items.map((item, i) =>
       `${i}: "${item.title}" (${item.collection})`
@@ -708,7 +714,7 @@ async function validateOutfit(outfit, mainGrouped, compGrouped, prompts, storeNa
   if (!outfit.anchor || !outfit.items?.length) return outfit;
 
   try {
-    const validator = getGeminiModel(true);
+    const validator = getGeminiModel();
     const anchorDesc = `"${outfit.anchor.title}" ($${outfit.anchor.price})`;
     const itemDescs = outfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
 
@@ -775,7 +781,7 @@ Return ONLY valid JSON, no markdown:
 
     // Retry with a completely different anchor
     console.log(`[Demo] Outfit validation: verdict="${verdict}", retrying with different anchor...`);
-    const model = getGeminiModel(true);
+    const model = getGeminiModel();
     const retryPrompt = prompts.buildOutfit
       .replace("{{storeName}}", storeName)
       .replace("{{mainCollections}}", formatGrouped(mainGrouped))
@@ -812,7 +818,7 @@ Pick an anchor that is easier to style — something versatile that pairs natura
     // Final validation (no more retries)
     if (retryOutfit.anchor && retryOutfit.items?.length > 0) {
       try {
-        const val2 = getGeminiModel(true);
+        const val2 = getGeminiModel();
         const anchorDesc2 = `"${retryOutfit.anchor.title}" ($${retryOutfit.anchor.price})`;
         const itemDescs2 = retryOutfit.items.map((item, i) => `${i}: "${item.title}" (${item.role})`).join("\n");
         const val2Result = await val2.generateContent(
