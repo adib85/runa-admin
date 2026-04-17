@@ -12,6 +12,7 @@ import Products from './pages/Products';
 import Settings from './pages/Settings';
 import Demo from './pages/Demo';
 import DemoPrompts from './pages/DemoPrompts';
+import DemoManual from './pages/DemoManual';
 
 // AI Tools Pages
 import AIMerchant from './pages/AIMerchant';
@@ -56,6 +57,7 @@ function App() {
       <Route path="/d/:domain" element={<Demo />} />
       <Route path="/demo-searches" element={<DemoSearches />} />
       <Route path="/demo-prompts" element={<DemoPrompts />} />
+      <Route path="/demo-manual" element={<DemoManual />} />
 
       {isDemoHost ? (
         <>

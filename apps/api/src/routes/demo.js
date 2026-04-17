@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "@runa/config";
 import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamoClient } from "@runa/core/database/dynamodb";
+import { seedDemoCache } from "../services/demoSeed.js";
 
 const router = express.Router();
 
@@ -817,6 +818,26 @@ router.delete("/cache", async (req, res) => {
     res.json({ success: true, deleted: cached.length });
   } catch (err) {
     res.status(500).json({ error: "Failed to clear cache" });
+  }
+});
+
+// ─── Manual Seed ─────────────────────────────────────────────────────
+
+router.post("/seed", async (req, res) => {
+  try {
+    const { input, dryRun } = req.body || {};
+    if (!input || typeof input !== "string" || !input.trim()) {
+      return res.status(400).json({ error: "Field 'input' (string) is required" });
+    }
+    const steps = [];
+    const result = await seedDemoCache(input, {
+      dryRun: !!dryRun,
+      onStep: (msg) => steps.push(msg),
+    });
+    res.json({ ...result, steps });
+  } catch (err) {
+    console.error("Demo seed error:", err);
+    res.status(500).json({ error: err.message || "Failed to seed demo cache" });
   }
 });
 

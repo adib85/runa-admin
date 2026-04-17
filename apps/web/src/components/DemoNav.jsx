@@ -4,6 +4,7 @@ const links = [
   { path: '/demo', label: 'Demo' },
   { path: '/demo-searches', label: 'Searches' },
   { path: '/demo-prompts', label: 'Prompts' },
+  { path: '/demo-manual', label: 'Manual' },
 ];
 
 export default function DemoNav() {
@@ -17,7 +18,8 @@ export default function DemoNav() {
         </Link>
         <nav className="flex items-center gap-1">
           {links.map(({ path, label }) => {
-            const isActive = pathname === path || (path === '/demo' && pathname.startsWith('/demo/') && pathname !== '/demo-searches' && pathname !== '/demo-prompts');
+            const isDemoSubroute = pathname.startsWith('/demo/') && !links.some(l => l.path !== '/demo' && pathname === l.path);
+            const isActive = pathname === path || (path === '/demo' && isDemoSubroute);
             return (
               <Link
                 key={path}
