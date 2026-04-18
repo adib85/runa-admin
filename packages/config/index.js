@@ -72,7 +72,7 @@ export const config = {
 
   // Shopify API
   shopify: {
-    apiVersion: "2024-07"
+    apiVersion: "2025-10"
   },
 
   // Sync Settings

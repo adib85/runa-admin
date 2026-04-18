@@ -15,7 +15,7 @@ async function main() {
   // ── Test 1: Raw REST call ──
   console.log("── Test 1: Raw REST API (fetch) ──");
   try {
-    const res = await fetch(`https://${SHOP_DOMAIN}/admin/api/2023-04/shop.json`, {
+    const res = await fetch(`https://${SHOP_DOMAIN}/admin/api/2025-10/shop.json`, {
       headers: { "X-Shopify-Access-Token": ACCESS_TOKEN }
     });
     console.log(`  Status: ${res.status} ${res.statusText}`);
@@ -46,7 +46,7 @@ async function main() {
   // ── Test 3: GraphQL (same client used by sync) ──
   console.log("── Test 3: GraphQL Admin API ──");
   try {
-    const client = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
+    const client = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2025-10/graphql.json`, {
       headers: {
         "X-Shopify-Access-Token": ACCESS_TOKEN,
         "Content-Type": "application/json"
@@ -54,7 +54,7 @@ async function main() {
     });
 
     const { productsCount } = await client.request(gql`
-      query { productsCount(query: "status:active") { count } }
+      query { productsCount(query: "status:active", limit: null) { count } }
     `);
     console.log(`  Active products: ${productsCount.count}`);
     console.log(`  ✓ GraphQL works\n`);

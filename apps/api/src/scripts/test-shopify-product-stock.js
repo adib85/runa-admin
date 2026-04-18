@@ -47,7 +47,7 @@ const GET_PRODUCTS = gql`
 `;
 
 async function main() {
-  const client = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2024-01/graphql.json`, {
+  const client = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2025-10/graphql.json`, {
     headers: {
       "X-Shopify-Access-Token": ACCESS_TOKEN,
       "Content-Type": "application/json",

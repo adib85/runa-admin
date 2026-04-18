@@ -59,7 +59,7 @@ async function main() {
   const accessToken = await fetchAccessToken(STORE_ID);
   console.log(`Access token fetched for ${STORE_ID}`);
 
-  const shopifyClient = new GraphQLClient(`https://${STORE_ID}/admin/api/2023-04/graphql.json`, {
+  const shopifyClient = new GraphQLClient(`https://${STORE_ID}/admin/api/2025-10/graphql.json`, {
     headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" }
   });
 

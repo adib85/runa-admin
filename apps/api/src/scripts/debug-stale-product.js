@@ -103,7 +103,7 @@ async function checkShopify() {
     return null;
   }
 
-  const url = `https://${STORE_ID}/admin/api/2023-04/products.json?handle=${PRODUCT_HANDLE}&status=any`;
+  const url = `https://${STORE_ID}/admin/api/2025-10/products.json?handle=${PRODUCT_HANDLE}&status=any`;
   const res = await fetch(url, {
     headers: { "X-Shopify-Access-Token": accessToken }
   });

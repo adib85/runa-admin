@@ -41,7 +41,7 @@ const GET_PRODUCTS_QUERY = gql`
 export class ShopifyProvider extends BaseProvider {
   constructor(config) {
     super(config);
-    this.endpoint = `https://${this.shopName}/admin/api/2023-04/graphql.json`;
+    this.endpoint = `https://${this.shopName}/admin/api/${runaConfig.shopify.apiVersion}/graphql.json`;
     this.graphQLClient = new GraphQLClient(this.endpoint, {
       headers: {
         "X-Shopify-Access-Token": this.accessToken,

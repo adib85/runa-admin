@@ -26,10 +26,10 @@ export function createShopifyClient(shopDomain, accessToken) {
  * GraphQL Queries
  */
 export const queries = {
-  // Get product count
+  // Get product count (limit: null returns uncapped count; 2025-07+ caps at 10,000 by default)
   productsCount: `
     query ProductsCount {
-      productsCount {
+      productsCount(limit: null) {
         count
       }
     }
@@ -196,7 +196,7 @@ export const queries = {
             title
             handle
             description
-            productsCount {
+            productsCount(limit: null) {
               count
             }
             image {

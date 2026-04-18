@@ -50,7 +50,7 @@ const RATE_LIMIT_DELAY_MS = 300;
 
 // ─── Shopify GraphQL client ──────────────────────────────────────────
 
-const shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
+const shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2025-10/graphql.json`, {
   headers: {
     "X-Shopify-Access-Token": ACCESS_TOKEN,
     "Content-Type": "application/json"

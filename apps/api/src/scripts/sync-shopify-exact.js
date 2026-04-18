@@ -920,7 +920,7 @@ function transformGraphQLToRestAPIArray(graphQLResponse) {
 
 async function getShopData(shopDomain, accessToken) {
   try {
-    const response = await fetch(`https://${shopDomain}/admin/api/2023-07/shop.json`, {
+    const response = await fetch(`https://${shopDomain}/admin/api/2025-10/shop.json`, {
       headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": accessToken }
     });
     const data = await response.json();
@@ -1191,7 +1191,7 @@ async function processProducts(products, defaultCategories, shopName) {
 // ==================== fetchAllProductsGraph ====================
 
 async function fetchAllProductsGraph(shop, accessToken, channelId, region, app, user, forceAll = false) {
-  const endpoint = `https://${shop}/admin/api/2023-04/graphql.json`;
+  const endpoint = `https://${shop}/admin/api/2025-10/graphql.json`;
   const graphQLClient = new GraphQLClient(endpoint, { headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" } });
 
   const appData = { id: "runa", appName: "Runa" };

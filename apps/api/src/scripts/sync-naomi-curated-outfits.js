@@ -347,7 +347,7 @@ const COLLECTION_UPDATE_SORT = gql`
 const COLLECTION_REORDER = gql`
   mutation collectionReorderProducts($id: ID!, $moves: [MoveInput!]!) {
     collectionReorderProducts(id: $id, moves: $moves) {
-      userErrors { field message }
+      userErrors { field message code }
     }
   }
 `;
@@ -431,7 +431,7 @@ function delay(ms) {
 
 async function main() {
   const accessToken = await fetchAccessTokenFromDB(SHOP_DOMAIN);
-  shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2023-04/graphql.json`, {
+  shopifyClient = new GraphQLClient(`https://${SHOP_DOMAIN}/admin/api/2025-10/graphql.json`, {
     headers: {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json"

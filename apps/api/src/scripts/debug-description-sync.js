@@ -115,7 +115,7 @@ async function checkShopify(neo4jProduct) {
     return null;
   }
 
-  const url = `https://${STORE_ID}/admin/api/2023-04/products.json?handle=${PRODUCT_HANDLE}&fields=id,title,handle,body_html,status,published_at`;
+  const url = `https://${STORE_ID}/admin/api/2025-10/products.json?handle=${PRODUCT_HANDLE}&fields=id,title,handle,body_html,status,published_at`;
   const res = await fetch(url, {
     headers: { "X-Shopify-Access-Token": accessToken }
   });
