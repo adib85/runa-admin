@@ -308,12 +308,25 @@ async function fetchImageAsBase64(url) {
 }
 
 function parseOutfitItems(rawItems, productMap, anchorId) {
+  // Defensive lookup: Gemini sometimes returns Shopify int64 IDs as strings
+  // ("9087123456") and sometimes as numbers (9087123456). Map.has() does
+  // strict equality so the mismatch silently filters out valid items —
+  // observed in production on Cocomelody and Charlesvermont (high-ID stores).
+  // Try the raw value first, then string and numeric coercions.
+  const lookup = (id) => {
+    if (id == null) return null;
+    if (productMap.has(id)) return productMap.get(id);
+    const asStr = String(id);
+    if (productMap.has(asStr)) return productMap.get(asStr);
+    const asNum = Number(id);
+    if (Number.isFinite(asNum) && productMap.has(asNum)) return productMap.get(asNum);
+    return null;
+  };
+
   return (rawItems || [])
-    .filter(id => productMap.has(id) && id !== anchorId)
-    .map(id => {
-      const p = productMap.get(id);
-      return { id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection };
-    });
+    .map(lookup)
+    .filter(p => p && p.id !== anchorId && String(p.id) !== String(anchorId))
+    .map(p => ({ id: p.id, title: p.title, handle: p.handle, price: p.price, image: p.image, vendor: p.vendor, collection: p.collection }));
 }
 
 function buildOutfitObj(anchor, items, outfitName) {
