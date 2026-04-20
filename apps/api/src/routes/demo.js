@@ -840,18 +840,35 @@ router.get("/searches", async (req, res) => {
         outfitsByDomain[r.domain] = r.result?.outfit;
       });
 
+    // Visits from these countries are treated as internal/test traffic, not real prospects.
+    const TEST_COUNTRIES = new Set(["Romania"]);
+    const isExternalVisit = (v) => !TEST_COUNTRIES.has(v.country);
+
     const stores = results
       .filter(r => r.id?.startsWith("demo_visits_"))
-      .map(r => ({
-        domain: r.domain,
-        storeName: r.storeName,
-        visits: (r.visits || []).slice(0, 10),
-        totalVisits: r.totalVisits || 0,
-        lastVisit: r.lastVisit,
-        cachedHits: (r.visits || []).filter(v => v.fromCache).length,
-        freshHits: (r.visits || []).filter(v => !v.fromCache).length,
-      }))
-      .sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0));
+      .map(r => {
+        const allVisits = r.visits || [];
+        const externalVisits = allVisits.filter(isExternalVisit);
+        return {
+          domain: r.domain,
+          storeName: r.storeName,
+          visits: allVisits.slice(0, 10),
+          totalVisits: r.totalVisits || 0,
+          lastVisit: r.lastVisit,
+          cachedHits: allVisits.filter(v => v.fromCache).length,
+          freshHits: allVisits.filter(v => !v.fromCache).length,
+          // Real visits = visits not from our test country (Romania)
+          externalVisits: externalVisits.length,
+          uniqueExternalCountries: [...new Set(externalVisits.map(v => v.country).filter(Boolean))].length,
+        };
+      })
+      .sort((a, b) => {
+        // Hot leads (multiple external visits) first, then by last visit
+        if (b.externalVisits !== a.externalVisits && (b.externalVisits >= 2 || a.externalVisits >= 2)) {
+          return b.externalVisits - a.externalVisits;
+        }
+        return (b.lastVisit || 0) - (a.lastVisit || 0);
+      });
 
     // Enrich each store with lead/contact data from LeadsCompanyTable
     const leadsByDomain = await fetchLeadsByDomains(stores.map(s => s.domain));

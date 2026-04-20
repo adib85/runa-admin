@@ -108,6 +108,10 @@ export default function DemoSearches() {
           <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
           <p className="text-sm text-neutral-500 mt-2">
             {data.totalStores} stores · {data.totalSearches} total visits · {data.cached} cached
+            {(() => {
+              const hot = (data.stores || []).filter(s => (s.externalVisits || 0) >= 2).length;
+              return hot > 0 ? <span className="text-amber-600 font-medium ml-1">· {hot} hot lead{hot === 1 ? '' : 's'}</span> : null;
+            })()}
           </p>
         </div>
         {data.cached > 0 && (
@@ -127,8 +131,16 @@ export default function DemoSearches() {
       <div className="space-y-4">
         {data.stores?.map((store) => {
           const outfit = data.outfitsByDomain?.[store.domain];
+          const isHotLead = (store.externalVisits || 0) >= 2;
           return (
-            <div key={store.domain} className="bg-white border border-neutral-100 rounded-lg overflow-hidden hover:border-neutral-200 transition-colors">
+            <div
+              key={store.domain}
+              className={`rounded-lg overflow-hidden transition-colors ${
+                isHotLead
+                  ? 'bg-amber-50/40 border-2 border-amber-300 hover:border-amber-400 shadow-sm'
+                  : 'bg-white border border-neutral-100 hover:border-neutral-200'
+              }`}
+            >
               <div className="px-6 py-5 flex items-center justify-between">
                 <div className="flex items-center gap-5">
                   {outfit?.anchor?.image ? (
@@ -141,7 +153,17 @@ export default function DemoSearches() {
                     <div className="w-14 h-14 rounded-md bg-neutral-50 flex items-center justify-center text-neutral-300 text-xs">—</div>
                   )}
                   <div>
-                    <p className="text-sm font-semibold text-neutral-900">{store.storeName || store.domain}</p>
+                    <p className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
+                      {store.storeName || store.domain}
+                      {isHotLead && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-200 text-amber-900"
+                          title={`${store.externalVisits} external visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} countries` : ''} (Romania excluded)`}
+                        >
+                          🔥 hot · {store.externalVisits} ext
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-neutral-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                       <a
                         href={`https://${store.domain}`}
@@ -266,14 +288,21 @@ export default function DemoSearches() {
               {store.visits.length > 0 && (
                 <div className="border-t border-neutral-50 px-6 py-3 bg-neutral-50/50">
                   <div className="flex flex-wrap gap-x-6 gap-y-1">
-                    {store.visits.map((v, i) => (
-                      <span key={i} className="text-xs text-neutral-400">
-                        {new Date(v.time).toLocaleString()}
-                        {v.fromCache && <span className="text-purple-400 ml-1">·cache</span>}
-                        {v.city && <span className="text-neutral-400 ml-1">·{v.city}, {v.country}</span>}
-                        {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
-                      </span>
-                    ))}
+                    {store.visits.map((v, i) => {
+                      const isInternal = v.country === 'Romania';
+                      return (
+                        <span
+                          key={i}
+                          className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
+                          title={isInternal ? 'Internal test visit (Romania) — excluded from hot-lead count' : 'External visit'}
+                        >
+                          {new Date(v.time).toLocaleString()}
+                          {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
+                          {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
+                          {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
+                        </span>
+                      );
+                    })}
                     {store.totalVisits > 10 && (
                       <span className="text-xs text-neutral-300">+{store.totalVisits - 10} more</span>
                     )}
