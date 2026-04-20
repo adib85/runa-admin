@@ -21,6 +21,13 @@ function isLocalIp(ip) {
   return false;
 }
 
+// A visit is "internal" (test traffic) if it comes from a local/private IP,
+// has no resolved country, or is from Romania (our dev location). These get
+// hidden from the UI entirely and excluded from counters.
+function isInternalVisit(v) {
+  return isLocalIp(v.ip) || !v.country || v.country === 'Romania';
+}
+
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
   const currency = outfit.currency || 'USD';
@@ -123,17 +130,23 @@ export default function DemoSearches() {
         <div>
           <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
           <p className="text-sm text-neutral-500 mt-2">
-            {data.totalStores} stores · {data.totalSearches} total visits · {data.cached} cached
             {(() => {
-              const hot = (data.stores || []).filter(s => (s.externalVisits || 0) >= 2).length;
-              return hot > 0 ? (
-                <span
-                  className="text-amber-600 font-medium ml-1"
-                  title="Stores with 2+ real external visits (Romania, localhost and unresolved IPs excluded)"
-                >
-                  · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
-                </span>
-              ) : null;
+              const stores = data.stores || [];
+              const externalTotal = stores.reduce((sum, s) => sum + (s.externalVisits || 0), 0);
+              const hot = stores.filter(s => (s.externalVisits || 0) >= 2).length;
+              return (
+                <>
+                  {data.totalStores} stores · {externalTotal} external visits · {data.cached} cached
+                  {hot > 0 && (
+                    <span
+                      className="text-amber-600 font-medium ml-1"
+                      title="Stores with 2+ real external visits (Romania, localhost and unresolved IPs excluded)"
+                    >
+                      · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </>
+              );
             })()}
           </p>
         </div>
@@ -211,7 +224,7 @@ export default function DemoSearches() {
                         </>
                       )}
                       <span className="text-neutral-300">·</span>
-                      <span className="whitespace-nowrap">{store.totalVisits} visits</span>
+                      <span className="whitespace-nowrap">{store.externalVisits || 0} visits</span>
                     </p>
                   </div>
                 </div>
@@ -301,61 +314,50 @@ export default function DemoSearches() {
                   )}
                 </div>
               )}
-              {/* Visit history */}
-              {store.visits.length > 0 && (() => {
+              {/* Visit history — external visits only (internal test traffic hidden) */}
+              {(() => {
+                const externalVisits = (store.visits || []).filter(v => !isInternalVisit(v));
+                if (externalVisits.length === 0) return null;
+
                 const COLLAPSED_COUNT = 3;
                 const isExpanded = !!expandedVisits[store.domain];
-                const visibleVisits = isExpanded ? store.visits : store.visits.slice(0, COLLAPSED_COUNT);
-                const hiddenInList = Math.max(0, store.visits.length - COLLAPSED_COUNT);
-                const overflowBeyondList = Math.max(0, store.totalVisits - store.visits.length);
+                const visibleVisits = isExpanded ? externalVisits : externalVisits.slice(0, COLLAPSED_COUNT);
+                const hiddenInList = Math.max(0, externalVisits.length - COLLAPSED_COUNT);
+
                 return (
                   <div className="border-t border-neutral-50 px-4 sm:px-6 py-3 bg-neutral-50/50">
                     <div className="flex flex-wrap gap-x-6 gap-y-1">
-                      {visibleVisits.map((v, i) => {
-                        const localIp = isLocalIp(v.ip);
-                        const isInternal = localIp || !v.country || v.country === 'Romania';
-                        const reason = localIp
-                          ? `localhost / private IP (${v.ip}) — internal test`
-                          : !v.country
-                          ? 'no geo resolved (likely internal test)'
-                          : 'visit from Romania (internal test)';
-                        return (
-                          <span
-                            key={i}
-                            className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
-                            title={isInternal ? `${reason} — excluded from visit count` : 'External visit'}
-                          >
-                            {new Date(v.time).toLocaleString('en-US', {
-                              timeZone: 'Europe/Bucharest',
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric',
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true,
-                            })}
-                            {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
-                            {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
-                            {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
-                          </span>
-                        );
-                      })}
+                      {visibleVisits.map((v, i) => (
+                        <span
+                          key={i}
+                          className="text-xs text-neutral-500"
+                          title="External visit"
+                        >
+                          {new Date(v.time).toLocaleString('en-US', {
+                            timeZone: 'Europe/Bucharest',
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true,
+                          })}
+                          {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
+                          {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
+                          {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
+                        </span>
+                      ))}
                     </div>
-                    {(hiddenInList > 0 || overflowBeyondList > 0) && (
+                    {hiddenInList > 0 && (
                       <div className="mt-2">
-                        {hiddenInList > 0 && (
-                          <button
-                            onClick={() => toggleVisits(store.domain)}
-                            className="text-xs font-medium text-neutral-500 hover:text-neutral-900 hover:underline"
-                          >
-                            {isExpanded
-                              ? 'Show less'
-                              : `View all ${store.visits.length} visits${overflowBeyondList > 0 ? ` (+${overflowBeyondList} older)` : ''}`}
-                          </button>
-                        )}
-                        {hiddenInList === 0 && overflowBeyondList > 0 && (
-                          <span className="text-xs text-neutral-300">+{overflowBeyondList} older visits not stored</span>
-                        )}
+                        <button
+                          onClick={() => toggleVisits(store.domain)}
+                          className="text-xs font-medium text-neutral-500 hover:text-neutral-900 hover:underline"
+                        >
+                          {isExpanded
+                            ? 'Show less'
+                            : `View all ${externalVisits.length} visits`}
+                        </button>
                       </div>
                     )}
                   </div>
