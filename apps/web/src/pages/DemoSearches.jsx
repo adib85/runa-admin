@@ -135,18 +135,6 @@ export default function DemoSearches() {
             })()}
           </p>
         </div>
-        {data.cached > 0 && (
-          <button
-            onClick={async () => {
-              if (!confirm('Delete ALL cached results? Next visits will run fresh.')) return;
-              await fetch('/api/demo/cache', { method: 'DELETE' });
-              window.location.reload();
-            }}
-            className="px-4 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors"
-          >
-            Clear All Cache
-          </button>
-        )}
       </div>
 
       <div className="space-y-4">
@@ -193,7 +181,7 @@ export default function DemoSearches() {
                         href={`https://${store.domain}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-neutral-500 hover:text-neutral-900 hover:underline truncate max-w-full"
+                        className="text-blue-600 hover:text-blue-800 underline truncate max-w-full"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {store.domain}
@@ -214,7 +202,7 @@ export default function DemoSearches() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setPreviewOutfit(outfit); }}
-                            className="text-neutral-500 hover:text-neutral-900 hover:underline whitespace-nowrap"
+                            className="text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
                           >
                             quick view
                           </button>
@@ -222,7 +210,7 @@ export default function DemoSearches() {
                       )}
                       <span className="text-neutral-300">·</span>
                       <span className="whitespace-nowrap">{store.totalVisits} visits</span>
-                      {store.cachedHits > 0 && <span className="text-purple-500 whitespace-nowrap">({store.cachedHits} cached)</span>}
+                      {store.cachedHits > 0 && <span className="text-blue-600 whitespace-nowrap">({store.cachedHits} cached)</span>}
                     </p>
                   </div>
                 </div>
