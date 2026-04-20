@@ -840,9 +840,25 @@ router.get("/searches", async (req, res) => {
         outfitsByDomain[r.domain] = r.result?.outfit;
       });
 
-    // Visits from these countries are treated as internal/test traffic, not real prospects.
+    // Visits from these countries (or with no resolvable country / localhost IP) are
+    // treated as internal/test traffic and excluded from "real" visit counts.
     const TEST_COUNTRIES = new Set(["Romania"]);
-    const isExternalVisit = (v) => !TEST_COUNTRIES.has(v.country);
+    const isLocalIp = (ip) => {
+      if (!ip) return true;
+      const v = String(ip).replace(/^::ffff:/, ""); // strip IPv4-mapped IPv6 prefix
+      if (v === "unknown" || v === "::1" || v === "localhost") return true;
+      if (v.startsWith("127.")) return true;        // 127.0.0.0/8 loopback
+      if (v.startsWith("10.")) return true;         // private 10.0.0.0/8
+      if (v.startsWith("192.168.")) return true;    // private 192.168.0.0/16
+      if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(v)) return true; // private 172.16.0.0/12
+      return false;
+    };
+    const isExternalVisit = (v) => {
+      if (isLocalIp(v.ip)) return false;        // localhost / private network → internal
+      if (!v.country) return false;             // no geo resolved → likely local/test
+      if (TEST_COUNTRIES.has(v.country)) return false;
+      return true;
+    };
 
     const stores = results
       .filter(r => r.id?.startsWith("demo_visits_"))

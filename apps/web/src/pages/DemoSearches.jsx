@@ -9,6 +9,17 @@ function formatUSD(value) {
   return `$${n.toFixed(0)}`;
 }
 
+function isLocalIp(ip) {
+  if (!ip) return true;
+  const v = String(ip).replace(/^::ffff:/, '');
+  if (v === 'unknown' || v === '::1' || v === 'localhost') return true;
+  if (v.startsWith('127.')) return true;
+  if (v.startsWith('10.')) return true;
+  if (v.startsWith('192.168.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(v)) return true;
+  return false;
+}
+
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
 
@@ -110,7 +121,14 @@ export default function DemoSearches() {
             {data.totalStores} stores · {data.totalSearches} total visits · {data.cached} cached
             {(() => {
               const hot = (data.stores || []).filter(s => (s.externalVisits || 0) >= 2).length;
-              return hot > 0 ? <span className="text-amber-600 font-medium ml-1">· {hot} hot lead{hot === 1 ? '' : 's'}</span> : null;
+              return hot > 0 ? (
+                <span
+                  className="text-amber-600 font-medium ml-1"
+                  title="Stores with 2+ real external visits (Romania, localhost and unresolved IPs excluded)"
+                >
+                  · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
+                </span>
+              ) : null;
             })()}
           </p>
         </div>
@@ -158,9 +176,10 @@ export default function DemoSearches() {
                       {isHotLead && (
                         <span
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-200 text-amber-900"
-                          title={`${store.externalVisits} external visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} countries` : ''} (Romania excluded)`}
+                          title={`${store.externalVisits} real visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} different countries` : ''}. Romania, localhost and unresolved IPs are excluded as internal test traffic.`}
                         >
-                          🔥 hot · {store.externalVisits} ext
+                          🔥 {store.externalVisits} real visits
+                          {store.uniqueExternalCountries > 1 && ` · ${store.uniqueExternalCountries} countries`}
                         </span>
                       )}
                     </p>
@@ -289,12 +308,18 @@ export default function DemoSearches() {
                 <div className="border-t border-neutral-50 px-6 py-3 bg-neutral-50/50">
                   <div className="flex flex-wrap gap-x-6 gap-y-1">
                     {store.visits.map((v, i) => {
-                      const isInternal = v.country === 'Romania';
+                      const localIp = isLocalIp(v.ip);
+                      const isInternal = localIp || !v.country || v.country === 'Romania';
+                      const reason = localIp
+                        ? `localhost / private IP (${v.ip}) — internal test`
+                        : !v.country
+                        ? 'no geo resolved (likely internal test)'
+                        : 'visit from Romania (internal test)';
                       return (
                         <span
                           key={i}
                           className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
-                          title={isInternal ? 'Internal test visit (Romania) — excluded from hot-lead count' : 'External visit'}
+                          title={isInternal ? `${reason} — excluded from real-visit count` : 'Real external visit'}
                         >
                           {new Date(v.time).toLocaleString()}
                           {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
