@@ -888,12 +888,15 @@ router.get("/searches", async (req, res) => {
         return {
           domain: r.domain,
           storeName: r.storeName,
-          visits: allVisits.slice(0, 10),
+          // Send the full external-visit list (up to the 50 stored) so the
+          // frontend counter matches what's actually displayed. Previously
+          // we sliced to 10 pre-filter, which could hide some external visits
+          // behind internal Bucharest/localhost traffic at the top of the list.
+          visits: externalVisits.slice(0, 50),
           totalVisits: r.totalVisits || 0,
           lastVisit: r.lastVisit,
-          cachedHits: allVisits.filter(v => v.fromCache).length,
-          freshHits: allVisits.filter(v => !v.fromCache).length,
-          // Real visits = visits not from our test country (Romania)
+          cachedHits: externalVisits.filter(v => v.fromCache).length,
+          freshHits: externalVisits.filter(v => !v.fromCache).length,
           externalVisits: externalVisits.length,
           uniqueExternalCountries: [...new Set(externalVisits.map(v => v.country).filter(Boolean))].length,
         };
