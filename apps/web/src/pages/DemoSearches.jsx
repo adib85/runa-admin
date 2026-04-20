@@ -325,7 +325,7 @@ export default function DemoSearches() {
                             className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
                             title={isInternal ? `${reason} — excluded from visit count` : 'External visit'}
                           >
-                            {new Date(v.time).toLocaleString()}
+                            {new Date(v.time).toLocaleString('en-GB', { timeZone: 'Europe/Bucharest' })}
                             {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
                             {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
                             {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
