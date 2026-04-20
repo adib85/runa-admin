@@ -181,7 +181,7 @@ export default function DemoSearches() {
                         href={`https://${store.domain}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 underline truncate max-w-full"
+                        className="text-purple-500 hover:text-purple-700 truncate max-w-full"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {store.domain}
@@ -202,7 +202,7 @@ export default function DemoSearches() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setPreviewOutfit(outfit); }}
-                            className="text-blue-600 hover:text-blue-800 underline whitespace-nowrap"
+                            className="text-purple-500 hover:text-purple-700 whitespace-nowrap"
                           >
                             quick view
                           </button>
@@ -210,7 +210,6 @@ export default function DemoSearches() {
                       )}
                       <span className="text-neutral-300">·</span>
                       <span className="whitespace-nowrap">{store.totalVisits} visits</span>
-                      {store.cachedHits > 0 && <span className="text-blue-600 whitespace-nowrap">({store.cachedHits} cached)</span>}
                     </p>
                   </div>
                 </div>
