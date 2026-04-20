@@ -176,9 +176,9 @@ export default function DemoSearches() {
                       {isHotLead && (
                         <span
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-200 text-amber-900"
-                          title={`${store.externalVisits} real visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} different countries` : ''}. Romania, localhost and unresolved IPs are excluded as internal test traffic.`}
+                          title={`${store.externalVisits} visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} different countries` : ''}. Romania, localhost and unresolved IPs are excluded as internal test traffic.`}
                         >
-                          🔥 {store.externalVisits} real visits
+                          🔥 {store.externalVisits} visits
                           {store.uniqueExternalCountries > 1 && ` · ${store.uniqueExternalCountries} countries`}
                         </span>
                       )}
