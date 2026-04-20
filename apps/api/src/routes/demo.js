@@ -159,7 +159,9 @@ async function validateShopifyStore(domain) {
     const res = await fetchWithTimeout(`https://${domain}/meta.json`);
     if (!res.ok) return null;
     const data = await res.json();
-    return data?.name ? { name: data.name, domain } : null;
+    return data?.name
+      ? { name: data.name, domain, currency: data.currency || "USD" }
+      : null;
   } catch {
     return null;
   }
@@ -837,7 +839,12 @@ router.get("/searches", async (req, res) => {
     results
       .filter(r => r.id?.startsWith("demo_") && !r.id.startsWith("demo_visits_") && !r.id.startsWith("demo_prompts") && r.result)
       .forEach(r => {
-        outfitsByDomain[r.domain] = r.result?.outfit;
+        const outfit = r.result?.outfit;
+        if (!outfit) return;
+        outfitsByDomain[r.domain] = {
+          ...outfit,
+          currency: r.result?.store?.currency || "USD",
+        };
       });
 
     // Visits from these countries (or with no resolvable country / localhost IP) are
@@ -1151,7 +1158,7 @@ router.get("/analyze", async (req, res) => {
                 return res.end();
               } else {
                 completeData = {
-                  store: { name: store.name, domain },
+                  store: { name: store.name, domain, currency: store.currency },
                   outfit: outfits[0],
                   alternativeOutfits: outfits.slice(1),
                   productCount: totalProducts,
@@ -1211,7 +1218,7 @@ router.get("/analyze", async (req, res) => {
     }
 
     const completeData = {
-      store: { name: store.name, domain },
+      store: { name: store.name, domain, currency: store.currency },
       outfit,
       alternativeOutfits: [],
       productCount: allProducts.length,

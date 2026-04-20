@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import DemoNav from '../components/DemoNav';
+import { formatPrice } from '../utils/formatPrice';
 
 function formatUSD(value) {
   if (value == null || !Number.isFinite(Number(value))) return '';
@@ -22,6 +23,7 @@ function isLocalIp(ip) {
 
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
+  const currency = outfit.currency || 'USD';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -38,7 +40,7 @@ function OutfitPreview({ outfit, onClose }) {
           <div>
             <p className="text-xs text-neutral-500 uppercase tracking-wide">Anchor Product</p>
             <p className="text-sm font-medium text-neutral-900 mt-1">{outfit.anchor?.title}</p>
-            <p className="text-sm text-neutral-600">${outfit.anchor?.price}</p>
+            <p className="text-sm text-neutral-600">{formatPrice(outfit.anchor?.price, currency)}</p>
           </div>
         </div>
 
@@ -52,14 +54,14 @@ function OutfitPreview({ outfit, onClose }) {
                 <img src={item.image} alt={item.title} className="w-full aspect-square object-contain bg-neutral-50 rounded mb-2" />
               )}
               <p className="text-xs font-medium text-neutral-900 truncate">{item.title}</p>
-              <p className="text-xs text-neutral-500">${item.price}</p>
+              <p className="text-xs text-neutral-500">{formatPrice(item.price, currency)}</p>
             </div>
           ))}
         </div>
 
         {outfit.total_price && (
           <p className="text-sm text-neutral-500 mt-4 pt-4 border-t border-neutral-100 text-right">
-            Total: <span className="font-medium text-neutral-900">${outfit.total_price}</span>
+            Total: <span className="font-medium text-neutral-900">{formatPrice(outfit.total_price, currency)}</span>
           </p>
         )}
       </div>

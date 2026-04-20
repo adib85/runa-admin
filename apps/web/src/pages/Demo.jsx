@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { formatPrice } from '../utils/formatPrice';
 
 const API_URL = '/api';
 const RUNA_URL = 'https://www.askruna.ai';
@@ -105,7 +106,7 @@ function LogMessages({ messages }) {
 
 // ─── Complementary Product Card ──────────────────────────────────────
 
-function ComplementaryCard({ product }) {
+function ComplementaryCard({ product, currency }) {
   const vendor = product.vendor || '';
   const name = vendor
     ? product.title.replace(new RegExp(`^${vendor}\\s*`, 'i'), '') || product.title
@@ -134,7 +135,7 @@ function ComplementaryCard({ product }) {
           {name}
         </p>
         <p className="text-xs text-neutral-700 font-medium mt-1">
-          ${product.price}
+          {formatPrice(product.price, currency)}
         </p>
       </div>
     </div>
@@ -251,7 +252,7 @@ function ResultsView({ data, setResult }) {
                   {outfit.anchor?.title}
                 </h2>
                 <p className="text-lg font-medium text-neutral-700 mt-2">
-                  ${outfit.anchor?.price}
+                  {formatPrice(outfit.anchor?.price, store.currency)}
                 </p>
                 <div className="mt-6 space-y-3">
                   <button className="w-full py-3 bg-neutral-900 text-white text-sm font-semibold rounded-lg hover:bg-neutral-800 transition-colors">
@@ -288,7 +289,7 @@ function ResultsView({ data, setResult }) {
                     outfit.items?.length >= 4 ? 'grid-cols-4' : 'grid-cols-3'
                   }`}>
                     {outfit.items?.map((item) => (
-                      <ComplementaryCard key={item.id} product={item} />
+                      <ComplementaryCard key={item.id} product={item} currency={store.currency} />
                     ))}
                   </div>
                 </div>
@@ -325,7 +326,7 @@ function ResultsView({ data, setResult }) {
                 <div className="flex gap-3 overflow-x-auto pb-4 snap-x">
                   {outfit.items?.map((item) => (
                     <div key={item.id} className="snap-start">
-                      <ComplementaryCard product={item} />
+                      <ComplementaryCard product={item} currency={store.currency} />
                     </div>
                   ))}
                 </div>
@@ -356,7 +357,7 @@ function ResultsView({ data, setResult }) {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-neutral-900 truncate">{alt.anchor?.title}</p>
-                      <p className="text-xs text-neutral-500 mt-1">${alt.anchor?.price}</p>
+                      <p className="text-xs text-neutral-500 mt-1">{formatPrice(alt.anchor?.price, store.currency)}</p>
                       <div className="flex gap-1.5 mt-2">
                         {alt.items?.slice(0, 4).map((item, j) => (
                           item.image && <img key={j} src={item.image} alt="" className="w-8 h-8 rounded object-cover bg-neutral-100" />
@@ -669,7 +670,7 @@ export default function Demo() {
               <div className="flex-1 pt-1">
                 <p className="text-purple-400 text-xs font-bold uppercase tracking-wider mb-1">Star Product</p>
                 <p className="text-white font-semibold text-sm leading-snug">{anchor.title}</p>
-                <p className="text-neutral-400 text-sm mt-1.5">${anchor.price}</p>
+                <p className="text-neutral-400 text-sm mt-1.5">{formatPrice(anchor.price, result.store?.currency)}</p>
               </div>
             </div>
           </div>

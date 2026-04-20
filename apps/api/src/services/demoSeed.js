@@ -76,7 +76,7 @@ async function fetchStoreMeta(domain) {
   if (!res.ok) throw new Error(`/meta.json returned ${res.status} for ${domain}`);
   const data = await res.json();
   if (!data?.name) throw new Error(`No store name in /meta.json for ${domain}`);
-  return { name: data.name };
+  return { name: data.name, currency: data.currency || "USD" };
 }
 
 async function fetchProductByHandle(domain, handle) {
@@ -222,7 +222,7 @@ export async function seedDemoCache(rawText, opts = {}) {
   }
 
   const payload = {
-    store: { name: meta.name, domain },
+    store: { name: meta.name, domain, currency: meta.currency },
     outfit: outfits[0],
     alternativeOutfits: outfits.slice(1),
     productCount: productCount || 0,

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DemoNav from '../components/DemoNav';
+import { formatPrice } from '../utils/formatPrice';
 
 const PLACEHOLDER = `Outfit 1:
 (HERO) https://store.com/products/anchor-handle
@@ -45,6 +46,7 @@ export default function DemoManual() {
   const outfits = result?.payload
     ? [result.payload.outfit, ...(result.payload.alternativeOutfits || [])]
     : [];
+  const currency = result?.payload?.store?.currency || 'USD';
 
   return (
     <div>
@@ -140,13 +142,13 @@ export default function DemoManual() {
                         {o.outfit_name}
                       </p>
                       <p className="text-xs text-neutral-500">
-                        Total ${o.total_price}
+                        Total {formatPrice(o.total_price, currency)}
                       </p>
                     </div>
                     <div className="grid grid-cols-5 gap-3">
-                      <ProductCard p={o.anchor} label="ANCHOR" />
+                      <ProductCard p={o.anchor} label="ANCHOR" currency={currency} />
                       {o.items.map((it) => (
-                        <ProductCard key={it.id} p={it} />
+                        <ProductCard key={it.id} p={it} currency={currency} />
                       ))}
                     </div>
                   </div>
@@ -160,7 +162,7 @@ export default function DemoManual() {
   );
 }
 
-function ProductCard({ p, label }) {
+function ProductCard({ p, label, currency }) {
   return (
     <div className="text-xs">
       {p.image ? (
@@ -180,7 +182,7 @@ function ProductCard({ p, label }) {
         </p>
       )}
       <p className="mt-1 text-neutral-800 leading-tight line-clamp-2">{p.title}</p>
-      <p className="text-neutral-500">${p.price}</p>
+      <p className="text-neutral-500">{formatPrice(p.price, currency)}</p>
     </div>
   );
 }
