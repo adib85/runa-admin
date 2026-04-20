@@ -2,7 +2,7 @@ import express from "express";
 import nodeFetch from "node-fetch";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "@runa/config";
-import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamoClient } from "@runa/core/database/dynamodb";
 import { seedDemoCache } from "../services/demoSeed.js";
 
@@ -729,6 +729,90 @@ async function logDemoSearch(domain, storeName, fromCache, ip) {
   }
 }
 
+// ─── Leads Lookup (LeadsCompanyTable) ────────────────────────────────
+
+// Fields we want from LeadsCompanyTable per domain
+const LEADS_PROJECTION = [
+  "#d", "company", "country", "brand_tier",
+  "contact_first_name", "contact_last_name", "contact_email",
+  "contact_title", "contact_linkedin", "contact_source",
+  "dm_first_name", "dm_last_name", "dm_email",
+  "dm_role", "dm_linkedin",
+  "outreach_status", "personalization_message",
+  "fashion_match", "ctl_fit", "ctl_existing",
+  "store_url",
+  "sales_revenue", "estimated_visits", "average_product_price",
+].join(", ");
+
+function shapeLead(item) {
+  if (!item) return null;
+  const firstName = item.contact_first_name || item.dm_first_name || "";
+  const lastName = item.contact_last_name || item.dm_last_name || "";
+  const fullName = `${firstName} ${lastName}`.trim();
+
+  // sales_revenue from StoreCensus is MONTHLY (USD). Annual = monthly × 12.
+  const monthlyRevenue = item.sales_revenue != null ? Number(item.sales_revenue) : null;
+  const annualRevenue = Number.isFinite(monthlyRevenue) ? Math.round(monthlyRevenue * 12) : null;
+  const monthlyVisits = item.estimated_visits != null ? Number(item.estimated_visits) : null;
+  const avgProductPrice = item.average_product_price != null ? Number(item.average_product_price) : null;
+
+  return {
+    company: item.company || null,
+    country: item.country || null,
+    brandTier: item.brand_tier || null,
+    ownerName: fullName || null,
+    ownerTitle: item.contact_title || item.dm_role || null,
+    email: item.contact_email || item.dm_email || null,
+    linkedin: item.contact_linkedin || item.dm_linkedin || null,
+    source: item.contact_email
+      ? (item.contact_source || "enriched")
+      : (item.dm_email ? "storecensus" : null),
+    outreachStatus: item.outreach_status || null,
+    personalizationMessage: item.personalization_message || null,
+    fashionMatch: item.fashion_match ?? null,
+    ctlFit: item.ctl_fit ?? null,
+    ctlExisting: item.ctl_existing ?? null,
+    monthlyRevenue: Number.isFinite(monthlyRevenue) ? monthlyRevenue : null,
+    annualRevenue,
+    monthlyVisits: Number.isFinite(monthlyVisits) ? monthlyVisits : null,
+    avgProductPrice: Number.isFinite(avgProductPrice) ? avgProductPrice : null,
+  };
+}
+
+async function fetchLeadsByDomains(domains) {
+  const map = {};
+  if (!domains?.length) return map;
+
+  const table = config.dynamodb.tables.leadsCompany;
+  if (!table) return map;
+
+  const docClient = dynamoClient.getDocClient();
+  const unique = [...new Set(domains.filter(Boolean))];
+
+  // BatchGet supports up to 100 keys per call
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    try {
+      const response = await docClient.send(new BatchGetCommand({
+        RequestItems: {
+          [table]: {
+            Keys: chunk.map(d => ({ domain: d })),
+            ProjectionExpression: LEADS_PROJECTION,
+            ExpressionAttributeNames: { "#d": "domain" },
+          },
+        },
+      }));
+      const items = response.Responses?.[table] || [];
+      for (const item of items) {
+        if (item.domain) map[item.domain] = shapeLead(item);
+      }
+    } catch (err) {
+      console.error(`[demo/searches] LeadsCompanyTable lookup failed for chunk:`, err.message);
+    }
+  }
+  return map;
+}
+
 // ─── List Demo Searches ──────────────────────────────────────────────
 
 router.get("/searches", async (req, res) => {
@@ -768,6 +852,12 @@ router.get("/searches", async (req, res) => {
         freshHits: (r.visits || []).filter(v => !v.fromCache).length,
       }))
       .sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0));
+
+    // Enrich each store with lead/contact data from LeadsCompanyTable
+    const leadsByDomain = await fetchLeadsByDomains(stores.map(s => s.domain));
+    for (const store of stores) {
+      store.lead = leadsByDomain[store.domain] || null;
+    }
 
     const totalSearches = stores.reduce((sum, s) => sum + s.totalVisits, 0);
 

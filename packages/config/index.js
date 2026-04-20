@@ -31,7 +31,9 @@ export const config = {
     tables: {
       users: process.env.DYNAMODB_USER_TABLE || "UserTable",
       logs: process.env.DYNAMODB_LOG_TABLE || "LogTable",
-      cache: process.env.DYNAMODB_CACHE_TABLE || "CacheTable"
+      cache: process.env.DYNAMODB_CACHE_TABLE || "CacheTable",
+      leadsCompany: process.env.DYNAMODB_LEADS_COMPANY_TABLE || "LeadsCompanyTable",
+      leadsContact: process.env.DYNAMODB_LEADS_CONTACT_TABLE || "LeadsContactTable"
     }
   },
 

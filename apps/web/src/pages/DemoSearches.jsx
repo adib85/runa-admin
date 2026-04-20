@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import DemoNav from '../components/DemoNav';
 
+function formatUSD(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '';
+  const n = Number(value);
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return `$${n.toFixed(0)}`;
+}
+
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
 
@@ -134,9 +142,29 @@ export default function DemoSearches() {
                   )}
                   <div>
                     <p className="text-sm font-semibold text-neutral-900">{store.storeName || store.domain}</p>
-                    <p className="text-xs text-neutral-400 mt-1">
-                      {store.domain} · {store.totalVisits} visits
-                      {store.cachedHits > 0 && <span className="text-purple-500 ml-1">({store.cachedHits} cached)</span>}
+                    <p className="text-xs text-neutral-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <a
+                        href={`https://${store.domain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-neutral-500 hover:text-neutral-900 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {store.domain}
+                      </a>
+                      <span className="text-neutral-300">·</span>
+                      <a
+                        href={`/demo?website=${encodeURIComponent(store.domain)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple-500 hover:text-purple-700 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        open demo
+                      </a>
+                      <span className="text-neutral-300">·</span>
+                      <span>{store.totalVisits} visits</span>
+                      {store.cachedHits > 0 && <span className="text-purple-500">({store.cachedHits} cached)</span>}
                     </p>
                   </div>
                 </div>
@@ -165,6 +193,75 @@ export default function DemoSearches() {
                   )}
                 </div>
               </div>
+              {/* Lead / contact info from LeadsCompanyTable */}
+              {store.lead && (store.lead.ownerName || store.lead.email || store.lead.linkedin || store.lead.brandTier || store.lead.annualRevenue) && (
+                <div className="border-t border-neutral-50 px-6 py-3 bg-white">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    {store.lead.brandTier && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide ${
+                        store.lead.brandTier === 'luxury' ? 'bg-amber-50 text-amber-700' :
+                        store.lead.brandTier === 'premium' ? 'bg-indigo-50 text-indigo-700' :
+                        store.lead.brandTier === 'mid' ? 'bg-emerald-50 text-emerald-700' :
+                        'bg-neutral-100 text-neutral-600'
+                      }`}>
+                        {store.lead.brandTier}
+                      </span>
+                    )}
+                    {store.lead.country && (
+                      <span className="text-neutral-400">{store.lead.country}</span>
+                    )}
+                    {store.lead.annualRevenue != null && (
+                      <span
+                        className="text-emerald-700 font-medium"
+                        title={`Monthly: ${formatUSD(store.lead.monthlyRevenue)} · Annual = monthly × 12`}
+                      >
+                        {formatUSD(store.lead.annualRevenue)}/yr
+                      </span>
+                    )}
+                    {store.lead.ownerName && (
+                      <span className="text-neutral-700 font-medium">
+                        {store.lead.ownerName}
+                        {store.lead.ownerTitle && (
+                          <span className="text-neutral-400 font-normal"> · {store.lead.ownerTitle}</span>
+                        )}
+                      </span>
+                    )}
+                    {store.lead.email && (
+                      <a
+                        href={`mailto:${store.lead.email}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {store.lead.email}
+                      </a>
+                    )}
+                    {store.lead.linkedin && (
+                      <a
+                        href={store.lead.linkedin.startsWith('http') ? store.lead.linkedin : `https://${store.lead.linkedin}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#0077b5] hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        LinkedIn
+                      </a>
+                    )}
+                    {store.lead.source && (
+                      <span className="text-neutral-300">via {store.lead.source}</span>
+                    )}
+                    {store.lead.outreachStatus && store.lead.outreachStatus !== 'pending' && (
+                      <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] bg-neutral-100 text-neutral-600">
+                        {store.lead.outreachStatus}
+                      </span>
+                    )}
+                  </div>
+                  {store.lead.personalizationMessage && (
+                    <p className="text-xs text-neutral-500 mt-2 italic line-clamp-2">
+                      {store.lead.personalizationMessage}
+                    </p>
+                  )}
+                </div>
+              )}
               {/* Visit history */}
               {store.visits.length > 0 && (
                 <div className="border-t border-neutral-50 px-6 py-3 bg-neutral-50/50">
