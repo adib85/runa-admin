@@ -31,7 +31,6 @@ function OutfitPreview({ outfit, onClose }) {
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600 text-lg">&times;</button>
         </div>
 
-        {/* Anchor */}
         <div className="flex gap-4 mb-6">
           {outfit.anchor?.image && (
             <img src={outfit.anchor.image} alt={outfit.anchor.title} className="w-24 h-32 object-cover rounded bg-neutral-100" />
@@ -45,7 +44,6 @@ function OutfitPreview({ outfit, onClose }) {
 
         <div className="divider mb-4" />
 
-        {/* Complementary */}
         <p className="text-xs text-neutral-500 uppercase tracking-wide mb-3">Complete the Look</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {outfit.items?.map((item, i) => (
@@ -73,7 +71,12 @@ export default function DemoSearches() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [expandedVisits, setExpandedVisits] = useState({});
   const [previewOutfit, setPreviewOutfit] = useState(null);
+
+  const toggleVisits = (domain) => {
+    setExpandedVisits(prev => ({ ...prev, [domain]: !prev[domain] }));
+  };
 
   useEffect(() => {
     async function load() {
@@ -159,36 +162,38 @@ export default function DemoSearches() {
                   : 'bg-white border border-neutral-100 hover:border-neutral-200'
               }`}
             >
-              <div className="px-6 py-5 flex items-center justify-between">
-                <div className="flex items-center gap-5">
+              <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start gap-3 sm:gap-5 min-w-0 flex-1">
                   {outfit?.anchor?.image ? (
                     <img
                       src={outfit.anchor.image}
                       alt={outfit.anchor.title}
-                      className="w-14 h-14 object-cover rounded-md bg-neutral-50"
+                      className="w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-md bg-neutral-50 flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-14 h-14 rounded-md bg-neutral-50 flex items-center justify-center text-neutral-300 text-xs">—</div>
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-md bg-neutral-50 flex items-center justify-center text-neutral-300 text-xs flex-shrink-0">—</div>
                   )}
-                  <div>
-                    <p className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
-                      {store.storeName || store.domain}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-neutral-900 truncate min-w-0">
+                        {store.storeName || store.domain}
+                      </p>
                       {isHotLead && (
                         <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-200 text-amber-900"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-200 text-amber-900 whitespace-nowrap flex-shrink-0"
                           title={`${store.externalVisits} visits${store.uniqueExternalCountries > 1 ? ` from ${store.uniqueExternalCountries} different countries` : ''}. Romania, localhost and unresolved IPs are excluded as internal test traffic.`}
                         >
                           🔥 {store.externalVisits} visits
                           {store.uniqueExternalCountries > 1 && ` · ${store.uniqueExternalCountries} countries`}
                         </span>
                       )}
-                    </p>
+                    </div>
                     <p className="text-xs text-neutral-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                       <a
                         href={`https://${store.domain}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-neutral-500 hover:text-neutral-900 hover:underline"
+                        className="text-neutral-500 hover:text-neutral-900 hover:underline truncate max-w-full"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {store.domain}
@@ -198,37 +203,41 @@ export default function DemoSearches() {
                         href={`/demo?website=${encodeURIComponent(store.domain)}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-purple-500 hover:text-purple-700 hover:underline"
+                        className="text-purple-500 hover:text-purple-700 hover:underline whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
                       >
                         open demo
                       </a>
+                      {outfit && (
+                        <>
+                          <span className="text-neutral-300">·</span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setPreviewOutfit(outfit); }}
+                            className="text-neutral-500 hover:text-neutral-900 hover:underline whitespace-nowrap"
+                          >
+                            quick view
+                          </button>
+                        </>
+                      )}
                       <span className="text-neutral-300">·</span>
-                      <span>{store.totalVisits} visits</span>
-                      {store.cachedHits > 0 && <span className="text-purple-500">({store.cachedHits} cached)</span>}
+                      <span className="whitespace-nowrap">{store.totalVisits} visits</span>
+                      {store.cachedHits > 0 && <span className="text-purple-500 whitespace-nowrap">({store.cachedHits} cached)</span>}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 self-end sm:self-auto flex-shrink-0">
                   {outfit ? (
-                    <>
-                      <button
-                        onClick={() => setPreviewOutfit(outfit)}
-                        className="px-4 py-2 text-xs font-medium text-neutral-700 border border-neutral-200 rounded-md hover:bg-neutral-50 transition-colors whitespace-nowrap"
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (!confirm(`Delete cached result for ${store.domain}?`)) return;
-                          await fetch(`/api/demo/cache/${store.domain}`, { method: 'DELETE' });
-                          window.location.reload();
-                        }}
-                        className="px-3 py-2 text-xs text-red-500 hover:bg-red-50 rounded-md transition-colors whitespace-nowrap"
-                      >
-                        Delete
-                      </button>
-                    </>
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Delete cached result for ${store.domain}?`)) return;
+                        await fetch(`/api/demo/cache/${store.domain}`, { method: 'DELETE' });
+                        window.location.reload();
+                      }}
+                      className="px-3 py-2 text-xs text-red-500 hover:bg-red-50 rounded-md transition-colors whitespace-nowrap"
+                    >
+                      Delete
+                    </button>
                   ) : (
                     <span className="text-xs text-neutral-300">No result</span>
                   )}
@@ -304,36 +313,57 @@ export default function DemoSearches() {
                 </div>
               )}
               {/* Visit history */}
-              {store.visits.length > 0 && (
-                <div className="border-t border-neutral-50 px-6 py-3 bg-neutral-50/50">
-                  <div className="flex flex-wrap gap-x-6 gap-y-1">
-                    {store.visits.map((v, i) => {
-                      const localIp = isLocalIp(v.ip);
-                      const isInternal = localIp || !v.country || v.country === 'Romania';
-                      const reason = localIp
-                        ? `localhost / private IP (${v.ip}) — internal test`
-                        : !v.country
-                        ? 'no geo resolved (likely internal test)'
-                        : 'visit from Romania (internal test)';
-                      return (
-                        <span
-                          key={i}
-                          className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
-                          title={isInternal ? `${reason} — excluded from real-visit count` : 'Real external visit'}
-                        >
-                          {new Date(v.time).toLocaleString()}
-                          {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
-                          {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
-                          {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
-                        </span>
-                      );
-                    })}
-                    {store.totalVisits > 10 && (
-                      <span className="text-xs text-neutral-300">+{store.totalVisits - 10} more</span>
+              {store.visits.length > 0 && (() => {
+                const COLLAPSED_COUNT = 3;
+                const isExpanded = !!expandedVisits[store.domain];
+                const visibleVisits = isExpanded ? store.visits : store.visits.slice(0, COLLAPSED_COUNT);
+                const hiddenInList = Math.max(0, store.visits.length - COLLAPSED_COUNT);
+                const overflowBeyondList = Math.max(0, store.totalVisits - store.visits.length);
+                return (
+                  <div className="border-t border-neutral-50 px-4 sm:px-6 py-3 bg-neutral-50/50">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1">
+                      {visibleVisits.map((v, i) => {
+                        const localIp = isLocalIp(v.ip);
+                        const isInternal = localIp || !v.country || v.country === 'Romania';
+                        const reason = localIp
+                          ? `localhost / private IP (${v.ip}) — internal test`
+                          : !v.country
+                          ? 'no geo resolved (likely internal test)'
+                          : 'visit from Romania (internal test)';
+                        return (
+                          <span
+                            key={i}
+                            className={`text-xs ${isInternal ? 'text-neutral-300 line-through decoration-neutral-300' : 'text-neutral-500'}`}
+                            title={isInternal ? `${reason} — excluded from visit count` : 'External visit'}
+                          >
+                            {new Date(v.time).toLocaleString()}
+                            {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
+                            {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
+                            {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {(hiddenInList > 0 || overflowBeyondList > 0) && (
+                      <div className="mt-2">
+                        {hiddenInList > 0 && (
+                          <button
+                            onClick={() => toggleVisits(store.domain)}
+                            className="text-xs font-medium text-neutral-500 hover:text-neutral-900 hover:underline"
+                          >
+                            {isExpanded
+                              ? 'Show less'
+                              : `View all ${store.visits.length} visits${overflowBeyondList > 0 ? ` (+${overflowBeyondList} older)` : ''}`}
+                          </button>
+                        )}
+                        {hiddenInList === 0 && overflowBeyondList > 0 && (
+                          <span className="text-xs text-neutral-300">+{overflowBeyondList} older visits not stored</span>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
