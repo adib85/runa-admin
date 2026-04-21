@@ -145,6 +145,14 @@ export default function DemoSearches() {
                       · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
                     </span>
                   )}
+                  {data.curationQueue > 0 && (
+                    <span
+                      className="text-orange-600 font-medium ml-1"
+                      title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
+                    >
+                      · 🚧 {data.curationQueue} need{data.curationQueue === 1 ? 's' : ''} curation
+                    </span>
+                  )}
                 </>
               );
             })()}
@@ -155,12 +163,21 @@ export default function DemoSearches() {
       <div className="space-y-4">
         {data.stores?.map((store) => {
           const outfit = data.outfitsByDomain?.[store.domain];
+          const needsCuration = !!data.needsCurationByDomain?.[store.domain];
           const isHotLead = (store.externalVisits || 0) >= 2;
+          // Format scores as "9 · 8 · 7" — one per outfit slot the auto-pipeline
+          // produced. Null scores (e.g. legacy cached entries from before scoring
+          // was tracked) are shown as "—".
+          const scoreLabels = (outfit?.allScores || [])
+            .map(s => (s == null ? '—' : `${s}`))
+            .join(' · ');
           return (
             <div
               key={store.domain}
               className={`rounded-lg overflow-hidden transition-colors ${
-                isHotLead
+                needsCuration
+                  ? 'bg-orange-50/40 border-2 border-orange-300 hover:border-orange-400 shadow-sm'
+                  : isHotLead
                   ? 'bg-amber-50/40 border-2 border-amber-300 hover:border-amber-400 shadow-sm'
                   : 'bg-white border border-neutral-100 hover:border-neutral-200'
               }`}
@@ -188,6 +205,22 @@ export default function DemoSearches() {
                         >
                           🔥 {store.externalVisits} visits
                           {store.uniqueExternalCountries > 1 && ` · ${store.uniqueExternalCountries} countries`}
+                        </span>
+                      )}
+                      {needsCuration && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-orange-200 text-orange-900 whitespace-nowrap flex-shrink-0"
+                          title="Auto-pipeline failed to produce outfits >= quality floor. Visitor saw the 'Graziella will prepare a tailored demo' message. Hand-curate via /demo-manual."
+                        >
+                          🚧 Needs curation
+                        </span>
+                      )}
+                      {scoreLabels && (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium tracking-wide bg-neutral-100 text-neutral-600 whitespace-nowrap flex-shrink-0"
+                          title="Critic scores per outfit slot (hero · alt 1 · alt 2). 7+ approved on first try; 4-6 shipped after rebuild attempt."
+                        >
+                          ⭐ {scoreLabels}
                         </span>
                       )}
                     </div>
