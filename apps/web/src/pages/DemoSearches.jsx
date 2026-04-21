@@ -222,7 +222,7 @@ export default function DemoSearches() {
                     const cnt = Object.keys(data.needsCurationByDomain || {}).length;
                     return cnt > 0 ? (
                       <span
-                        className="text-violet-600 font-medium ml-1"
+                        className="text-orange-600 font-medium ml-1"
                         title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
                       >
                         · 🚧 {cnt} need{cnt === 1 ? 's' : ''} curation
@@ -258,7 +258,7 @@ export default function DemoSearches() {
               key={store.domain}
               className={`rounded-lg overflow-hidden transition-colors ${
                 needsCuration
-                  ? 'bg-violet-50/50 border-2 border-violet-300 hover:border-violet-400 shadow-sm'
+                  ? 'bg-orange-50/40 border-2 border-orange-300 hover:border-orange-400 shadow-sm'
                   : isHotLead
                   ? 'bg-amber-50/40 border-2 border-amber-300 hover:border-amber-400 shadow-sm'
                   : 'bg-white border border-neutral-100 hover:border-neutral-200'
@@ -291,7 +291,7 @@ export default function DemoSearches() {
                       )}
                       {needsCuration && (
                         <span
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-violet-200 text-violet-900 whitespace-nowrap flex-shrink-0"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-orange-200 text-orange-900 whitespace-nowrap flex-shrink-0"
                           title="Auto-pipeline failed to produce outfits >= quality floor. Visitor saw the 'Graziella will prepare a tailored demo' message. Hand-curate via /demo-manual."
                         >
                           🚧 Needs curation

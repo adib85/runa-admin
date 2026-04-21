@@ -72,6 +72,14 @@ materials, embellishments, formality, and styling concept — using ONLY what
 the items actually show. Do not penalize the outfit for missing categories
 (shoes, bags, jewelry, etc.) that the store may not carry.
 
+IMPORTANT — stock photo context: A product image often features the
+garment STYLED on a model wearing other unrelated pieces (e.g. a dupatta
+photographed draped over a lehenga the store also sells separately). The
+SUBJECT of each image is named in the parenthetical caption next to it
+(ANCHOR/ITEM 0/etc.). Judge ONLY the named subject, not the surrounding
+styling props in the photo. A "dupatta" item is a dupatta even when the
+model is wearing a lehenga underneath it.
+
 Scoring rubric (1-10):
 
 10  Editorial-grade. Cohesive concept, every piece earns its place,
@@ -220,15 +228,24 @@ async function fetchImageAsBase64(url, timeoutMs = 8000) {
 
 // ─── Gemini wrappers ────────────────────────────────────────────────
 
-function gemini(modelName, json = false) {
+function gemini(modelName, { json = false, deterministic = false } = {}) {
   const ai = new GoogleGenerativeAI(GEMINI_KEY);
   const opts = { model: modelName };
-  if (json) opts.generationConfig = { responseMimeType: "application/json" };
+  const cfg = {};
+  if (json) cfg.responseMimeType = "application/json";
+  // Lock temperature to 0 for the critic so the same input can't bounce
+  // between 4/10 and 8/10 on consecutive runs. Borderline outfits then
+  // need the curator's judgement, not Gemini's RNG.
+  if (deterministic) {
+    cfg.temperature = 0;
+    cfg.topP = 0.1;
+  }
+  if (Object.keys(cfg).length) opts.generationConfig = cfg;
   return ai.getGenerativeModel(opts);
 }
 
 async function parseInput(rawText) {
-  const m = gemini(PARSE_MODEL, true);
+  const m = gemini(PARSE_MODEL, { json: true });
   const prompt = PARSE_PROMPT.replace("{{input}}", rawText);
   const r = await m.generateContent(prompt);
   const txt = r.response.text().trim();
@@ -270,7 +287,7 @@ async function scoreOutfit(outfit, storeName) {
   }
   parts.push(text);
 
-  const m = gemini(CRITIC_MODEL);
+  const m = gemini(CRITIC_MODEL, { deterministic: true });
   const r = await m.generateContent(parts);
   const raw = r.response.text().replace(/```json\n?|\n?```/g, "").trim();
   try {
