@@ -806,16 +806,14 @@ export default function Demo() {
           {phase === 'error' && (
             <div className="mt-6 max-w-sm mx-auto text-center space-y-4">
               <p className="text-neutral-300 text-sm leading-relaxed">{errorMsg}</p>
-              <button
-                onClick={() => {
-                  setPhase('landing');
-                  setMessages([]);
-                  setErrorMsg('');
-                }}
-                className="px-5 py-2.5 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-200 transition-colors"
+              <a
+                href={RUNA_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block px-5 py-2.5 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-200 transition-colors"
               >
-                Try another store
-              </button>
+                Visit askruna.ai
+              </a>
             </div>
           )}
         </div>

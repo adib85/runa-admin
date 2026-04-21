@@ -1194,6 +1194,17 @@ router.get("/analyze", async (req, res) => {
           let completeData;
 
           if (cached) {
+            // Cached entry exists — but if it's a "needs curation" placeholder
+            // (no shipped outfits), reshow the curation error message instead
+            // of streaming an empty payload. Otherwise the frontend renders
+            // a blank product page (no outfit to show).
+            if (cached.needsCuration) {
+              logDemoSearch(domain, store.name, true, clientIp).catch(() => {});
+              sendSSE(res, "error", {
+                message: "Your catalog has unique characteristics that benefit from a custom curation. Our Creative Director Graziella will prepare a tailored demo for you within 24 hours — we'll send it to your email when ready.",
+              });
+              return res.end();
+            }
             await sleep(5000);
             completeData = cached;
             logDemoSearch(domain, store.name, true, clientIp).catch(() => {});
