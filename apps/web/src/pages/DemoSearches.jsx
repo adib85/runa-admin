@@ -257,10 +257,10 @@ export default function DemoSearches() {
             <div
               key={store.domain}
               className={`rounded-lg overflow-hidden transition-colors ${
-                isHotLead
+                needsCuration
+                  ? 'bg-violet-50/50 border-2 border-violet-300 hover:border-violet-400 shadow-sm'
+                  : isHotLead
                   ? 'bg-amber-50/40 border-2 border-amber-300 hover:border-amber-400 shadow-sm'
-                  : needsCuration
-                  ? 'bg-violet-50/40 border-2 border-violet-300 hover:border-violet-400 shadow-sm'
                   : 'bg-white border border-neutral-100 hover:border-neutral-200'
               }`}
             >
