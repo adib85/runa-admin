@@ -453,6 +453,13 @@ You MUST fix these issues. Follow the fix instruction exactly. Pick DIFFERENT it
     return bestOutfit;
   }
 
+  // Below the per-anchor floor — return a "rejected" marker so the caller can
+  // record the score in the curation payload (so dashboard can show e.g.
+  // ⭐ 3 · 2 · 4 → "needs curation" with the actual scores that triggered it).
+  // The rejected marker has no anchor.image / no items, so the existing filter
+  // in the analyze handler still treats it as "no shippable outfit".
+  return { rejected: true, criticScore: bestScore, anchorTitle: anchor.title, floor: minScore };
+
   console.log(`[Demo] "${anchor.title}": all outfit attempts failed (best score ${bestScore}/10), returning null`);
   return null;
 }
@@ -880,15 +887,17 @@ router.get("/searches", async (req, res) => {
       .forEach(r => {
         // Track stores flagged as needing manual curation (the auto-pipeline
         // failed to produce any outfits >= floor and showed the "Graziella
-        // will prepare a tailored demo" message to the visitor).
+        // will prepare a tailored demo" message to the visitor). Include the
+        // rejected scores so the dashboard can show why it failed.
         if (r.result?.needsCuration) {
-          needsCurationByDomain[r.domain] = true;
+          needsCurationByDomain[r.domain] = {
+            scores: r.result?.rejectedScores || [],
+          };
         }
         const outfit = r.result?.outfit;
         if (!outfit) return;
         // Surface the critic score for each cached outfit + alternatives so
-        // the dashboard can show "9/10 · 8/10 · 7/10" per store. Also
-        // attach a top-level scores summary for quick filtering.
+        // the dashboard can show "9 · 8 · 7" per store.
         const altScores = (r.result.alternativeOutfits || []).map(o => o.criticScore || null);
         outfitsByDomain[r.domain] = {
           ...outfit,
@@ -1195,24 +1204,30 @@ router.get("/analyze", async (req, res) => {
             if (anchors.length === 0) {
               useCollectionApproach = false;
             } else {
-              // Build 3 outfits in parallel
+              // Build 3 outfits in parallel. Each result is either a valid
+              // outfit, a "rejected" stub (built but below floor — has score),
+              // or null (hard failure / parse error).
               const outfitPromises = anchors.slice(0, 3).map(anchor =>
                 buildOutfitForAnchor(anchor, allProducts, store.name, prompts, selectedCollections, debug)
-                  .then(o => (o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2) ? o : null)
                   .catch(err => {
                     console.error(`[Demo] Outfit build failed for ${anchor.title}:`, err.message);
                     return null;
                   })
               );
-              const outfits = (await Promise.all(outfitPromises)).filter(Boolean);
+              const allResults = (await Promise.all(outfitPromises)).filter(Boolean);
+              const outfits = allResults.filter(o => o?.anchor?.image && o?.anchor?.title && o?.items?.length >= 2);
+              const rejectedAttempts = allResults.filter(o => o?.rejected);
 
               if (outfits.length === 0) {
-                // Mark this store as needing manual curation so the /searches
-                // dashboard surfaces it as a queue item. Save BEFORE sending
-                // the error event so the cache reflects the failure state.
+                // All anchors failed the per-anchor floor. Save the actual scores
+                // from the rejected attempts so the dashboard can show e.g.
+                // ⭐ 3 · 2 · 4 alongside the "needs curation" badge — gives you
+                // signal on whether the catalog is "totally broken" or "marginal".
+                const rejectedScores = rejectedAttempts.map(r => r.criticScore || 0);
                 const curationPayload = {
                   store: { name: store.name, domain, currency: store.currency },
                   needsCuration: true,
+                  rejectedScores,
                   productCount: totalProducts,
                   collectionCount: validHandles.length,
                 };

@@ -145,14 +145,17 @@ export default function DemoSearches() {
                       · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
                     </span>
                   )}
-                  {data.curationQueue > 0 && (
-                    <span
-                      className="text-orange-600 font-medium ml-1"
-                      title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
-                    >
-                      · 🚧 {data.curationQueue} need{data.curationQueue === 1 ? 's' : ''} curation
-                    </span>
-                  )}
+                  {(() => {
+                    const cnt = Object.keys(data.needsCurationByDomain || {}).length;
+                    return cnt > 0 ? (
+                      <span
+                        className="text-orange-600 font-medium ml-1"
+                        title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
+                      >
+                        · 🚧 {cnt} need{cnt === 1 ? 's' : ''} curation
+                      </span>
+                    ) : null;
+                  })()}
                 </>
               );
             })()}
@@ -163,12 +166,18 @@ export default function DemoSearches() {
       <div className="space-y-4">
         {data.stores?.map((store) => {
           const outfit = data.outfitsByDomain?.[store.domain];
-          const needsCuration = !!data.needsCurationByDomain?.[store.domain];
+          const curationInfo = data.needsCurationByDomain?.[store.domain];
+          // Backward-compat: needsCurationByDomain entries used to be `true`,
+          // now they are `{ scores: [...] }`. Coerce.
+          const needsCuration = !!curationInfo;
+          const rejectedScores = (curationInfo && typeof curationInfo === 'object' ? curationInfo.scores : null) || [];
           const isHotLead = (store.externalVisits || 0) >= 2;
-          // Format scores as "9 · 8 · 7" — one per outfit slot the auto-pipeline
-          // produced. Null scores (e.g. legacy cached entries from before scoring
-          // was tracked) are shown as "—".
-          const scoreLabels = (outfit?.allScores || [])
+          // Format scores as "9 · 8 · 7" — one per outfit slot. For shipped
+          // demos it's the shipped outfits' scores; for needs-curation stores
+          // it's the rejected attempts' scores (so you see WHY it failed).
+          // Null scores (legacy cached entries) shown as "—".
+          const scoresArr = needsCuration ? rejectedScores : (outfit?.allScores || []);
+          const scoreLabels = scoresArr
             .map(s => (s == null ? '—' : `${s}`))
             .join(' · ');
           return (
