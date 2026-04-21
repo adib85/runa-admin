@@ -931,6 +931,16 @@ router.get("/searches", async (req, res) => {
       .map(r => {
         const allVisits = r.visits || [];
         const externalVisits = allVisits.filter(isExternalVisit);
+        // Use the most recent EXTERNAL visit's timestamp for sorting. The raw
+        // r.lastVisit field is bumped on every visit (including internal /
+        // Bucharest dev traffic that we hide from the UI), which made stores
+        // we'd recently opened locally jump to the top even though their
+        // visible visit list was old. Falling back to r.lastVisit only when
+        // there's no external visit at all (edge case — store wouldn't show
+        // here anyway since we filter by external-visits below).
+        const lastExternalVisit = externalVisits.length
+          ? Math.max(...externalVisits.map(v => Number(v.time) || 0))
+          : (r.lastVisit || 0);
         return {
           domain: r.domain,
           storeName: r.storeName,
@@ -940,7 +950,7 @@ router.get("/searches", async (req, res) => {
           // behind internal Bucharest/localhost traffic at the top of the list.
           visits: externalVisits.slice(0, 50),
           totalVisits: r.totalVisits || 0,
-          lastVisit: r.lastVisit,
+          lastVisit: lastExternalVisit,
           cachedHits: externalVisits.filter(v => v.fromCache).length,
           freshHits: externalVisits.filter(v => !v.fromCache).length,
           externalVisits: externalVisits.length,
@@ -949,8 +959,9 @@ router.get("/searches", async (req, res) => {
       })
       .sort((a, b) => {
         // Hot leads (≥2 external visits) always grouped at the top.
-        // Within each group (hot vs non-hot), order by most recent visit so
-        // freshly-active leads surface first regardless of total visit count.
+        // Within each group (hot vs non-hot), order by the most recent
+        // *external* visit so freshly-active real leads surface first
+        // regardless of total visit count or hidden internal dev traffic.
         const aHot = (a.externalVisits || 0) >= 2;
         const bHot = (b.externalVisits || 0) >= 2;
         if (aHot !== bHot) return bHot - aHot;
