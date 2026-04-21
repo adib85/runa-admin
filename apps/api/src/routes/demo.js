@@ -948,10 +948,12 @@ router.get("/searches", async (req, res) => {
         };
       })
       .sort((a, b) => {
-        // Hot leads (multiple external visits) first, then by last visit
-        if (b.externalVisits !== a.externalVisits && (b.externalVisits >= 2 || a.externalVisits >= 2)) {
-          return b.externalVisits - a.externalVisits;
-        }
+        // Hot leads (≥2 external visits) always grouped at the top.
+        // Within each group (hot vs non-hot), order by most recent visit so
+        // freshly-active leads surface first regardless of total visit count.
+        const aHot = (a.externalVisits || 0) >= 2;
+        const bHot = (b.externalVisits || 0) >= 2;
+        if (aHot !== bHot) return bHot - aHot;
         return (b.lastVisit || 0) - (a.lastVisit || 0);
       });
 

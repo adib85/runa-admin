@@ -28,6 +28,79 @@ function isInternalVisit(v) {
   return isLocalIp(v.ip) || !v.country || v.country === 'Romania';
 }
 
+// Country name → IANA timezone map for the most common visit origins. For
+// large multi-zone countries (US, CA, AU, RU) we use the most populated
+// commercial centre. Sufficient accuracy for "what time was it for them"
+// without needing IP-level timezone resolution at log time.
+const COUNTRY_TZ = {
+  'United States': 'America/New_York',
+  'Canada': 'America/Toronto',
+  'United Kingdom': 'Europe/London',
+  'Ireland': 'Europe/Dublin',
+  'Germany': 'Europe/Berlin',
+  'France': 'Europe/Paris',
+  'Italy': 'Europe/Rome',
+  'Spain': 'Europe/Madrid',
+  'Portugal': 'Europe/Lisbon',
+  'Netherlands': 'Europe/Amsterdam',
+  'Belgium': 'Europe/Brussels',
+  'Switzerland': 'Europe/Zurich',
+  'Austria': 'Europe/Vienna',
+  'Denmark': 'Europe/Copenhagen',
+  'Sweden': 'Europe/Stockholm',
+  'Norway': 'Europe/Oslo',
+  'Finland': 'Europe/Helsinki',
+  'Poland': 'Europe/Warsaw',
+  'Czechia': 'Europe/Prague',
+  'Greece': 'Europe/Athens',
+  'Turkey': 'Europe/Istanbul',
+  'Israel': 'Asia/Jerusalem',
+  'United Arab Emirates': 'Asia/Dubai',
+  'Saudi Arabia': 'Asia/Riyadh',
+  'India': 'Asia/Kolkata',
+  'Pakistan': 'Asia/Karachi',
+  'Singapore': 'Asia/Singapore',
+  'Hong Kong': 'Asia/Hong_Kong',
+  'Japan': 'Asia/Tokyo',
+  'South Korea': 'Asia/Seoul',
+  'China': 'Asia/Shanghai',
+  'Thailand': 'Asia/Bangkok',
+  'Indonesia': 'Asia/Jakarta',
+  'Australia': 'Australia/Sydney',
+  'New Zealand': 'Pacific/Auckland',
+  'Brazil': 'America/Sao_Paulo',
+  'Mexico': 'America/Mexico_City',
+  'Argentina': 'America/Argentina/Buenos_Aires',
+  'Chile': 'America/Santiago',
+  'South Africa': 'Africa/Johannesburg',
+  'Lithuania': 'Europe/Vilnius',
+  'Latvia': 'Europe/Riga',
+  'Estonia': 'Europe/Tallinn',
+  'Hungary': 'Europe/Budapest',
+  'Romania': 'Europe/Bucharest',
+};
+
+// Compact relative time format: "Mon, Apr 21, 8:34 AM"
+const VISIT_FMT_OPTS = {
+  weekday: 'short', month: 'short', day: 'numeric',
+  hour: 'numeric', minute: '2-digit', hour12: true,
+};
+
+function formatVisitTime(v) {
+  const d = new Date(v.time);
+  const myTime = d.toLocaleString('en-US', { ...VISIT_FMT_OPTS, timeZone: 'Europe/Bucharest' });
+
+  const tz = COUNTRY_TZ[v.country];
+  if (!tz || tz === 'Europe/Bucharest') return myTime;
+
+  // Format visitor's time without weekday (more compact in parens)
+  const visitorTime = d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: tz,
+  });
+  return { myTime, visitorTime };
+}
+
 function OutfitPreview({ outfit, onClose }) {
   if (!outfit) return null;
   const currency = outfit.currency || 'USD';
@@ -375,15 +448,18 @@ export default function DemoSearches() {
                           className="text-xs text-neutral-500"
                           title="External visit"
                         >
-                          {new Date(v.time).toLocaleString('en-US', {
-                            timeZone: 'Europe/Bucharest',
-                            weekday: 'short',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true,
-                          })}
+                          {(() => {
+                            const formatted = formatVisitTime(v);
+                            if (typeof formatted === 'string') return formatted;
+                            return (
+                              <>
+                                {formatted.myTime}
+                                <span className="text-neutral-400 ml-1" title={`Visitor's local time (${COUNTRY_TZ[v.country]})`}>
+                                  ({formatted.visitorTime} local)
+                                </span>
+                              </>
+                            );
+                          })()}
                           {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
                           {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
                           {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
