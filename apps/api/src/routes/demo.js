@@ -958,13 +958,20 @@ router.get("/searches", async (req, res) => {
         };
       })
       .sort((a, b) => {
-        // Hot leads (≥2 external visits) always grouped at the top.
-        // Within each group (hot vs non-hot), order by the most recent
-        // *external* visit so freshly-active real leads surface first
-        // regardless of total visit count or hidden internal dev traffic.
-        const aHot = (a.externalVisits || 0) >= 2;
-        const bHot = (b.externalVisits || 0) >= 2;
-        if (aHot !== bHot) return bHot - aHot;
+        // Three-tier ordering so the most actionable leads always surface first:
+        //   tier 0 — hot leads (≥2 external visits)        ← real interest
+        //   tier 1 — has at least 1 external visit          ← real but warming
+        //   tier 2 — only internal / dev / Bucharest hits   ← noise / our own tests
+        // Within each tier we sort by most recent activity (external timestamp
+        // for tiers 0–1, raw lastVisit for tier 2 since it has no external).
+        const tier = (s) => {
+          if ((s.externalVisits || 0) >= 2) return 0;
+          if ((s.externalVisits || 0) >= 1) return 1;
+          return 2;
+        };
+        const ta = tier(a);
+        const tb = tier(b);
+        if (ta !== tb) return ta - tb;
         return (b.lastVisit || 0) - (a.lastVisit || 0);
       });
 
