@@ -37,6 +37,84 @@ function getLangConfig(language) {
   return LANG_CONFIG[language] || LANG_CONFIG.ro;
 }
 
+// ─── TOFF (Romanian) description rules ────────────────────────────────
+
+const TOFF_RULES_RO = `
+TOFF DESCRIPTION RULES (mandatory — Romanian language):
+
+LANGUAGE & TONE:
+- Limbaj natural, fluent, în română corectă. EVITĂ traduceri mot-a-mot și formulări artificiale.
+- Ton elegant, sofisticat, de magazin online de modă.
+
+CUVINTE/EXPRESII INTERZISE (NU folosi NICIODATĂ):
+- "premium" (în orice context)
+- "fuziune" (folosește "combinație")
+- "haute couture" (decât dacă e confirmat de sursă)
+- "piese de croitorie relaxată" (folosește "croială lejeră")
+- "vârf migdalat" (folosește "bot în formă de migdală")
+
+REGULI PIELE:
+- Pentru orice tip de piele de animal folosește DOAR cuvântul "piele".
+- NU menționa: "piele de miel", "piele de vițel", "piele de oaie", "piele de cerf" etc.
+- Pentru piele de crocodil, șarpe sau șopârlă folosește exclusiv "piele exotică".
+
+ACORD GRAMATICAL:
+- Verifică acordul (ex: "acești pantofi SUNT", nu "este"; "aceste sneakers", nu "acești sneakers").
+- Atenție la genul produsului: pantofi/sneakers (m. pl.), sandale/cizme (f. pl.), geantă (f. sg.).
+
+CONȚINUT:
+- NU inventa informații (ex: nu atribui "haute couture" dacă nu e cazul).
+- Descrierea trebuie să reflecte produsul real.
+
+STRUCTURĂ (obligatorie în această ordine):
+1. Introducere scurtă: tip produs, brand, stil (1-3 propoziții elegante)
+2. Caracteristici (6-10 detalii fizice)
+3. Compoziție produs
+4. Opțional: o frază scurtă despre cum poate fi purtat / context
+
+EXEMPLE BUNE (urmează EXACT acest stil, format și tonalitate):
+
+EXEMPLU A — SANDALE:
+---
+Sandalele Hibiscus 105mm, Aquazzura, dau un aer refreshing ținutelor tale, fie că le porți pe timp de zi, cu o rochie vaporoasă din in sau cu o pereche de jeans, fie că le integrezi într-un look de seară, cu piese din paiete. Nuanța tonică de verde poate fi asortată cu tonuri complementare de oranj, dar și cu piese albe. <br>
+<br>
+Caracteristici: <br>
+- sandale verzi din piele velur <br>
+- model clasic strappy <br>
+- bot în formă de migdală <br>
+- o baretă subțire pe partea din față <br>
+- șireturi pe gleznă cu elemente în formă de frunză <br>
+- toc înalt subțire (10,5 cm) <br>
+- interior nude din piele cu etichetă cu logo <br>
+<br>
+Compoziție produs: Piele 100%
+---
+
+EXEMPLU B — SANDALE STRASS:
+---
+Sandalele Vanessa 100mm, Sophia Webster, dau un aer statement oricărei ținute în care le porți, grație dispunerii baretelor subțiri, care pun în valoare linia gleznei, și a fluturilor aplicați, elementul semnătură al brandului. Nuanța puternică de roșu întreține senzualitatea modelului. <br>
+<br>
+Caracteristici: <br>
+- sandale roșii din piele cu efect perlat <br>
+- model strappy clasic <br>
+- multiple barete subțiri pe partea din față <br>
+- baretă tip șiret pe gleznă <br>
+- bot în formă de migdală ascuțită <br>
+- interior roșu din piele cu logo auriu <br>
+- talpă subțire <br>
+- toc înalt subțire (10 cm) <br>
+- fluturi cu pietre aplicați pe barete <br>
+<br>
+Compoziție produs: Piele 100%
+---
+
+EXEMPLE GREȘITE (NU folosi astfel de formulări):
+- "piele de cerf premium" → corect: "piele"
+- "Finisaj spălat în nuanță Khaki Green" → corect: "finisaj spălat în nuanță verde kaki"
+- "siluetă relaxată tip boxy", "mâneci raglan ample" (limbaj artificial) → folosește română fluentă: "croială lejeră, oversized"
+- "acești pantofi este" (acord greșit) → "acești pantofi sunt"
+`.trim();
+
 // ─── Dimensions-only detection ────────────────────────────────────────
 
 export function isDimensionsOnly(text) {
@@ -64,6 +142,8 @@ export function buildDescriptionPrompt(sku, { language = "ro", dimensionsText = 
     ? `\n11. IMPORTANT: Include these exact product dimensions at the end of the features list: "${dimensionsText}"`
     : "";
   
+  const toffRulesBlock = language === "ro" ? `\n${TOFF_RULES_RO}\n\n` : "";
+
   return `Search Google for EXACTLY "${sku}". 
 Search ONLY "${sku}" - do NOT add extra words to the search (no product type, no brand name, no assumptions).
 Do NOT assume what type of product it is before seeing the search results.
@@ -82,11 +162,9 @@ If you did NOT find the product:
 DESCRIPTION RULES (only when found is true):
 - ${lang.languageRule}
 - Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph
-- The tone must be elegant, sophisticated, as for a luxury online fashion store
 - Use <br> tags as line dividers in the output (HTML format)
 - Maximum 800 characters total
-
-EXACT description FORMAT (use <br> for line breaks):
+${toffRulesBlock}EXACT description FORMAT (use <br> for line breaks):
 
 [${lang.elegantSentences}] <br>
 <br>
@@ -95,19 +173,21 @@ ${lang.featuresLabel}: <br>
 - [feature 2] <br>
 - [etc — 6-10 physical details] <br>
 <br>
-${lang.compositionLabel}: [material composition]
+${lang.compositionLabel}: [material composition — MANDATORY, never omit]
 
 STRICT RULES:
 1. Respond ONLY with the JSON object, nothing else
 2. Do NOT put titles or headings inside the description
 3. Start the description DIRECTLY with the descriptive paragraph
-4. The descriptive paragraph must be ELEGANT, like a luxury copywriter's text
+4. The descriptive paragraph must be ELEGANT, in fluent natural ${lang.languageName} (no word-for-word translations)
 5. Features must be DETAILED (6-10 bullet points)
-6. Include "${lang.compositionLabel}:" ALWAYS
+6. "${lang.compositionLabel}:" is MANDATORY — always include it
 7. Use <br> tags for ALL line breaks in the description
 8. Maximum 800 characters for the description
 9. Do NOT fabricate data. If you cannot find the product, set found to false
-10. ${lang.languageRule}${dimensionsRule}`;
+10. ${lang.languageRule}${language === "ro" ? `
+11. NEVER use the word "premium" or any of the banned words/expressions listed in the TOFF rules above
+12. For any animal leather, use only the word "piele" (NEVER "piele de miel/vițel/oaie/cerf"); for crocodile/snake/lizard use "piele exotică"` : ""}${dimensionsRule}`;
 }
 
 export async function searchWithGrounding(prompt, maxRetries = 3, { aiClient = genAI, keyLabel = "primary", language = "ro", geminiModel = null } = {}) {
@@ -300,17 +380,17 @@ export async function generateDescriptionFromImage(title, imageUrls, { language 
     const lang = getLangConfig(language);
     const model = genAI.getGenerativeModel({ model: geminiModel || GEMINI_MODEL });
 
+    const toffRulesBlock = language === "ro" ? `\n${TOFF_RULES_RO}\n\n` : "";
+
     const prompt = `You are a luxury fashion copywriter. Look at ALL the product images and use the product title to write an elegant product description.
 
 Product title: "${title}"
 
 IMPORTANT: The response MUST be written in ${lang.languageName} language.
 IMPORTANT: Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph.
-IMPORTANT: The tone must be elegant, sophisticated, as for a luxury online fashion store.
 IMPORTANT: Use <br> tags as line dividers in the output (HTML format).
 IMPORTANT: Maximum 800 characters total.
-
-EXACT FORMAT (use <br> for line breaks):
+${toffRulesBlock}EXACT FORMAT (use <br> for line breaks):
 
 [${lang.elegantSentences}. Describe what you SEE across ALL images.] <br>
 <br>
@@ -319,18 +399,20 @@ ${lang.featuresLabel}: <br>
 - [feature 2] <br>
 - [etc — 6-10 visible physical details from ALL images] <br>
 <br>
-${lang.compositionLabel}: [ONLY if you can read the material from a label/tag in the images, or if the product title mentions the material. Otherwise OMIT this line entirely.]
+${lang.compositionLabel}: [ONLY if you can clearly read the material from a label/tag in the images, or if the product title mentions the material. If you are NOT sure, OMIT this line entirely — do NOT guess.]
 
 STRICT RULES:
 1. Do NOT put titles or headings
 2. Start DIRECTLY with the descriptive paragraph
 3. Describe ONLY what you can see in the images and infer from the title
-4. Do NOT guess or invent material composition — include "${lang.compositionLabel}" ONLY if a label/tag is visible in the images OR the product title mentions the material
-4. Do NOT invent specific measurements or precise percentages you cannot see
-5. The ENTIRE response must be in ${lang.languageName} language
-6. Be elegant and sophisticated in tone
-7. Use <br> tags for ALL line breaks
-8. Maximum 800 characters total${dimensionsText ? `\n9. IMPORTANT: Include these exact product dimensions at the end of the features list: "${dimensionsText}"` : ""}`;
+4. Do NOT guess or invent material composition — include "${lang.compositionLabel}" ONLY if a label/tag is clearly visible OR the product title mentions the material; otherwise OMIT
+5. Do NOT invent specific measurements or precise percentages you cannot see
+6. The ENTIRE response must be in ${lang.languageName} language
+7. Be elegant and sophisticated, in fluent natural ${lang.languageName}
+8. Use <br> tags for ALL line breaks
+9. Maximum 800 characters total${language === "ro" ? `
+10. NEVER use the word "premium" or any of the banned words/expressions listed in the TOFF rules above
+11. For any animal leather, use only the word "piele" (NEVER specify the animal); for crocodile/snake/lizard use "piele exotică"` : ""}${dimensionsText ? `\n${language === "ro" ? "12" : "10"}. IMPORTANT: Include these exact product dimensions at the end of the features list: "${dimensionsText}"` : ""}`;
 
     const result = await geminiWithRetry(() => model.generateContent([prompt, ...imageParts]));
 
@@ -392,6 +474,8 @@ export async function rewriteDescriptionFromImage(product, { language = "en", ge
       ? `\nExisting product description (use as reference for facts, materials, and details — but rewrite completely):\n"""\n${existingDescription.substring(0, 1500)}\n"""\n`
       : "";
 
+    const toffRulesBlock = language === "ro" ? `\n${TOFF_RULES_RO}\n\n` : "";
+
     const prompt = `You are a luxury fashion copywriter. Write an elegant product description for a high-end online store.
 
 Product title: "${title}"
@@ -403,8 +487,7 @@ IMPORTANT: ${lang.languageRule}
 IMPORTANT: Do NOT put any title, heading, or "Description:". Start DIRECTLY with the descriptive paragraph.
 IMPORTANT: Use <br> tags for line breaks (HTML format).
 IMPORTANT: Maximum 800 characters total.
-
-FORMAT (use <br> for line breaks):
+${toffRulesBlock}FORMAT (use <br> for line breaks):
 
 [${lang.elegantSentences}] <br>
 <br>
@@ -413,14 +496,16 @@ ${lang.featuresLabel}: <br>
 - [feature 2] <br>
 - [etc — 6-10 details] <br>
 <br>
-${lang.compositionLabel}: [material composition if known from the existing description or visible in images. Otherwise OMIT.]
+${lang.compositionLabel}: [material composition if known from the existing description or clearly visible in images. Otherwise OMIT — do NOT guess.]
 
 RULES:
 1. Start DIRECTLY with the descriptive paragraph
-2. Be elegant and sophisticated
+2. Be elegant and sophisticated, in fluent natural ${lang.languageName}
 3. ${lang.languageRule}
 4. Use <br> for ALL line breaks
-5. Maximum 800 characters`;
+5. Maximum 800 characters${language === "ro" ? `
+6. NEVER use the word "premium" or any of the banned words/expressions listed in the TOFF rules above
+7. For any animal leather, use only the word "piele" (NEVER specify the animal); for crocodile/snake/lizard use "piele exotică"` : ""}`;
 
     const contentParts = [prompt, ...imageParts];
     const result = await geminiWithRetry(() => model.generateContent(contentParts));
@@ -434,6 +519,204 @@ RULES:
     return null;
   } catch (error) {
     console.log(`  [AI Rewrite] ✗ Error: ${error.message}`);
+    return null;
+  }
+}
+
+// ─── TOFF reformat: rewrite an existing description using TOFF rules ─
+
+export async function reformatDescriptionWithToffRules(product, { language = "ro", geminiModel = null } = {}) {
+  const activeModel = geminiModel || GEMINI_MODEL;
+  const lang = getLangConfig(language);
+
+  const title = product.title || "";
+  const vendor = product.vendor || "";
+  const currentDescription = (product.currentDescription || "").trim();
+
+  if (!currentDescription || currentDescription.length < 30) {
+    console.log(`  [AI Reformat] ✗ Current description too short for "${title}", skipping`);
+    return null;
+  }
+
+  const rulesBlock = language === "ro" ? `\n${TOFF_RULES_RO}\n\n` : "";
+
+  const prompt = `You are a luxury fashion copywriter for TOFF.ro. You will be given an EXISTING product description and you must REWRITE it to follow the new TOFF style rules. Do NOT lose any factual product detail (material, color, model name, distinguishing features). Do NOT invent new facts that are not in the existing description. Just rewrite the style/wording so it follows the new TOFF rules below.
+
+Product title: "${title}"
+Brand: "${vendor}"
+
+EXISTING product description (use this as the SOURCE OF TRUTH for product facts — preserve all factual details, but rewrite the style):
+"""
+${currentDescription.substring(0, 2500)}
+"""
+
+${rulesBlock}OUTPUT FORMAT (use <br> for line breaks — same format as the EXISTING description):
+
+[${lang.elegantSentences}] <br>
+<br>
+${lang.featuresLabel}: <br>
+- [feature 1] <br>
+- [feature 2] <br>
+- [etc — keep ALL the details from the existing description, but rewritten in fluent natural Romanian] <br>
+<br>
+${lang.compositionLabel}: [keep the EXACT material composition from the existing description — do NOT change percentages or materials]
+
+STRICT RULES:
+1. Do NOT put any title, heading, "**Name**:", or "Description:". Start DIRECTLY with the descriptive paragraph.
+2. Preserve EVERY factual detail from the existing description (material, color, cut, hardware, dimensions, model name).
+3. Do NOT invent new facts that are not in the existing description.
+4. Apply ALL the TOFF rules above (banned words, leather rule, agreement rule, structure).
+5. Keep the EXACT material composition from "${lang.compositionLabel}:" line — do NOT alter percentages or materials.
+6. Maximum 800 characters total.
+7. Use <br> for ALL line breaks.
+8. ${lang.languageRule}${language === "ro" ? `
+9. NEVER use the word "premium" or any other banned words from the TOFF rules above.
+10. For any animal leather, use only "piele" (NEVER "piele de miel/vițel/oaie/cerf"); for crocodile/snake/lizard use "piele exotică".` : ""}
+
+Respond with ONLY the rewritten description, nothing else.`;
+
+  try {
+    const model = genAI.getGenerativeModel({ model: activeModel });
+    const result = await geminiWithRetry(() => model.generateContent(prompt));
+    const text = result.response.text();
+
+    if (text && text.length > 50) {
+      console.log(`  [AI Reformat] ✓ Rewrote description for "${title}" (${currentDescription.length}ch → ${text.length}ch)`);
+      return { text: text.trim(), source: "ai_reformat" };
+    }
+    console.log(`  [AI Reformat] ✗ Response too short for "${title}"`);
+    return null;
+  } catch (error) {
+    console.log(`  [AI Reformat] ✗ Error for "${title}": ${error.message}`);
+    return null;
+  }
+}
+
+// ─── TOFF SEO generation (Title + MetaTagDescription) ────────────────
+
+const TOFF_SEO_RULES_RO = `
+TOFF SEO RULES (mandatory — Romanian language):
+
+TITLE (page title — VTEX field "Title", maximum 50 characters TOTAL including the suffix):
+- Format: "<Tip produs> <Model SAU caracteristică distinctivă>| TOFF.ro"
+- The suffix "| TOFF.ro" is MANDATORY at the end (no space before "|", one space after "|").
+- Include: product type ALWAYS; model OR a distinctive feature; brand ONLY if it fits in 50 chars total.
+- Examples (follow EXACTLY this style):
+  • "Pantofi sport Satin Crystal 10| TOFF.ro"
+  • "Borsetă din piele| TOFF.ro"
+  • "Botine cu toc din piele | TOFF.ro"
+  • "Pantofi sport cu inserții lână| TOFF.ro"
+- HARD limit: 50 characters total. If too long, drop the brand first, then shorten the model.
+- NEVER use the word "premium" or other banned words from TOFF rules.
+- For any animal leather use only "piele" (NEVER specify the animal). For crocodile/snake/lizard use "piele exotică".
+
+META DESCRIPTION (VTEX field "MetaTagDescription", between 120 and 160 characters):
+- Start with a verb: "Descoperă" / "Descopera".
+- Include: product type, a benefit, optional brand, optional demographic ("pentru femei" / "pentru bărbați").
+- Include at least one ⭐ separator. You may also use ✓ and ✈ as separators.
+- Use 2-3 benefits from this rotating list (vary across products, do NOT always use the same combo):
+  • Produs original de la TOFF.ro
+  • Produs de lux
+  • Livrare gratuită
+  • Livrare în 1-2 zile lucrătoare
+  • Plată sigură online
+  • Retur gratuit
+  • Eleganță casual
+- HARD limits: between 120 and 160 characters.
+- AVOID generic, repetitive phrasing. Make each meta description feel specific to the product (mention the actual type/feature).
+- Examples (follow this style):
+  • "Descoperă colecția Amina Muaddi pentru femei la TOFF ⭐Produse de lux ✓Pantofi cu toc, sandale ✈Livrare gratuită ✓Plată sigură online"
+  • "Descopera pantofi sport cu pietre pentru femei ⭐Produs original de la TOFF.ro ⭐Produs de lux ⭐Livrare in 1-2 zile lucratoare"
+  • "Balerini și espadrile Gianvito Rossi la TOFF ⭐Eleganță casual ✈Livrare și retur gratuite ✓Plată sigură online"
+  • "Descopera geanta impletita pentru barbati ⭐Produs original de la TOFF.ro ⭐Produs de lux ⭐Livrare in 1-2 zile lucratoare"
+- NEVER use "premium" or other banned words from TOFF rules.
+`.trim();
+
+export async function generateSEO(product, { language = "ro", geminiModel = null } = {}) {
+  const activeModel = geminiModel || GEMINI_MODEL;
+  const lang = getLangConfig(language);
+
+  const title = product.title || "";
+  const vendor = product.vendor || "";
+  const productType = product.productType || product.product_type || "";
+  const categories = Array.isArray(product.categories) ? product.categories.join(" > ") : (product.categories || "");
+  const demographic = Array.isArray(product.demographics) ? product.demographics[0] : (product.demographic || "");
+  const descriptionExcerpt = (product.description || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600);
+
+  const demographicLabel = demographic === "woman" ? "femei" : (demographic === "man" ? "bărbați" : "");
+
+  const rulesBlock = language === "ro" ? TOFF_SEO_RULES_RO : "";
+
+  const prompt = `You are an SEO copywriter for TOFF.ro, a Romanian luxury fashion online store.
+
+Generate the SEO Title and Meta Description for this product.
+
+Product data:
+- Title: "${title}"
+- Brand: "${vendor}"
+- Product type: "${productType}"
+- Categories: "${categories}"
+- Demographic: "${demographicLabel || "—"}"
+- Existing description (for context, do NOT copy verbatim): "${descriptionExcerpt}"
+
+${rulesBlock}
+
+Output: respond ONLY with a JSON object matching the schema. Romanian language. Respect the character limits STRICTLY.`;
+
+  try {
+    const model = genAI.getGenerativeModel({
+      model: activeModel,
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: {
+              type: SchemaType.STRING,
+              description: "SEO page title in Romanian, max 50 chars total, MUST end with '| TOFF.ro'"
+            },
+            metaDescription: {
+              type: SchemaType.STRING,
+              description: "Meta description in Romanian, between 120 and 160 chars, with at least one ⭐ separator"
+            }
+          },
+          required: ["title", "metaDescription"]
+        }
+      }
+    });
+
+    const result = await geminiWithRetry(() => model.generateContent(prompt));
+    const json = JSON.parse(result.response.text());
+
+    let seoTitle = (json.title || "").trim();
+    let seoMeta = (json.metaDescription || "").trim();
+
+    if (seoTitle && !/\|\s*TOFF\.ro$/i.test(seoTitle)) {
+      seoTitle = `${seoTitle.replace(/[\s|]+$/, "")}| TOFF.ro`;
+    }
+    if (seoTitle.length > 50) {
+      console.log(`  [AI SEO] ⚠ Title too long (${seoTitle.length}), truncating: "${seoTitle}"`);
+      const suffix = "| TOFF.ro";
+      seoTitle = seoTitle.slice(0, 50 - suffix.length).replace(/[\s|]+$/, "") + suffix;
+    }
+
+    if (seoMeta.length > 160) {
+      console.log(`  [AI SEO] ⚠ Meta too long (${seoMeta.length}), truncating to 160`);
+      seoMeta = seoMeta.slice(0, 160).trim();
+    }
+    if (seoMeta.length < 120) {
+      console.log(`  [AI SEO] ⚠ Meta too short (${seoMeta.length}) for "${title}"`);
+    }
+
+    console.log(`  [AI SEO] ✓ "${title}" → title (${seoTitle.length}ch), meta (${seoMeta.length}ch)`);
+
+    return {
+      title: seoTitle,
+      metaDescription: seoMeta,
+      source: "ai_seo_gemini"
+    };
+  } catch (error) {
+    console.log(`  [AI SEO] ✗ Error for "${title}": ${error.message}`);
     return null;
   }
 }

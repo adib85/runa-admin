@@ -112,6 +112,7 @@ export class Neo4jService {
       const productProps = `{
            id: product.productId, need_update: null, title: product.title, titleEmbedding: product.titleEmbedding,
            description: product.description, descriptionSource: product.descriptionSource, content: product.content, product: product.product,
+           seoTitle: product.seoTitle, seoMetaDescription: product.seoMetaDescription, seoSource: product.seoSource,
            characteristics: product.characteristics, styleCode: product.styleCode, styleData: product.styleData,
            styleBody: product.styleBody, stylePersonality: product.stylePersonality, styleChromatic: product.styleChromatic,
            is_neutral: product.is_neutral, neutral_whitelist: product.neutral_whitelist, color_vec: product.color_vec,
@@ -231,6 +232,9 @@ export class Neo4jService {
       titleEmbedding: p.titleEmbedding || null,
       description,
       descriptionSource,
+      seoTitle: p.seoTitle || null,
+      seoMetaDescription: p.seoMetaDescription || null,
+      seoSource: p.seoSource || null,
       vendor: p.vendor,
       category: p.category,
       handle: p.handle,

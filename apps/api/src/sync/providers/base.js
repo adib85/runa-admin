@@ -16,7 +16,7 @@ import { config } from "@runa/config";
 import { neo4jService, openaiService, pubnubService, dynamodbService } from "../services/index.js";
 import { shopifyCategories } from "../utils/categories.js";
 import { delay, retryOnDeadlock, geminiWithRetry, mapWithConcurrency } from "../utils/index.js";
-import { generateAIDescription, rewriteDescriptionFromImage, isDimensionsOnly, isBagProduct } from "../services/ai-product-description.js";
+import { generateAIDescription, rewriteDescriptionFromImage, generateSEO, isDimensionsOnly, isBagProduct } from "../services/ai-product-description.js";
 
 export class BaseProvider {
   constructor(config) {
@@ -409,6 +409,32 @@ Return exactly one category.`,
       if (!productProperties.product) productProperties.product = "unknown";
       if (!productProperties.characteristics) productProperties.characteristics = "unknown";
       product.properties = productProperties;
+
+      // ── Phase 1.5: Generate SEO (Title + MetaTagDescription) — Romanian only (TOFF) ──
+      if (this.descriptionLanguage === "ro") {
+        try {
+          const seoInput = {
+            title: product.title,
+            vendor: product.vendor,
+            product_type: product.product_type,
+            categories: (product.collections || []).map(c => c.title).filter(Boolean),
+            demographics: product.detectedDemographics,
+            description: product.body_html || product.descriptionHtml || "",
+          };
+          const seoResult = await generateSEO(seoInput, { language: this.descriptionLanguage, geminiModel: this.geminiModel });
+          if (seoResult) {
+            product.seoTitle = seoResult.title;
+            product.seoMetaDescription = seoResult.metaDescription;
+            product.seoSource = seoResult.source;
+            console.log(`  [Sync] ✓ SEO for "${product.title}" (${seoResult.source})`);
+          } else {
+            product.seoSource = "none";
+          }
+        } catch (seoErr) {
+          console.log(`  [Sync] ✗ SEO generation failed for "${product.title}": ${seoErr.message}`);
+          product.seoSource = "error";
+        }
+      }
 
       // ── Phase 2: Color, variants, category (fast, no API calls) ──
       const detectedColor = await this.detectColorFromImage(product);

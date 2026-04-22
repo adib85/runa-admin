@@ -18,19 +18,23 @@ echo "  Toff Full Sync — $(date)" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 1/4] Syncing products from VTEX to Neo4j..." | tee -a "$LOG_FILE"
+echo "[Step 1/5] Syncing products from VTEX to Neo4j..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-modular.js vtex toffro vtexappkey-toffro-QSQMBT BUWVNSSFHCJHTEXKFXSZXAYEHFCFPOMUCPXCENUMKXVWATHDHQUQKVKDGGNFUTVLNVBDNJAHPIZHLFZKRXNUQNCQQNTJRXMGSNQTKYXDLVNFQICWBDGXTIRPTNAUZWPW 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 2/4] Pushing descriptions from Neo4j to VTEX..." | tee -a "$LOG_FILE"
+echo "[Step 2/5] Pushing descriptions from Neo4j to VTEX..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-toff-descriptions.js 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 3/4] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
+echo "[Step 3/5] Pushing SEO (Title + MetaTagDescription) from Neo4j to VTEX..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-toff-seo.js 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 4/5] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-complete-the-look.js toffro.vtexcommercestable.com.br --missing 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 4/4] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
+echo "[Step 5/5] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-similar-products.js toffro.vtexcommercestable.com.br --missing 2>&1 | tee -a "$LOG_FILE"
 
 echo ""

@@ -24,7 +24,20 @@ Options:
 - `--dry-run` — check products without writing to VTEX
 - `--handle <handle-or-url>` — process a single product
 
-## Step 3 — Generate "Complete The Look" widgets
+## Step 3 — Push SEO (Title + MetaTagDescription) from Neo4j to VTEX
+
+Copies the AI-generated SEO data already stored in Neo4j (generated during Step 1) into the VTEX catalog. Updates the VTEX `Title` (page title, max 50 chars) and `MetaTagDescription` (meta description, 120-160 chars) fields. Skips products that already have a non-empty `Title` in VTEX, unless `--overwrite` is passed.
+
+```bash
+node apps/api/src/scripts/sync-toff-seo.js
+```
+
+Options:
+- `--dry-run` — check products without writing to VTEX
+- `--overwrite` — update VTEX even if `Title` / `MetaTagDescription` already exist
+- `--handle <handle-or-url>` — process a single product
+
+## Step 4 — Generate "Complete The Look" widgets
 
 Calls the outfit-generation Lambda for each product to build "Complete The Look" recommendations.
 
@@ -38,7 +51,7 @@ Options:
 - `--maxProducts <n>` — limit how many products to process
 - `--startFrom <n>` — starting offset
 
-## Step 4 — Generate "Similar Products" widgets
+## Step 5 — Generate "Similar Products" widgets
 
 Calls the similar-products Lambda for each product to build "Similar Products" recommendations.
 
@@ -57,7 +70,7 @@ Options:
 
 ## Run all steps automatically (cron)
 
-A wrapper script runs all 4 steps sequentially, stopping if any step fails. Logs are saved to `apps/api/src/scripts/logs/`.
+A wrapper script runs all 5 steps sequentially, stopping if any step fails. Logs are saved to `apps/api/src/scripts/logs/`.
 
 ### Manual run
 
