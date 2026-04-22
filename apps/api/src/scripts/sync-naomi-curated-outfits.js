@@ -347,7 +347,7 @@ const COLLECTION_UPDATE_SORT = gql`
 const COLLECTION_REORDER = gql`
   mutation collectionReorderProducts($id: ID!, $moves: [MoveInput!]!) {
     collectionReorderProducts(id: $id, moves: $moves) {
-      userErrors { field message code }
+      userErrors { field message }
     }
   }
 `;
@@ -388,39 +388,71 @@ async function refreshHomepageCollection(occasionId, heroId, outfitData) {
 
   const collectionGid = collectionByHandle.id;
 
+  // Build the new product set FIRST so we can bail early if it's empty
+  const heroIdStr = String(heroId);
+  const heroGid = heroIdStr.startsWith("gid://") ? heroIdStr : `gid://shopify/Product/${heroIdStr}`;
+  const complementIds = extractProductIds(outfitData);
+  const newProductGids = [
+    heroGid,
+    ...complementIds
+      .map(String)
+      .filter(id => id !== heroIdStr)
+      .map(id => id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`),
+  ];
+  const uniqueNewIds = [...new Set(newProductGids)];
+
+  if (uniqueNewIds.length === 0) {
+    console.log(`    ⚠ "${handle}": no products extracted from outfit — keeping existing collection contents intact`);
+    return;
+  }
+
+  // Get existing products
   const { collection } = await shopifyClient.request(GET_COLLECTION_PRODUCTS, {
     id: collectionGid, first: 50,
   });
   const oldProductIds = (collection?.products?.edges || []).map(e => e.node.id);
+  const oldSet = new Set(oldProductIds);
+  const newSet = new Set(uniqueNewIds);
 
-  if (oldProductIds.length > 0) {
-    await shopifyClient.request(COLLECTION_REMOVE_PRODUCTS, {
-      id: collectionGid, productIds: oldProductIds,
+  // ── ADD FIRST (safe: collection grows but never empties) ──
+  const idsToAdd = uniqueNewIds.filter(id => !oldSet.has(id));
+  if (idsToAdd.length > 0) {
+    const addRes = await shopifyClient.request(COLLECTION_ADD_PRODUCTS, {
+      id: collectionGid, productIds: idsToAdd,
     });
+    const addErrors = addRes?.collectionAddProducts?.userErrors || [];
+    if (addErrors.length > 0) {
+      throw new Error(`collectionAddProducts userErrors: ${JSON.stringify(addErrors)}`);
+    }
   }
 
-  const complementIds = extractProductIds(outfitData);
-  const allIds = [heroId, ...complementIds]
-    .map(id => id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`);
-
-  const uniqueIds = [...new Set(allIds)];
-
-  if (uniqueIds.length > 0) {
-    await shopifyClient.request(COLLECTION_ADD_PRODUCTS, {
-      id: collectionGid, productIds: uniqueIds,
+  // ── THEN REMOVE old products that aren't in the new set ──
+  const idsToRemove = oldProductIds.filter(id => !newSet.has(id));
+  if (idsToRemove.length > 0) {
+    const remRes = await shopifyClient.request(COLLECTION_REMOVE_PRODUCTS, {
+      id: collectionGid, productIds: idsToRemove,
     });
+    const remErrors = remRes?.collectionRemoveProducts?.userErrors || [];
+    if (remErrors.length > 0) {
+      console.log(`    ⚠ "${handle}": remove userErrors: ${JSON.stringify(remErrors)} (continuing)`);
+    }
+  }
 
+  // ── Reorder so hero is first ──
+  try {
     await shopifyClient.request(COLLECTION_UPDATE_SORT, {
       input: { id: collectionGid, sortOrder: "MANUAL" },
     });
-
-    const moves = uniqueIds.map((pid, i) => ({ id: pid, newPosition: String(i) }));
+    const moves = uniqueNewIds.map((pid, i) => ({ id: pid, newPosition: String(i) }));
     await shopifyClient.request(COLLECTION_REORDER, {
       id: collectionGid, moves,
     });
+  } catch (reorderErr) {
+    // Reorder is cosmetic — products are already in collection. Just log.
+    console.log(`    ⚠ "${handle}": reorder failed (${reorderErr.message}) — products are in collection but order may be wrong`);
   }
 
-  console.log(`    Collection "${handle}" updated: ${uniqueIds.length} products (hero first)`);
+  console.log(`    Collection "${handle}" updated: ${uniqueNewIds.length} products (hero first), +${idsToAdd.length} added / -${idsToRemove.length} removed`);
 }
 
 // ─── Main ────────────────────────────────────────────────────────────
@@ -541,7 +573,8 @@ async function main() {
         try {
           await refreshHomepageCollection(occasion.id, hero.id, data);
         } catch (collErr) {
-          console.log(`    ⚠ Collection update failed: ${collErr.message}`);
+          console.log(`    ✗ Collection update FAILED for ${occasion.id}: ${collErr.message}`);
+          stats.errors++;
         }
       } catch (error) {
         console.error(`  ✗ ERROR: ${error.message}`);
