@@ -89,8 +89,52 @@ function extractHandlesFromCacheData(data) {
   return handles;
 }
 
-async function deleteReferencingCacheEntries(docClient, deletedHandles, storeId) {
+// Parse the handle of the OWNER product from a cache id.
+// Cache id formats:
+//   <storeId>_<handle>_<lang>                  → CTL cache (handle is the owner)
+//   <storeId>_similar_products_<handle>_<lang> → Similar Products cache
+//   <storeId>_userOptions_<handle>_<lang>      → user options cache
+function parseOwnerHandleFromCacheId(cacheId, storeId) {
+  if (!cacheId || !cacheId.startsWith(storeId + "_")) return null;
+  let rest = cacheId.slice(storeId.length + 1);
+  // Strip language suffix (last segment after final underscore, only if it looks like a lang code)
+  const lastUnderscore = rest.lastIndexOf("_");
+  if (lastUnderscore > 0) {
+    const tail = rest.slice(lastUnderscore + 1);
+    if (/^[a-z]{2}$/i.test(tail)) rest = rest.slice(0, lastUnderscore);
+  }
+  // Strip known prefixes
+  for (const prefix of ["similar_products_", "userOptions_"]) {
+    if (rest.startsWith(prefix)) {
+      rest = rest.slice(prefix.length);
+      break;
+    }
+  }
+  return rest || null;
+}
+
+async function clearCacheTimestampsForHandles(driver, storeId, handles) {
+  if (handles.length === 0) return 0;
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `UNWIND $handles AS h
+       MATCH (p:Product {storeId: $storeId, handle: h})
+       SET p.complete_the_look_updated_at = NULL,
+           p.similar_product_updated_at = NULL,
+           p.needs_reindex = true
+       RETURN count(p) AS updated`,
+      { storeId, handles }
+    );
+    return result.records[0]?.get("updated")?.toNumber?.() || 0;
+  } finally {
+    await session.close();
+  }
+}
+
+async function deleteReferencingCacheEntries(docClient, driver, deletedHandles, storeId) {
   const deletedSet = new Set(deletedHandles);
+  const ownersWithDeletedCache = new Set();
   let scannedCount = 0;
   let deletedCount = 0;
   let lastEvaluatedKey = null;
@@ -121,6 +165,11 @@ async function deleteReferencingCacheEntries(docClient, deletedHandles, storeId)
         if (deletedSet.has(h)) {
           await docClient.delete({ TableName: CACHE_TABLE, Key: { id: item.id } }).promise().catch(() => {});
           deletedCount++;
+          // Track the OWNER product so we can clear its timestamp → cron will regenerate
+          const ownerHandle = parseOwnerHandleFromCacheId(item.id, storeId);
+          if (ownerHandle && !deletedSet.has(ownerHandle)) {
+            ownersWithDeletedCache.add(ownerHandle);
+          }
           console.log(`\n    ✗ Deleted cache: ${item.id} (references: ${h})`);
           break;
         }
@@ -130,6 +179,15 @@ async function deleteReferencingCacheEntries(docClient, deletedHandles, storeId)
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`\n  ✓ Scanned ${scannedCount} cache entries in ${elapsed}s, deleted ${deletedCount} referencing entries`);
+
+  // ── Clear timestamps so the next nightly cron with --missing reprocesses these ──
+  if (ownersWithDeletedCache.size > 0 && driver) {
+    const handles = [...ownersWithDeletedCache];
+    console.log(`  Clearing widget timestamps on ${handles.length} affected product(s) so they get reprocessed...`);
+    const updated = await clearCacheTimestampsForHandles(driver, storeId, handles);
+    console.log(`  ✓ Marked ${updated} product(s) for re-indexing (needs_reindex=true, timestamps cleared)`);
+  }
+
   return deletedCount;
 }
 
@@ -272,8 +330,11 @@ async function main() {
       }
       console.log(`  ✓ ${totalCacheDeleted} direct cache entries deleted`);
 
-      // Find and delete cache entries of OTHER products that reference deleted handles
-      await deleteReferencingCacheEntries(docClient, handles, storeId);
+      // Find and delete cache entries of OTHER products that reference deleted handles.
+      // For each cache that gets deleted, clear the owner product's widget timestamps so
+      // the next nightly cron with --missing reprocesses it (avoiding the "stuck without
+      // cache" bug where Neo4j thinks cache exists but DynamoDB doesn't).
+      await deleteReferencingCacheEntries(docClient, driver, handles, storeId);
     }
 
     // Cleanup orphaned variants
