@@ -132,6 +132,81 @@ export function isBagProduct(title, productType) {
   return BAG_WALLET_PATTERN.test(t) || BAG_WALLET_PATTERN.test(p);
 }
 
+// ─── Thinking-leak detector ──────────────────────────────────────────
+// Detects when Gemini's chain-of-thought leaks into the visible text.
+// Triggered both by suspicious openings (the model "thinking out loud")
+// and by telltale meta phrases / banned-word echoes from the prompt.
+
+const LEAK_START_PATTERNS = [
+  /^thoughtful\b/i,
+  /^okay[,!:\s]/i,
+  /^alright[,!:\s]/i,
+  /^wait[,!:\s]/i,
+  /^let me\b/i,
+  /^the user (wants|asks|needs|provided|gave)/i,
+  /^here(?:'|')?s\b/i,
+  /^based on (?:the|your)\b/i,
+  /^looking at\b/i,
+  /^first[,!:\s]/i,
+  /^so[,!:\s]/i,
+  /^hmm[,!.:\s]/i,
+  /^\*\s*(intro|characteristics|composition|refining|double[\s-]check|final|correction|revised|wait|note)\b/i,
+  /^\*\*\s*(intro|step|note|thought)/i,
+];
+
+const LEAK_PHRASE_PATTERNS = [
+  /\*\s*wait[,\s]/i,
+  /\*\s*refining\b/i,
+  /\*\s*double[\s-]check\b/i,
+  /\*\s*final\s+(check|version|structure|answer)/i,
+  /\*\s*correction\b/i,
+  /\*\s*revised\b/i,
+  /let me re-?read/i,
+  /looking at the (?:source|prompt|rules)/i,
+  /the (?:source|prompt) (?:says|didn'?t|did not|provided)/i,
+  /final check on (?:forbidden|banned)/i,
+  /one (?:more|small|last) (?:check|detail|thing)/i,
+  /example\s+a\b/i,
+  /example\s+b\b/i,
+  /\bcompozi[țt]ie produs:[\s\S]*compozi[țt]ie produs:/i, // header repeated twice
+  // Banned-word echoes from the rules block (these must NEVER appear in output)
+  /piese de croitorie relaxat[ăa]/i,
+  /vârf migdalat/i,
+  /haute couture/i,
+  // Rule-block headers leaking verbatim
+  /CUVINTE\s*\/\s*EXPRESII INTERZISE/i,
+  /STRUCTURĂ\s*\(obligatorie/i,
+  /REGULI PIELE\b/i,
+  /ACORD GRAMATICAL\b/i,
+  /TOFF (?:DESCRIPTION|SEO) RULES/i,
+];
+
+export function looksLikeThinkingLeak(text) {
+  if (!text || typeof text !== "string") return false;
+  const trimmed = text.trim();
+  if (trimmed.length < 30) return false;
+
+  const head = trimmed.slice(0, 120);
+  for (const pat of LEAK_START_PATTERNS) {
+    if (pat.test(head)) return true;
+  }
+  for (const pat of LEAK_PHRASE_PATTERNS) {
+    if (pat.test(trimmed)) return true;
+  }
+  return false;
+}
+
+// Build a generationConfig that disables thinking and pins temperature.
+// Used for the "safe retry" pass after a leak is detected.
+function buildNoThinkConfig({ temperature = 0.2, extra = null } = {}) {
+  const cfg = {
+    temperature,
+    thinkingConfig: { thinkingBudget: 0 },
+  };
+  if (extra && typeof extra === "object") Object.assign(cfg, extra);
+  return cfg;
+}
+
 // ─── Gemini: Google Search description ───────────────────────────────
 
 export function buildDescriptionPrompt(sku, { language = "ro", dimensionsText = null } = {}) {
@@ -467,7 +542,7 @@ export async function rewriteDescriptionFromImage(product, { language = "en", ge
     }
 
     const lang = getLangConfig(language);
-    const model = genAI.getGenerativeModel({ model: geminiModel || GEMINI_MODEL });
+    const activeModel = geminiModel || GEMINI_MODEL;
 
     const hasExisting = existingDescription && existingDescription.trim().length > 20;
     const existingBlock = hasExisting
@@ -508,8 +583,31 @@ RULES:
 7. For any animal leather, use only the word "piele" (NEVER specify the animal); for crocodile/snake/lizard use "piele exotică"` : ""}`;
 
     const contentParts = [prompt, ...imageParts];
-    const result = await geminiWithRetry(() => model.generateContent(contentParts));
-    const text = result.response.text();
+
+    async function callOnce(generationConfig = null) {
+      const modelOpts = { model: activeModel };
+      if (generationConfig) modelOpts.generationConfig = generationConfig;
+      const m = genAI.getGenerativeModel(modelOpts);
+      const result = await geminiWithRetry(() => m.generateContent(contentParts));
+      return (result.response.text() || "").trim();
+    }
+
+    let text = await callOnce();
+
+    if (looksLikeThinkingLeak(text)) {
+      console.log(`  [AI Rewrite] ⚠ Thinking leak detected for "${title}" (head: "${text.slice(0, 60).replace(/\s+/g, " ")}…"), retrying with thinkingBudget=0…`);
+      try {
+        text = await callOnce(buildNoThinkConfig({ temperature: 0.2 }));
+      } catch (retryErr) {
+        console.log(`  [AI Rewrite] ✗ Retry failed for "${title}": ${retryErr.message}`);
+        return null;
+      }
+      if (looksLikeThinkingLeak(text)) {
+        console.log(`  [AI Rewrite] ✗ Still leaked after retry for "${title}", skipping (no save)`);
+        return null;
+      }
+      console.log(`  [AI Rewrite] ✓ Retry succeeded for "${title}"`);
+    }
 
     if (text && text.length > 50) {
       console.log(`  [AI Rewrite] ✓ Generated description (${text.length} chars, ${imageParts.length} img)`);
@@ -575,14 +673,35 @@ STRICT RULES:
 
 Respond with ONLY the rewritten description, nothing else.`;
 
-  try {
-    const model = genAI.getGenerativeModel({ model: activeModel });
+  async function callOnce(generationConfig = null) {
+    const modelOpts = { model: activeModel };
+    if (generationConfig) modelOpts.generationConfig = generationConfig;
+    const model = genAI.getGenerativeModel(modelOpts);
     const result = await geminiWithRetry(() => model.generateContent(prompt));
-    const text = result.response.text();
+    return (result.response.text() || "").trim();
+  }
+
+  try {
+    let text = await callOnce();
+
+    if (looksLikeThinkingLeak(text)) {
+      console.log(`  [AI Reformat] ⚠ Thinking leak detected for "${title}" (head: "${text.slice(0, 60).replace(/\s+/g, " ")}…"), retrying with thinkingBudget=0…`);
+      try {
+        text = await callOnce(buildNoThinkConfig({ temperature: 0.2 }));
+      } catch (retryErr) {
+        console.log(`  [AI Reformat] ✗ Retry failed for "${title}": ${retryErr.message}`);
+        return null;
+      }
+      if (looksLikeThinkingLeak(text)) {
+        console.log(`  [AI Reformat] ✗ Still leaked after retry for "${title}", skipping (no save, no push)`);
+        return null;
+      }
+      console.log(`  [AI Reformat] ✓ Retry succeeded for "${title}"`);
+    }
 
     if (text && text.length > 50) {
       console.log(`  [AI Reformat] ✓ Rewrote description for "${title}" (${currentDescription.length}ch → ${text.length}ch)`);
-      return { text: text.trim(), source: "ai_reformat" };
+      return { text, source: "ai_reformat" };
     }
     console.log(`  [AI Reformat] ✗ Response too short for "${title}"`);
     return null;
@@ -663,33 +782,59 @@ ${rulesBlock}
 
 Output: respond ONLY with a JSON object matching the schema. Romanian language. Respect the character limits STRICTLY.`;
 
-  try {
-    const model = genAI.getGenerativeModel({
-      model: activeModel,
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            title: {
-              type: SchemaType.STRING,
-              description: "SEO page title in Romanian, max 50 chars total, MUST end with '| TOFF.ro'"
-            },
-            metaDescription: {
-              type: SchemaType.STRING,
-              description: "Meta description in Romanian, between 120 and 160 chars, with at least one ⭐ separator"
-            }
-          },
-          required: ["title", "metaDescription"]
+  const seoSchema = {
+    responseMimeType: "application/json",
+    responseSchema: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: {
+          type: SchemaType.STRING,
+          description: "SEO page title in Romanian, max 50 chars total, MUST end with '| TOFF.ro'"
+        },
+        metaDescription: {
+          type: SchemaType.STRING,
+          description: "Meta description in Romanian, between 120 and 160 chars, with at least one ⭐ separator"
         }
+      },
+      required: ["title", "metaDescription"]
+    }
+  };
+
+  async function callOnce(extraConfig = null) {
+    const generationConfig = { ...seoSchema, ...(extraConfig || {}) };
+    const m = genAI.getGenerativeModel({ model: activeModel, generationConfig });
+    const result = await geminiWithRetry(() => m.generateContent(prompt));
+    const raw = result.response.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { title: "", metaDescription: "", _raw: raw };
+    }
+    return { title: (parsed.title || "").trim(), metaDescription: (parsed.metaDescription || "").trim(), _raw: raw };
+  }
+
+  try {
+    let { title: seoTitle, metaDescription: seoMeta, _raw: rawText } = await callOnce();
+
+    const seoLeak = looksLikeThinkingLeak(seoTitle) || looksLikeThinkingLeak(seoMeta) || looksLikeThinkingLeak(rawText);
+    if (seoLeak) {
+      console.log(`  [AI SEO] ⚠ Thinking leak detected for "${title}" (title="${seoTitle.slice(0, 40)}…"), retrying with thinkingBudget=0…`);
+      try {
+        const retry = await callOnce(buildNoThinkConfig({ temperature: 0.2 }));
+        seoTitle = retry.title;
+        seoMeta = retry.metaDescription;
+        rawText = retry._raw;
+      } catch (retryErr) {
+        console.log(`  [AI SEO] ✗ Retry failed for "${title}": ${retryErr.message}`);
+        return null;
       }
-    });
-
-    const result = await geminiWithRetry(() => model.generateContent(prompt));
-    const json = JSON.parse(result.response.text());
-
-    let seoTitle = (json.title || "").trim();
-    let seoMeta = (json.metaDescription || "").trim();
+      if (looksLikeThinkingLeak(seoTitle) || looksLikeThinkingLeak(seoMeta) || looksLikeThinkingLeak(rawText)) {
+        console.log(`  [AI SEO] ✗ Still leaked after retry for "${title}", skipping (no save, no push)`);
+        return null;
+      }
+      console.log(`  [AI SEO] ✓ Retry succeeded for "${title}"`);
+    }
 
     if (seoTitle && !/\|\s*TOFF\.ro$/i.test(seoTitle)) {
       seoTitle = `${seoTitle.replace(/[\s|]+$/, "")}| TOFF.ro`;
