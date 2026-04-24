@@ -394,6 +394,16 @@ function ResultsView({ data, setResult }) {
             </div>
           </div>
 
+          <a
+            href={RUNA_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-8 text-xs text-neutral-500 hover:text-purple-600 transition-colors"
+          >
+            Visit askruna.ai
+            <span aria-hidden="true">→</span>
+          </a>
+
         </div>
 
       </div>
