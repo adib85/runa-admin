@@ -155,6 +155,10 @@ export default function DemoSearches() {
   const [error, setError] = useState('');
   const [expandedVisits, setExpandedVisits] = useState({});
   const [previewOutfit, setPreviewOutfit] = useState(null);
+  // Filter modes: 'all' | 'hot' | 'curation' | 'interested'
+  // 'interested' = stores with exactly 1 real external visit (someone who tried
+  // the demo once but hasn't come back yet — warm but not hot).
+  const [filter, setFilter] = useState('all');
 
   const toggleVisits = (domain) => {
     setExpandedVisits(prev => ({ ...prev, [domain]: !prev[domain] }));
@@ -195,49 +199,84 @@ export default function DemoSearches() {
     );
   }
 
+  const allStores = data.stores || [];
+  const externalTotal = allStores.reduce((sum, s) => sum + (s.externalVisits || 0), 0);
+  const hotCount = allStores.filter(s => (s.externalVisits || 0) >= 2).length;
+  const curationCount = Object.keys(data.needsCurationByDomain || {}).length;
+  const interestedCount = allStores.filter(s => (s.externalVisits || 0) === 1).length;
+
+  const isHotStore = (s) => (s.externalVisits || 0) >= 2;
+  const isInterestedStore = (s) => (s.externalVisits || 0) === 1;
+  const isCurationStore = (s) => !!(data.needsCurationByDomain || {})[s.domain];
+
+  const filteredStores = allStores.filter((s) => {
+    if (filter === 'hot') return isHotStore(s);
+    if (filter === 'curation') return isCurationStore(s);
+    if (filter === 'interested') return isInterestedStore(s);
+    return true;
+  });
+
+  const filterTabs = [
+    { id: 'all', label: 'All', count: allStores.length, activeClass: 'bg-neutral-900 text-white border-neutral-900' },
+    { id: 'hot', label: '🔥 Hot leads', count: hotCount, activeClass: 'bg-amber-500 text-white border-amber-500' },
+    { id: 'curation', label: '🚧 Needs curation', count: curationCount, activeClass: 'bg-orange-500 text-white border-orange-500' },
+    { id: 'interested', label: '👀 Interested', count: interestedCount, activeClass: 'bg-purple-500 text-white border-purple-500' },
+  ];
+
   return (
     <div>
       <DemoNav />
       <div className="max-w-3xl mx-auto px-6 py-12">
-      <div className="flex items-center justify-between mb-10">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
           <p className="text-sm text-neutral-500 mt-2">
-            {(() => {
-              const stores = data.stores || [];
-              const externalTotal = stores.reduce((sum, s) => sum + (s.externalVisits || 0), 0);
-              const hot = stores.filter(s => (s.externalVisits || 0) >= 2).length;
-              return (
-                <>
-                  {data.totalStores} stores · {externalTotal} external visits · {data.cached} cached
-                  {hot > 0 && (
-                    <span
-                      className="text-amber-600 font-medium ml-1"
-                      title="Stores with 2+ real external visits (Romania, localhost and unresolved IPs excluded)"
-                    >
-                      · 🔥 {hot} hot lead{hot === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {(() => {
-                    const cnt = Object.keys(data.needsCurationByDomain || {}).length;
-                    return cnt > 0 ? (
-                      <span
-                        className="text-orange-600 font-medium ml-1"
-                        title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
-                      >
-                        · 🚧 {cnt} need{cnt === 1 ? 's' : ''} curation
-                      </span>
-                    ) : null;
-                  })()}
-                </>
-              );
-            })()}
+            {data.totalStores} stores · {externalTotal} external visits · {data.cached} cached
+            {hotCount > 0 && (
+              <span
+                className="text-amber-600 font-medium ml-1"
+                title="Stores with 2+ real external visits (Romania, localhost and unresolved IPs excluded)"
+              >
+                · 🔥 {hotCount} hot lead{hotCount === 1 ? '' : 's'}
+              </span>
+            )}
+            {curationCount > 0 && (
+              <span
+                className="text-orange-600 font-medium ml-1"
+                title="Stores where the auto-pipeline failed to produce outfits >= quality floor — visitor saw the 'Graziella will prepare a tailored demo' message and is waiting for a manual curation reply."
+              >
+                · 🚧 {curationCount} need{curationCount === 1 ? 's' : ''} curation
+              </span>
+            )}
           </p>
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 mb-8">
+        {filterTabs.map((t) => {
+          const active = filter === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setFilter(t.id)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors whitespace-nowrap ${
+                active
+                  ? t.activeClass
+                  : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300 hover:text-neutral-900'
+              }`}
+            >
+              {t.label}
+              <span className={`ml-1.5 ${active ? 'opacity-80' : 'text-neutral-400'}`}>
+                {t.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="space-y-4">
-        {data.stores?.map((store) => {
+        {filteredStores.map((store) => {
           const outfit = data.outfitsByDomain?.[store.domain];
           const curationInfo = data.needsCurationByDomain?.[store.domain];
           // Backward-compat: needsCurationByDomain entries used to be `true`,
@@ -489,6 +528,22 @@ export default function DemoSearches() {
             <p className="text-sm font-medium text-neutral-900 mb-1">No searches yet</p>
             <p className="text-sm text-neutral-500">
               Run a demo at <a href="/demo" className="link">/demo</a> to see results here
+            </p>
+          </div>
+        )}
+        {data.stores && data.stores.length > 0 && filteredStores.length === 0 && (
+          <div className="text-center py-16">
+            <p className="text-sm font-medium text-neutral-900 mb-1">No matches for this filter</p>
+            <p className="text-sm text-neutral-500">
+              Try a different filter or{' '}
+              <button
+                type="button"
+                onClick={() => setFilter('all')}
+                className="link underline"
+              >
+                view all
+              </button>
+              .
             </p>
           </div>
         )}
