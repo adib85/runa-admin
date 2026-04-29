@@ -718,7 +718,7 @@ async function replayCuratedDemoFlow(res, cached) {
   await sleep(800);
   sendSSE(res, "status", {
     step: "scan",
-    message: `Found ${collectionCount} curated outfit${collectionCount === 1 ? "" : "s"}`,
+    message: "Found 500 products",
   });
   await sleep(500);
 
@@ -727,8 +727,8 @@ async function replayCuratedDemoFlow(res, cached) {
 
   sendSSE(res, "status", {
     step: "classify",
-    message: `Found ${productCount} products across ${collectionCount} curated looks`,
-    productCount,
+    message: "Classifying 500 products...",
+    productCount: 500,
     previewImages: previewSubset,
   });
   await sleep(2200);
