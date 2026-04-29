@@ -606,8 +606,8 @@ export default function Demo() {
 
   // Set page title
   useEffect(() => {
-    document.title = 'Runa — AI Styling Demo';
-    return () => { document.title = 'Runa AI Demo'; };
+    document.title = 'Runa AI Stylist — Demo';
+    return () => { document.title = 'Runa AI Stylist — Demo'; };
   }, []);
 
   // Auto-start if domain is in URL path or query param
