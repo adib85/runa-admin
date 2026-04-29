@@ -1,10 +1,14 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import { SuperAdminProvider } from './context/SuperAdminContext';
+import { OnboardingProvider, useOnboarding } from './context/OnboardingContext';
 
 // Pages
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Stores from './pages/Stores';
 import StoreDetail from './pages/StoreDetail';
@@ -44,6 +48,17 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+function OnboardingGate({ children }) {
+  const { isComplete } = useOnboarding();
+  const location = useLocation();
+
+  if (!isComplete && location.pathname !== '/') {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
 const isDemoHost = window.location.hostname.startsWith('demo.');
 
 function App() {
@@ -52,6 +67,8 @@ function App() {
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/demo" element={<Demo />} />
       <Route path="/demo/:domain" element={<Demo />} />
       <Route path="/d/:domain" element={<Demo />} />
@@ -67,28 +84,108 @@ function App() {
         </>
       ) : (
         <>
-          {/* On admin.askruna.ai / localhost: root shows Dashboard */}
+          {/* On admin.askruna.ai / localhost: root shows Home */}
           <Route
             path="/"
             element={
               <ProtectedRoute>
                 <SuperAdminProvider>
-                  <Layout />
+                  <OnboardingProvider>
+                    <Layout />
+                  </OnboardingProvider>
                 </SuperAdminProvider>
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
-            <Route path="stores" element={<Stores />} />
-            <Route path="stores/:storeId" element={<StoreDetail />} />
-            <Route path="products" element={<Products />} />
-            <Route path="settings" element={<Settings />} />
-            <Route path="ai-merchant" element={<AIMerchant />} />
-            <Route path="ai-visual-merchandiser" element={<AIVisualMerchandiser />} />
-            <Route path="ai-stylist" element={<AIStylist />} />
-            <Route path="ai-studio" element={<AIStudio />} />
-            <Route path="ai-custom" element={<AICustom />} />
-            <Route path="ai-config" element={<AIConfig />} />
+            <Route index element={<Home />} />
+            <Route
+              path="store"
+              element={
+                <OnboardingGate>
+                  <Dashboard />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="stores"
+              element={
+                <OnboardingGate>
+                  <Stores />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="stores/:storeId"
+              element={
+                <OnboardingGate>
+                  <StoreDetail />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="products"
+              element={
+                <OnboardingGate>
+                  <Products />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <OnboardingGate>
+                  <Settings />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-merchant"
+              element={
+                <OnboardingGate>
+                  <AIMerchant />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-visual-merchandiser"
+              element={
+                <OnboardingGate>
+                  <AIVisualMerchandiser />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-stylist"
+              element={
+                <OnboardingGate>
+                  <AIStylist />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-studio"
+              element={
+                <OnboardingGate>
+                  <AIStudio />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-custom"
+              element={
+                <OnboardingGate>
+                  <AICustom />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-config"
+              element={
+                <OnboardingGate>
+                  <AIConfig />
+                </OnboardingGate>
+              }
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </>

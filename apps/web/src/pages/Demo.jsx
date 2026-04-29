@@ -224,7 +224,7 @@ function ResultsView({ data, setResult }) {
               <div className="w-3 h-3 rounded-full bg-green-400" />
             </div>
             <div className="ml-3 flex-1 bg-white rounded-md px-3 py-1 text-xs text-neutral-400 truncate">
-              {store.domain}/products/{outfit.anchor?.handle || '...'}
+              {store.domain}{store.productPathPrefix || '/products'}/{outfit.anchor?.handle || '...'}
             </div>
           </div>
 

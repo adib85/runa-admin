@@ -72,6 +72,18 @@ export const config = {
     env: process.env.NODE_ENV || "development"
   },
 
+  // Web (used to build links in transactional emails, etc.)
+  web: {
+    url: process.env.WEB_URL || "http://localhost:3000"
+  },
+
+  // SendGrid (transactional email)
+  sendgrid: {
+    apiKey: process.env.SENDGRID_API_KEY || "",
+    fromEmail: process.env.SENDGRID_FROM_EMAIL || "noreply@askruna.ai",
+    fromName: process.env.SENDGRID_FROM_NAME || "Runa"
+  },
+
   // Shopify API
   shopify: {
     apiVersion: "2025-10"

@@ -11,6 +11,11 @@ https://store.com/products/item-handle
 Outfit 2:
 (HERO) https://store.com/products/another-anchor
 https://store.com/products/...
+
+— Or for non-Shopify catalogs (e.g. Fashion Days):
+Outfit 1:
+(HERO) https://www.fashiondays.ro/p/<slug>-p<id>-1/...
+https://www.fashiondays.ro/p/<slug>-p<id>-1/...
 `;
 
 export default function DemoManual() {
@@ -59,6 +64,9 @@ export default function DemoManual() {
             fetched from Shopify, and the result is written to the demo cache for
             that store. The next visit to the demo for that domain will return
             this curated set instantly.
+          </p>
+          <p className="text-xs text-neutral-400 mt-2">
+            Non-Shopify support: <span className="font-mono">fashiondays.ro</span> URLs are auto-detected and scraped directly (title, image, brand, price from each product page).
           </p>
         </div>
 

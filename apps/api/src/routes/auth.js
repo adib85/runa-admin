@@ -1,11 +1,20 @@
 import { Router } from "express";
+import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { dynamodb } from "@runa/core";
+import { config } from "@runa/config";
 import { generateToken, authenticate } from "../middleware/auth.js";
 import { asyncHandler, ApiError } from "../middleware/error.js";
+import { sendEmail, buildPasswordResetEmail } from "../services/mailer.js";
 
 const router = Router();
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 /**
  * POST /api/auth/register
@@ -98,11 +107,22 @@ router.post("/login", asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    throw ApiError.badRequest("Email and password are required");
+    throw ApiError.badRequest("Email or website and password are required");
   }
 
-  // Find user by email
-  const user = await dynamodb.users.getUserByEmail(email);
+  // Identifier may be an email (contains @) or a shop domain
+  const identifier = String(email).trim().toLowerCase();
+  const isEmail = identifier.includes("@");
+
+  let user = isEmail
+    ? await dynamodb.users.getUserByEmail(identifier)
+    : await dynamodb.users.getUserByShop(identifier);
+
+  // Fallback: if shop lookup misses, try matching against the user's stores
+  if (!user && !isEmail) {
+    user = await dynamodb.users.getUserByEmail(identifier);
+  }
+
   if (!user) {
     throw ApiError.unauthorized("Invalid credentials");
   }
@@ -149,6 +169,104 @@ router.get("/me", authenticate, asyncHandler(async (req, res) => {
     name: user.name,
     role: user.role || "user",
     stores: user.stores || []
+  });
+}));
+
+/**
+ * POST /api/auth/forgot-password
+ * Generate a password reset token and email it to the user.
+ * Always returns 200 to avoid leaking which emails exist.
+ */
+router.post("/forgot-password", asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    throw ApiError.badRequest("Email is required");
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const responseBody = {
+    message:
+      "If an account exists for that email, we've sent a password reset link."
+  };
+
+  const user = await dynamodb.users.getUserByEmail(cleanEmail);
+  if (!user) {
+    return res.json(responseBody);
+  }
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  user.passwordResetToken = hashToken(rawToken);
+  user.passwordResetExpires = Date.now() + RESET_TOKEN_TTL_MS;
+  await dynamodb.users.saveUser(user);
+
+  const resetUrl = `${config.web.url.replace(/\/+$/, "")}/reset-password?token=${rawToken}&email=${encodeURIComponent(cleanEmail)}`;
+
+  try {
+    const { subject, html, text } = buildPasswordResetEmail({
+      resetUrl,
+      email: cleanEmail
+    });
+    await sendEmail({ to: cleanEmail, subject, html, text });
+  } catch (err) {
+    console.error("Failed to send password reset email:", err?.response?.body || err);
+    throw ApiError.internal("Failed to send password reset email");
+  }
+
+  res.json(responseBody);
+}));
+
+/**
+ * POST /api/auth/reset-password
+ * Verify the reset token and set a new password.
+ */
+router.post("/reset-password", asyncHandler(async (req, res) => {
+  const { token, email, password } = req.body;
+
+  if (!token || !email || !password) {
+    throw ApiError.badRequest("Token, email and new password are required");
+  }
+  if (String(password).length < 6) {
+    throw ApiError.badRequest("Password must be at least 6 characters");
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const user = await dynamodb.users.getUserByEmail(cleanEmail);
+  if (!user) {
+    throw ApiError.badRequest("Invalid or expired reset link");
+  }
+
+  const tokenHash = hashToken(String(token));
+  if (
+    !user.passwordResetToken ||
+    user.passwordResetToken !== tokenHash ||
+    !user.passwordResetExpires ||
+    Date.now() > Number(user.passwordResetExpires)
+  ) {
+    throw ApiError.badRequest("Invalid or expired reset link");
+  }
+
+  user.password = await bcrypt.hash(String(password), 10);
+  delete user.passwordResetToken;
+  delete user.passwordResetExpires;
+  await dynamodb.users.saveUser(user);
+
+  const authToken = generateToken({
+    userId: user.id,
+    email: user.email,
+    role: user.role || "user"
+  });
+
+  res.json({
+    message: "Password updated",
+    token: authToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role || "user",
+      stores: user.stores || []
+    }
   });
 }));
 

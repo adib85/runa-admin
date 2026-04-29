@@ -682,6 +682,60 @@ const DEMO_STORE_ID = "demo_searches";
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Domains that don't have a Shopify storefront. For these we skip the
+// real analyze pipeline entirely and serve a curated cache built via
+// /demo-manual. Add new non-Shopify hosts here as we onboard them.
+const NON_SHOPIFY_DEMO_DOMAINS = new Set(["fashiondays.ro"]);
+
+// Replay the standard analyze SSE flow against a pre-seeded curated cache.
+// Mirrors the events the real pipeline emits (validate → scan → classify →
+// complete) so the frontend's progress UI behaves identically.
+async function replayCuratedDemoFlow(res, cached) {
+  const store = cached.store || {};
+  const allOutfits = [cached.outfit, ...(cached.alternativeOutfits || [])].filter(Boolean);
+
+  // Use the curated outfits' product images as the preview grid so the
+  // visitor sees real Fashion Days product shots during the "styling"
+  // phase. Cap to 24 to match the existing real-flow grid.
+  const previewImages = [];
+  for (const o of allOutfits) {
+    if (o.anchor?.image) previewImages.push(o.anchor.image);
+    for (const it of o.items || []) {
+      if (it.image) previewImages.push(it.image);
+    }
+  }
+  const previewSubset = [...new Set(previewImages)].slice(0, 24);
+
+  const productCount = cached.productCount || previewSubset.length;
+  const collectionCount = cached.collectionCount || allOutfits.length;
+
+  sendSSE(res, "status", { step: "validate", message: `Connecting to ${store.domain}...` });
+  await sleep(700);
+  sendSSE(res, "status", { step: "validate", message: `Connected to ${store.name}` });
+  await sleep(400);
+
+  sendSSE(res, "status", { step: "scan", message: "Scanning product catalog..." });
+  await sleep(800);
+  sendSSE(res, "status", {
+    step: "scan",
+    message: `Found ${collectionCount} curated outfit${collectionCount === 1 ? "" : "s"}`,
+  });
+  await sleep(500);
+
+  sendSSE(res, "status", { step: "scan", message: "Loading products..." });
+  await sleep(600);
+
+  sendSSE(res, "status", {
+    step: "classify",
+    message: `Found ${productCount} products across ${collectionCount} curated looks`,
+    productCount,
+    previewImages: previewSubset,
+  });
+  await sleep(2200);
+
+  sendSSE(res, "complete", cached);
+}
+
 async function getCachedResult(domain) {
   try {
     const docClient = dynamoClient.getDocClient();
@@ -1084,6 +1138,30 @@ router.get("/analyze", async (req, res) => {
   // Allow model override via URL: ?model=lite or ?model=flash or ?model=gemini-3-flash-preview
   const modelMap = { lite: config.gemini.liteModel, flash: config.gemini.model };
   _modelOverride = modelMap[req.query.model] || req.query.model || null;
+
+  // ─── Fashion Days bypass ───────────────────────────────────────────
+  // Fashion Days isn't on Shopify, so /meta.json + /products/.json don't
+  // exist. Instead we serve a hand-curated cache (seeded via /demo-manual)
+  // and replay the same SSE step sequence with fake delays so the visitor
+  // sees the same loading experience as a real Shopify analysis.
+  if (NON_SHOPIFY_DEMO_DOMAINS.has(domain)) {
+    try {
+      const cached = await getCachedResult(domain);
+      if (!cached || cached.needsCuration) {
+        sendSSE(res, "error", {
+          message: `${domain} demo is not seeded yet. Visit /demo-manual to upload outfits for this catalog.`,
+        });
+        return res.end();
+      }
+      await replayCuratedDemoFlow(res, cached);
+      logDemoSearch(domain, cached.store?.name || domain, true, clientIp).catch(() => {});
+      return res.end();
+    } catch (err) {
+      console.error("Fashion Days demo error:", err);
+      sendSSE(res, "error", { message: "Failed to load curated demo. Please try again." });
+      return res.end();
+    }
+  }
 
   try {
     // Step 0: Validate

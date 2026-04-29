@@ -1,17 +1,30 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSuperAdmin } from '../context/SuperAdminContext';
+import { useOnboarding } from '../context/OnboardingContext';
 
-const aiToolsNavigation = [
-  { 
-    name: 'AI Merchant', 
-    path: '/ai-merchant',
+const homeNavigation = [
+  {
+    name: 'Home',
+    path: '/',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h3m6 0h3a1 1 0 001-1V10m-9 11v-6h4v6" />
       </svg>
     )
-  },
+  }
+];
+
+const aiToolsNavigation = [
+  // {
+  //   name: 'AI Merchant',
+  //   path: '/ai-merchant',
+  //   icon: (
+  //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+  //     </svg>
+  //   )
+  // },
   { 
     name: 'AI Visual Merchandiser', 
     path: '/ai-visual-merchandiser',
@@ -21,8 +34,8 @@ const aiToolsNavigation = [
       </svg>
     )
   },
-  { 
-    name: 'AI Stylist', 
+  {
+    name: 'AI Stylist',
     path: '/ai-stylist',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -30,50 +43,50 @@ const aiToolsNavigation = [
       </svg>
     )
   },
-  { 
-    name: 'AI Studio', 
-    path: '/ai-studio',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-      </svg>
-    )
-  },
-  { 
-    name: 'AI Custom', 
-    path: '/ai-custom',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.5 9.5L11 12l1.5-2.5L14 12" />
-      </svg>
-    )
-  },
-  { 
-    name: 'AI Config', 
-    path: '/ai-config',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-      </svg>
-    )
-  },
-  {
-    name: 'Demo Searches',
-    path: '/demo-searches',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-      </svg>
-    )
-  }
+  // {
+  //   name: 'AI Studio',
+  //   path: '/ai-studio',
+  //   icon: (
+  //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+  //     </svg>
+  //   )
+  // },
+  // {
+  //   name: 'AI Custom',
+  //   path: '/ai-custom',
+  //   icon: (
+  //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.5 9.5L11 12l1.5-2.5L14 12" />
+  //     </svg>
+  //   )
+  // },
+  // {
+  //   name: 'AI Config',
+  //   path: '/ai-config',
+  //   icon: (
+  //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+  //     </svg>
+  //   )
+  // },
+  // {
+  //   name: 'Demo Searches',
+  //   path: '/demo-searches',
+  //   icon: (
+  //     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  //       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+  //     </svg>
+  //   )
+  // }
 ];
 
 const settingsNavigation = [
   { 
     name: 'Store', 
-    path: '/',
+    path: '/store',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -94,7 +107,19 @@ const settingsNavigation = [
 export default function Layout() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const { isSuperAdmin, disableSuperAdmin } = useSuperAdmin();
+  const { isComplete: onboardingComplete } = useOnboarding();
+
+  const isHomePath = (p) => p === '/';
+  const isLocked = (path) => !onboardingComplete && !isHomePath(path);
+
+  const handleNavClick = (e, path) => {
+    if (isLocked(path)) {
+      e.preventDefault();
+      navigate('/');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -133,15 +158,10 @@ export default function Layout() {
         {/* Left Sidebar */}
         <aside className="w-64 border-r border-neutral-100 flex-shrink-0 hidden lg:flex lg:flex-col">
           <div className="flex-1 overflow-y-auto py-6 px-4">
-            {/* AI Tools Section */}
-            <p className="text-2xs font-medium uppercase text-neutral-400 tracking-widest px-4 mb-4">
-              AI Tools
-            </p>
-            <nav className="space-y-1">
-              {aiToolsNavigation.map((item) => {
-                const isActive = location.pathname === item.path ||
-                  location.pathname.startsWith(item.path + '/');
-
+            {/* Home */}
+            <nav className="space-y-1 mb-6">
+              {homeNavigation.map((item) => {
+                const isActive = location.pathname === item.path;
                 return (
                   <Link
                     key={item.path}
@@ -156,6 +176,45 @@ export default function Layout() {
                       {item.icon}
                     </span>
                     <span className="font-medium">{item.name}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* AI Agents Section */}
+            <p className="text-2xs font-medium uppercase text-neutral-400 tracking-widest px-4 mb-4">
+              AI Agents
+            </p>
+            <nav className="space-y-1">
+              {aiToolsNavigation.map((item) => {
+                const isActive = location.pathname === item.path ||
+                  location.pathname.startsWith(item.path + '/');
+                const locked = isLocked(item.path);
+
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={(e) => handleNavClick(e, item.path)}
+                    title={locked ? 'Finish setup to unlock' : undefined}
+                    aria-disabled={locked || undefined}
+                    className={`flex items-center gap-3 px-4 py-3 text-sm transition-all duration-200 rounded-sm ${
+                      isActive
+                        ? 'bg-neutral-900 text-white'
+                        : locked
+                          ? 'text-neutral-300 cursor-not-allowed'
+                          : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'
+                    }`}
+                  >
+                    <span className={isActive ? 'text-white' : locked ? 'text-neutral-300' : 'text-neutral-400'}>
+                      {item.icon}
+                    </span>
+                    <span className="font-medium flex-1">{item.name}</span>
+                    {locked && (
+                      <svg className="w-4 h-4 text-neutral-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 11c-1.1 0-2 .9-2 2v3c0 1.1.9 2 2 2s2-.9 2-2v-3c0-1.1-.9-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v13h16V8h-2zm-10-1a4 4 0 118 0v1H8V7z" />
+                      </svg>
+                    )}
                   </Link>
                 );
               })}
@@ -167,24 +226,33 @@ export default function Layout() {
             </p>
             <nav className="space-y-1">
               {settingsNavigation.map((item) => {
-                const isActive = item.path === '/' 
-                  ? location.pathname === '/'
-                  : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+                const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+                const locked = isLocked(item.path);
 
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
+                    onClick={(e) => handleNavClick(e, item.path)}
+                    title={locked ? 'Finish setup to unlock' : undefined}
+                    aria-disabled={locked || undefined}
                     className={`flex items-center gap-3 px-4 py-3 text-sm transition-all duration-200 rounded-sm ${
                       isActive
                         ? 'bg-neutral-900 text-white'
-                        : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'
+                        : locked
+                          ? 'text-neutral-300 cursor-not-allowed'
+                          : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'
                     }`}
                   >
-                    <span className={isActive ? 'text-white' : 'text-neutral-400'}>
+                    <span className={isActive ? 'text-white' : locked ? 'text-neutral-300' : 'text-neutral-400'}>
                       {item.icon}
                     </span>
-                    <span className="font-medium">{item.name}</span>
+                    <span className="font-medium flex-1">{item.name}</span>
+                    {locked && (
+                      <svg className="w-4 h-4 text-neutral-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 11c-1.1 0-2 .9-2 2v3c0 1.1.9 2 2 2s2-.9 2-2v-3c0-1.1-.9-2-2-2zm6-3V7a6 6 0 10-12 0v1H4v13h16V8h-2zm-10-1a4 4 0 118 0v1H8V7z" />
+                      </svg>
+                    )}
                   </Link>
                 );
               })}
@@ -195,19 +263,24 @@ export default function Layout() {
         {/* Mobile Sidebar - Horizontal scroll */}
         <div className="lg:hidden border-b border-neutral-100 overflow-x-auto flex-shrink-0 w-full absolute">
           <nav className="flex px-4 py-3 space-x-4">
-            {[...aiToolsNavigation, ...settingsNavigation].map((item) => {
-              const isActive = item.path === '/' 
+            {[...homeNavigation, ...aiToolsNavigation, ...settingsNavigation].map((item) => {
+              const isActive = item.path === '/'
                 ? location.pathname === '/'
                 : location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+              const locked = isLocked(item.path);
 
               return (
                 <Link
                   key={item.path}
                   to={item.path}
+                  onClick={(e) => handleNavClick(e, item.path)}
+                  aria-disabled={locked || undefined}
                   className={`flex items-center gap-2 px-3 py-2 text-xs whitespace-nowrap rounded-sm transition-colors ${
                     isActive
                       ? 'bg-neutral-900 text-white'
-                      : 'bg-neutral-50 text-neutral-600'
+                      : locked
+                        ? 'bg-neutral-50 text-neutral-300 cursor-not-allowed'
+                        : 'bg-neutral-50 text-neutral-600'
                   }`}
                 >
                   {item.icon}

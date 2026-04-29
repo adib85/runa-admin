@@ -42,20 +42,15 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* Danger Zone */}
-      <section>
-        <h2 className="section-title text-red-600">Danger Zone</h2>
-        <div className="border border-red-100 p-8">
-          <div className="max-w-md">
-            <p className="text-sm text-neutral-900 font-medium mb-2">Delete Account</p>
-            <p className="text-sm text-neutral-600 mb-6">
-              Requesting account deletion will send an email to our team. Your account and all associated data will be permanently deleted within 7 days.
-            </p>
-            <button className="btn btn-danger">
-              Request Account Deletion
-            </button>
-          </div>
-        </div>
+      {/* Delete Account */}
+      <section className="mt-8 max-w-md">
+        <p className="text-sm text-neutral-900 mb-1">Delete account</p>
+        <p className="text-xs text-neutral-500 mb-3">
+          Requesting account deletion will send an email to our team. Your account and all associated data will be permanently deleted within 7 days.
+        </p>
+        <button className="text-xs text-red-600 hover:text-red-700 underline">
+          Request account deletion
+        </button>
       </section>
     </div>
   );

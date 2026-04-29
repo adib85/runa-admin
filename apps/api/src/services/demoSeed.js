@@ -25,6 +25,258 @@ async function fetchWithTimeout(url, timeoutMs = 12000) {
   }
 }
 
+// ─── Fashion Days (non-Shopify) Support ────────────────────────────────
+// Fashion Days isn't on Shopify, so we can't use /meta.json or
+// /products/{handle}.json. Instead we parse the input text manually
+// (the format is deterministic: "Outfit N:" header + "(HERO)" prefix on
+// the anchor) and scrape each product page for the data we need (title,
+// image, price, brand) directly from og: meta tags + the embedded
+// gtmProductData JSON object.
+
+const FASHION_DAYS_HOST = "fashiondays.ro";
+
+function isFashionDaysInput(rawText) {
+  return /fashiondays\.ro/i.test(rawText || "");
+}
+
+function parseFashionDaysInput(rawText) {
+  const lines = rawText.split(/\r?\n/);
+  const outfits = [];
+  let current = null;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^Outfit\s+\d+/i.test(line)) {
+      if (current) outfits.push(current);
+      current = { hero: null, items: [] };
+      continue;
+    }
+    if (!current) {
+      // Tolerate stray content before the first "Outfit N:" header by
+      // creating an implicit first outfit.
+      current = { hero: null, items: [] };
+    }
+    const isHero = /^\(HERO\)/i.test(line);
+    const url = line.replace(/^\(HERO\)\s*/i, "").trim();
+    if (!/^https?:\/\//i.test(url)) continue;
+    if (isHero) current.hero = url;
+    else current.items.push(url);
+  }
+  if (current) outfits.push(current);
+
+  // Drop any outfits without a hero AND fall back to the first item if
+  // the (HERO) marker was missing — we don't want to silently lose data.
+  return outfits
+    .map((o) => {
+      if (!o.hero && o.items.length) {
+        return { hero: o.items[0], items: o.items.slice(1) };
+      }
+      return o;
+    })
+    .filter((o) => o.hero);
+}
+
+function extractMeta(html, property) {
+  // Tolerate either order ("property=… content=…" or "content=… property=…")
+  // and either single or double quotes.
+  const re = new RegExp(
+    `<meta[^>]*(?:property|name)=["']${property}["'][^>]*content=["']([^"']+)["']`,
+    "i"
+  );
+  const m = html.match(re);
+  if (m) return m[1];
+  const re2 = new RegExp(
+    `<meta[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']${property}["']`,
+    "i"
+  );
+  const m2 = html.match(re2);
+  return m2 ? m2[1] : null;
+}
+
+function extractAllMeta(html, property) {
+  const re = new RegExp(
+    `<meta[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']${property}["']`,
+    "gi"
+  );
+  const re2 = new RegExp(
+    `<meta[^>]*(?:property|name)=["']${property}["'][^>]*content=["']([^"']+)["']`,
+    "gi"
+  );
+  const all = new Set();
+  let m;
+  while ((m = re.exec(html)) !== null) all.add(m[1]);
+  while ((m = re2.exec(html)) !== null) all.add(m[1]);
+  return [...all];
+}
+
+function extractGtmProduct(html) {
+  // gtmProductData has a `product` key with name/brandName/price/productId.
+  const m = html.match(/var\s+gtmProductData\s*=\s*(\{[\s\S]*?\});/);
+  if (!m) return null;
+  try {
+    const obj = JSON.parse(m[1]);
+    return obj?.product || null;
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonLdPrice(html) {
+  // The product page embeds a JSON-LD-ish block with `"price": "97.36"`.
+  const m = html.match(/"price"\s*:\s*"([\d.]+)"/);
+  return m ? m[1] : null;
+}
+
+function fashionDaysSlugFromUrl(url) {
+  // /p/<slug>-p<id>-<variant>/  → use slug as a stable handle for the demo
+  // breadcrumb path. Falls back to the full path if the regex misses.
+  const m = url.match(/\/p\/([^/?#]+)/i);
+  return m ? m[1] : url.replace(/^https?:\/\/[^/]+\//, "");
+}
+
+function fashionDaysProductIdFromUrl(url) {
+  const m = url.match(/-p(\d+)-/i);
+  return m ? Number(m[1]) : null;
+}
+
+function titleCaseRoWord(w) {
+  if (!w) return w;
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+// Tencent EdgeOne (Fashion Days' WAF) blocks node-fetch's TLS fingerprint
+// with a captcha challenge page. Node's native fetch (undici) gets through
+// cleanly, so use it specifically for fashiondays.ro.
+async function fashionDaysFetch(url, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": BROWSER_UA,
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ro-RO,ro;q=0.9,en;q=0.8",
+      },
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchFashionDaysProduct(url) {
+  const res = await fashionDaysFetch(url, 15000);
+  if (!res.ok) {
+    throw new Error(`Fashion Days fetch failed for ${url}: HTTP ${res.status}`);
+  }
+  const html = await res.text();
+
+  const ogTitle = extractMeta(html, "og:title");
+  const ogImageList = extractAllMeta(html, "og:image");
+  const ogImage = ogImageList[0] || null;
+  const gtm = extractGtmProduct(html);
+  const jsonLdPrice = extractJsonLdPrice(html);
+
+  const slug = fashionDaysSlugFromUrl(url);
+  const productId =
+    gtm?.productId || fashionDaysProductIdFromUrl(url) || slug;
+
+  const title = (gtm?.name || ogTitle || titleCaseRoWord(slug.replace(/-/g, " "))).trim();
+  const vendor = gtm?.brandName || "";
+  const price = (gtm?.price ?? jsonLdPrice ?? 0).toString();
+
+  if (!ogImage) {
+    throw new Error(`No image found for ${url}`);
+  }
+
+  const collection = (gtm?.subClassification || gtm?.classification || "category")
+    .toString()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+
+  return {
+    id: productId,
+    title,
+    handle: slug,
+    type: gtm?.subClassification || "",
+    vendor,
+    tags: [],
+    price,
+    image: ogImage,
+    collection,
+  };
+}
+
+async function buildFashionDaysOutfit({ hero, items }, index) {
+  const anchorRaw = await fetchFashionDaysProduct(hero);
+  const itemsResolved = [];
+  for (const u of items) {
+    const p = await fetchFashionDaysProduct(u);
+    itemsResolved.push(p);
+  }
+  const anchor = { ...anchorRaw };
+  const itemObjs = itemsResolved.map((p) => ({
+    id: p.id,
+    title: p.title,
+    handle: p.handle,
+    price: p.price,
+    image: p.image,
+    vendor: p.vendor,
+    collection: p.collection,
+  }));
+  return buildOutfitObj(anchor, itemObjs, `Outfit ${index + 1}`);
+}
+
+async function seedFashionDaysFromInput(rawText, opts) {
+  const { dryRun = false, onStep = () => {} } = opts;
+  const domain = FASHION_DAYS_HOST;
+
+  onStep("Parsing Fashion Days outfits...");
+  const parsed = parseFashionDaysInput(rawText);
+  if (!parsed.length) throw new Error("No outfits found in input");
+
+  onStep(`Fetching ${parsed.reduce((n, o) => n + 1 + o.items.length, 0)} product pages...`);
+  const outfits = [];
+  for (const [i, o] of parsed.entries()) {
+    onStep(`Building outfit ${i + 1}/${parsed.length}...`);
+    const outfit = await buildFashionDaysOutfit(o, i);
+    outfits.push(outfit);
+  }
+
+  // We don't really know exact catalog stats for Fashion Days. Use sensible
+  // placeholders so the existing UI doesn't show "0 products / 0 collections".
+  const payload = {
+    store: {
+      name: "Fashion Days",
+      domain,
+      currency: "RON",
+      // Tells the demo's simulated PDP browser bar to render
+      // "fashiondays.ro/p/<slug>" instead of "/products/<slug>" — Fashion
+      // Days uses /p/ for product pages, so this keeps the mock realistic.
+      productPathPrefix: "/p",
+    },
+    outfit: outfits[0],
+    alternativeOutfits: outfits.slice(1),
+    productCount: outfits.reduce((n, o) => n + 1 + (o.items?.length || 0), 0),
+    collectionCount: parsed.length,
+    isFashionDays: true,
+  };
+
+  if (!dryRun) {
+    onStep(`Saving cache for demo_${domain}...`);
+    await saveDemoCache(domain, "Fashion Days", payload);
+  }
+
+  return {
+    payload,
+    parsed: { domain, outfits: parsed },
+    storeName: "Fashion Days",
+    domain,
+    dryRun,
+  };
+}
+
 async function parseInputViaGemini(rawText) {
   if (!config.gemini?.apiKey) throw new Error("Missing GEMINI_API_KEY in env");
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
@@ -197,6 +449,11 @@ async function saveDemoCache(domain, storeName, payload) {
  */
 export async function seedDemoCache(rawText, opts = {}) {
   const { dryRun = false, onStep = () => {} } = opts;
+
+  // Fashion Days bypass: not on Shopify, has its own scraping path.
+  if (isFashionDaysInput(rawText)) {
+    return seedFashionDaysFromInput(rawText, { dryRun, onStep });
+  }
 
   onStep("Parsing input via Gemini...");
   const parsed = await parseInputViaGemini(rawText);
