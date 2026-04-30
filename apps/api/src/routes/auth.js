@@ -386,7 +386,7 @@ router.post("/refresh", authenticate, asyncHandler(async (req, res) => {
 const HMAC_REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 router.post("/claim-link", asyncHandler(async (req, res) => {
-  const { shop, ts, hmac } = req.body || {};
+  const { shop, ts, hmac, email, name } = req.body || {};
 
   if (!shop || !ts || !hmac) {
     throw ApiError.badRequest("shop, ts and hmac are required");
@@ -428,11 +428,20 @@ router.post("/claim-link", asyncHandler(async (req, res) => {
     throw ApiError.unauthorized("Unauthorized");
   }
 
-  const claimToken = jwt.sign(
-    { purpose: "claim", shop: cleanShop, id },
-    config.claim.secret,
-    { expiresIn: config.claim.ttl, jwtid: crypto.randomUUID() }
-  );
+  // Bake any merchant info Shopify already has (email/name from /shop.json)
+  // into the token so the claim page can SSO without asking for anything.
+  const claimPayload = { purpose: "claim", shop: cleanShop, id };
+  if (typeof email === "string" && email.trim()) {
+    claimPayload.email = email.trim().toLowerCase();
+  }
+  if (typeof name === "string" && name.trim()) {
+    claimPayload.name = name.trim();
+  }
+
+  const claimToken = jwt.sign(claimPayload, config.claim.secret, {
+    expiresIn: config.claim.ttl,
+    jwtid: crypto.randomUUID()
+  });
 
   const baseWebUrl = config.web.url.replace(/\/+$/, "");
   const url = `${baseWebUrl}/claim?token=${encodeURIComponent(claimToken)}`;
@@ -445,77 +454,51 @@ router.post("/claim-link", asyncHandler(async (req, res) => {
 }));
 
 /**
- * GET /api/auth/claim
- * Verify a claim token and return basic info about the shop being claimed.
- * Used by the /claim page to render "Set up admin login for <shop>".
- */
-router.get("/claim", asyncHandler(async (req, res) => {
-  const decoded = verifyClaimToken(req.query.token);
-  const user = await dynamodb.users.getUserById(decoded.id);
-  if (!user) {
-    throw ApiError.badRequest("This shop hasn't installed the Runa app yet.");
-  }
-  res.json({
-    shop: user.shop || decoded.shop,
-    domain: user.domain || user.shopDomain || user.shop || decoded.shop,
-    id: user.id,
-    alreadyClaimed: Boolean(user.password),
-    suggestedEmail: user.email || null
-  });
-}));
-
-/**
  * POST /api/auth/claim
- * Body: { token, email, password, name? }
- * Attaches admin credentials to the shop row created by the Shopify install
- * and signs the user straight in.
+ * Body: { token }
+ * SSO-style auto-login: a valid claim token (signed by runa-admin after the
+ * Shopify install side proved it owns the shop via HMAC of the access token)
+ * is itself proof of identity. We don't ask the merchant for a password.
+ *
+ * If the row doesn't have an email yet, we adopt the email/name baked into
+ * the token (passed by the Shopify install side from /shop.json). Password
+ * stays unset — the merchant can set one later in Settings if they want
+ * direct (non-Shopify) login at /login.
  */
 router.post("/claim", asyncHandler(async (req, res) => {
-  const { token, email, password, name } = req.body;
-
-  if (!email || !password) {
-    throw ApiError.badRequest("Email and password are required");
-  }
-  if (String(password).length < 6) {
-    throw ApiError.badRequest("Password must be at least 6 characters");
-  }
-
+  const { token } = req.body || {};
   const decoded = verifyClaimToken(token);
+
   const user = await dynamodb.users.getUserById(decoded.id);
   if (!user) {
     throw ApiError.badRequest("This shop hasn't installed the Runa app yet.");
   }
-  if (user.password) {
-    throw ApiError.conflict(
-      "This account has already been set up. Please sign in with your store URL and password."
-    );
-  }
 
-  const cleanEmail = String(email).trim().toLowerCase();
-  user.email = cleanEmail;
-  user.name = name || (user.name || cleanEmail.split("@")[0]);
-  user.password = await bcrypt.hash(String(password), 10);
-  user.role = user.role || "user";
-  user.platform = user.platform || "shopify";
   user.shop = user.shop || decoded.shop;
-  // Best-effort public website domain: use whatever the row already has
-  // (set by the Shopify install side via /shop.json), otherwise fall back
-  // to the shop handle so we never store an empty value.
-  user.domain =
-    user.domain ||
-    user.shopDomain ||
-    user.shop ||
-    decoded.shop;
+  user.domain = user.domain || user.shopDomain || user.shop || decoded.shop;
   user.storeName = user.storeName || (user.shop || "").split(".")[0];
+  user.platform = user.platform || "shopify";
+  user.role = user.role || "user";
   user.status = user.status || "pending";
-  user.productsCount =
-    user.productsCount ?? user.totalProducts ?? 0;
+  user.productsCount = user.productsCount ?? user.totalProducts ?? 0;
   user.lastSync = user.lastSync || user.syncStatus?.lastUpdated || null;
-  user.claimedAt = new Date().toISOString();
+
+  // First time through: adopt the merchant info Shopify already has.
+  if (!user.email && decoded.email) {
+    user.email = String(decoded.email).trim().toLowerCase();
+  }
+  if (!user.name) {
+    user.name =
+      decoded.name ||
+      (user.email ? user.email.split("@")[0] : (user.shop || "").split(".")[0]);
+  }
+  if (!user.claimedAt) {
+    user.claimedAt = new Date().toISOString();
+  }
+  user.lastLoginAt = new Date().toISOString();
   user.updatedAt = new Date().toISOString();
 
-  // Drop the legacy nested array if present — store fields live top-level now.
-  delete user.stores;
+  delete user.stores; // legacy field, no longer used
 
   await dynamodb.users.saveUser(user);
 
@@ -526,8 +509,8 @@ router.post("/claim", asyncHandler(async (req, res) => {
     role: user.role
   });
 
-  res.status(201).json({
-    message: "Account claimed successfully",
+  res.status(200).json({
+    message: "Signed in",
     token: sessionToken,
     user: {
       id: user.id,
