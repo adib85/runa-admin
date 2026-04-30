@@ -1020,12 +1020,12 @@ router.get("/searches", async (req, res) => {
     // default. Pass `?includeBots=1` (or `?includeBots=true`) to include them
     // and let the dashboard show the 🤖 badge instead of hiding the rows.
     const includeBots = req.query.includeBots === "1" || req.query.includeBots === "true";
-    // Romania is the dev location — historically we hid all RO visits as
-    // internal test traffic. Now there are real Romanian customers, so RO is
-    // shown by default. Pass `?hideRomania=1` to revert to the old behavior
-    // (handy when you're personally testing the demo and don't want your own
-    // visits cluttering the list).
-    const hideRomania = req.query.hideRomania === "1" || req.query.hideRomania === "true";
+    // Romania is the dev location — RO visits are hidden by default as
+    // internal/dev test traffic, since the dashboard owner usually wants to
+    // see leads from outside Romania. Pass `?showRomania=1` to include real
+    // Romanian customer visits (RCS&RDS / Orange / MobiFon / UPC).
+    const showRomania = req.query.showRomania === "1" || req.query.showRomania === "true";
+    const hideRomania = !showRomania;
     const docClient = dynamoClient.getDocClient();
     const results = [];
     let lastKey = undefined;
@@ -1160,7 +1160,7 @@ router.get("/searches", async (req, res) => {
       botVisits: totalBotVisits,
       includeBots,
       romaniaVisits: totalRomaniaVisits,
-      hideRomania,
+      showRomania,
       outfitsByDomain,
       needsCurationByDomain,
       stores,

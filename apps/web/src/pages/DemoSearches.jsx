@@ -177,7 +177,7 @@ export default function DemoSearches() {
   // the demo once but hasn't come back yet — warm but not hot).
   const [filter, setFilter] = useState('all');
   const [includeBots, setIncludeBots] = useState(false);
-  const [hideRomania, setHideRomania] = useState(false);
+  const [showRomania, setShowRomania] = useState(false);
 
   const toggleVisits = (domain) => {
     setExpandedVisits(prev => ({ ...prev, [domain]: !prev[domain] }));
@@ -189,7 +189,7 @@ export default function DemoSearches() {
         setLoading(true);
         const params = new URLSearchParams();
         if (includeBots) params.set('includeBots', '1');
-        if (hideRomania) params.set('hideRomania', '1');
+        if (showRomania) params.set('showRomania', '1');
         const qs = params.toString();
         const res = await fetch(`/api/demo/searches${qs ? `?${qs}` : ''}`);
         if (!res.ok) throw new Error('Failed to fetch');
@@ -201,7 +201,7 @@ export default function DemoSearches() {
       }
     }
     load();
-  }, [includeBots, hideRomania]);
+  }, [includeBots, showRomania]);
 
   if (loading) {
     return (
@@ -283,9 +283,9 @@ export default function DemoSearches() {
             {(data.romaniaVisits ?? 0) > 0 && (
               <span
                 className="text-neutral-500 ml-1"
-                title="Real visits from Romanian residential ISPs. Shown by default; toggle 'Hide Romania' to exclude (useful while you're personally testing)."
+                title="Visits from Romanian residential ISPs. Hidden by default since the dev location is Bucharest; toggle 'Show Romania' to include them."
               >
-                · 🇷🇴 {data.romaniaVisits} RO {hideRomania ? 'hidden' : 'shown'}
+                · 🇷🇴 {data.romaniaVisits} RO {showRomania ? 'shown' : 'hidden'}
               </span>
             )}
           </p>
@@ -305,15 +305,15 @@ export default function DemoSearches() {
           </label>
           <label
             className="inline-flex items-center gap-2 text-xs text-neutral-600 select-none cursor-pointer"
-            title="Hide all visits from Romanian IPs (useful while you're personally testing the demo)."
+            title="Include visits from Romanian IPs. Hidden by default because the dev location is Bucharest, so RO traffic is mostly internal testing."
           >
             <input
               type="checkbox"
-              checked={hideRomania}
-              onChange={(e) => setHideRomania(e.target.checked)}
+              checked={showRomania}
+              onChange={(e) => setShowRomania(e.target.checked)}
               className="h-3.5 w-3.5 accent-neutral-900"
             />
-            Hide Romania
+            Show Romania
           </label>
         </div>
       </div>
