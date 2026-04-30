@@ -561,7 +561,7 @@ export default function DemoSearches() {
                           {!v.isBot && v.isPrivateRelay && (
                             <span
                               className="ml-1 text-neutral-400"
-                              title="Real Safari/iPhone user behind Apple's iCloud Private Relay. Real city resolved from iplocate's hosting.country/city. Counted as a real visit."
+                              title="Real Safari/iPhone user behind Apple's iCloud Private Relay. Real city resolved from ipapi.is's datacenter.country/city. Counted as a real visit."
                             >
                               ·iCloud Relay
                             </span>

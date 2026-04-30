@@ -4,22 +4,22 @@
  * Verify accuracy of stored demo-search geo data.
  *
  * Scans CacheTable for all `demo_visits_*` items, takes each unique IP, asks
- * iplocate.io for the current country/city, and prints a side-by-side report
- * comparing what's stored vs. what iplocate.io returns.
+ * ipapi.is for the current country/city, and prints a side-by-side report
+ * comparing what's stored vs. what ipapi.is returns.
  *
  * Usage:
  *   node apps/api/src/scripts/verify-demo-geo.js [--limit 200] [--unique]
  *
  *   --limit N    only check the most recent N visits in total (default 100)
  *   --unique     check each unique IP at most once (recommended)
- *   --fix        rewrite the stored visits with the iplocate.io values
+ *   --fix        rewrite the stored visits with the ipapi.is values
  *                (DESTRUCTIVE — only use after eyeballing the report)
  *   --classify   backfill ALL historical visits with bot/hosting/vpn/proxy
- *                flags using iplocate's privacy fields. Adds: org, isHosting,
- *                isVpn, isProxy, isTor, isBot, botReason. Does NOT touch
- *                country/city. Bypasses --limit / --unique (processes
- *                everything). Does its own dedup so each unique IP is looked
- *                up once. Safe to re-run.
+ *                flags using ipapi.is's privacy fields. Adds: org, isHosting,
+ *                isVpn, isProxy, isTor, isCrawler, isAbuser, isBot, botReason.
+ *                Does NOT touch country/city. Bypasses --limit / --unique
+ *                (processes everything). Does its own dedup so each unique
+ *                IP is looked up once. Safe to re-run.
  */
 
 import dotenv from "dotenv";
@@ -155,7 +155,7 @@ async function runClassifyBackfill(records) {
       if (ip && ip !== "unknown" && ip !== "::1" && ip !== "127.0.0.1") allIps.add(ip);
     }
   }
-  console.log(`Looking up ${allIps.size} unique IPs against iplocate.io …`);
+  console.log(`Looking up ${allIps.size} unique IPs against ipapi.is …`);
 
   const ipMap = new Map();
   let i = 0;
@@ -244,7 +244,7 @@ async function runClassifyBackfill(records) {
     if (toCheck.length >= LIMIT) break;
   }
 
-  console.log(`Checking ${toCheck.length} visits against iplocate.io …\n`);
+  console.log(`Checking ${toCheck.length} visits against ipapi.is …\n`);
 
   const ipCache = new Map();
   let mismatchCountry = 0;
