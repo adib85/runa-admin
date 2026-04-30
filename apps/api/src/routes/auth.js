@@ -2,7 +2,6 @@ import { Router } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { v4 as uuidv4 } from "uuid";
 import { dynamodb } from "@runa/core";
 import { config } from "@runa/config";
 import { generateToken, authenticate } from "../middleware/auth.js";
@@ -95,41 +94,40 @@ router.post("/register", asyncHandler(async (req, res) => {
   }
 
   const hashedPassword = await bcrypt.hash(password, 10);
-  const initialStore = {
-    id: uuidv4(),
-    platform: resolvedPlatform,
-    domain: resolved.domain,
-    name: resolved.domain.split(".")[0],
-    status: "pending",
-    productsCount: 0,
-    lastSync: null,
-    createdAt: new Date().toISOString()
-  };
-  if (resolvedPlatform === "vtex") {
-    initialStore.vtexApiKey = vtexApiKey;
-    initialStore.vtexToken = vtexToken;
-  }
 
-  // Merge admin fields onto the existing Shopify-installed row, or create a new one.
+  // Each user row IS one store (1:1 with the Shopify install row), so all
+  // store fields live at the top level — no `stores: [...]` array.
   const user = {
     ...(existingByShop || {}),
     id: resolved.id,
     shop: resolved.shop,
-    // Human-readable public website domain (e.g., "andreearaicu.com"). Kept
+    // Human-readable public website domain (e.g., "andreearaicu.com"), kept
     // alongside `shop` (the canonical *.myshopify.com / custom.<domain> id)
     // so the UI can show the name the merchant recognizes.
     websiteDomain: resolved.domain,
+    storeName: existingByShop?.storeName || resolved.domain.split(".")[0],
     email: String(email).trim().toLowerCase(),
     name: name || String(email).split("@")[0],
     password: hashedPassword,
     platform: resolvedPlatform,
     role: existingByShop?.role || "user",
-    stores: existingByShop?.stores?.length
-      ? existingByShop.stores
-      : [initialStore],
+    status: existingByShop?.status || "pending",
+    productsCount:
+      existingByShop?.productsCount ?? existingByShop?.totalProducts ?? 0,
+    lastSync:
+      existingByShop?.lastSync || existingByShop?.syncStatus?.lastUpdated || null,
     createdAt: existingByShop?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
+
+  if (resolvedPlatform === "vtex") {
+    user.vtexApiKey = vtexApiKey;
+    user.vtexToken = vtexToken;
+  }
+
+  // Drop the legacy nested array if it was present on an old row — we now
+  // store store fields at the top level.
+  delete user.stores;
 
   await dynamodb.users.saveUser(user);
 
@@ -149,10 +147,10 @@ router.post("/register", asyncHandler(async (req, res) => {
       id: user.id,
       shop: user.shop,
       websiteDomain: user.websiteDomain,
+      platform: user.platform,
       email: user.email,
       name: user.name,
-      role: user.role,
-      stores: user.stores
+      role: user.role
     }
   });
 }));
@@ -203,10 +201,10 @@ router.post("/login", asyncHandler(async (req, res) => {
       id: user.id,
       shop: user.shop,
       websiteDomain: user.websiteDomain,
+      platform: user.platform,
       email: user.email,
       name: user.name,
-      role: user.role || "user",
-      stores: user.stores || []
+      role: user.role || "user"
     }
   });
 }));
@@ -232,10 +230,10 @@ router.get("/me", authenticate, asyncHandler(async (req, res) => {
     id: user.id,
     shop: user.shop,
     websiteDomain: user.websiteDomain,
+    platform: user.platform,
     email: user.email,
     name: user.name,
-    role: user.role || "user",
-    stores: user.stores || []
+    role: user.role || "user"
   });
 }));
 
@@ -350,10 +348,10 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
       id: user.id,
       shop: user.shop,
       websiteDomain: user.websiteDomain,
+      platform: user.platform,
       email: user.email,
       name: user.name,
-      role: user.role || "user",
-      stores: user.stores || []
+      role: user.role || "user"
     }
   });
 }));
@@ -509,24 +507,16 @@ router.post("/claim", asyncHandler(async (req, res) => {
     user.shopDomain ||
     user.shop ||
     decoded.shop;
+  user.storeName = user.storeName || (user.shop || "").split(".")[0];
+  user.status = user.status || "pending";
+  user.productsCount =
+    user.productsCount ?? user.totalProducts ?? 0;
+  user.lastSync = user.lastSync || user.syncStatus?.lastUpdated || null;
   user.claimedAt = new Date().toISOString();
   user.updatedAt = new Date().toISOString();
 
-  // Make sure there's at least one store entry for the dashboard.
-  if (!Array.isArray(user.stores) || user.stores.length === 0) {
-    user.stores = [
-      {
-        id: uuidv4(),
-        platform: "shopify",
-        domain: user.shop,
-        name: (user.shop || "").split(".")[0],
-        status: "pending",
-        productsCount: user.totalProducts || 0,
-        lastSync: user.syncStatus?.lastUpdated || null,
-        createdAt: new Date().toISOString()
-      }
-    ];
-  }
+  // Drop the legacy nested array if present — store fields live top-level now.
+  delete user.stores;
 
   await dynamodb.users.saveUser(user);
 
@@ -544,10 +534,10 @@ router.post("/claim", asyncHandler(async (req, res) => {
       id: user.id,
       shop: user.shop,
       websiteDomain: user.websiteDomain,
+      platform: user.platform,
       email: user.email,
       name: user.name,
-      role: user.role,
-      stores: user.stores
+      role: user.role
     }
   });
 }));

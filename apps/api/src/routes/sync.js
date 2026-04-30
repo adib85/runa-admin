@@ -12,6 +12,29 @@ router.use(authenticate);
 const jobQueue = new Map();
 
 /**
+ * Resolve the "store" the request refers to from the user row. With shop-as-id
+ * each user has exactly one store (their own row), so storeId is just a
+ * routing param. We accept it matching `user.id`, `user.shop`, or the public
+ * website domain.
+ */
+function resolveStore(user, storeId) {
+  if (!user) return null;
+  const matches =
+    storeId === user.id || storeId === user.shop || storeId === user.websiteDomain;
+  if (!matches) return null;
+  return {
+    id: user.id,
+    platform: (user.platform || "shopify").toLowerCase(),
+    domain: user.websiteDomain || user.shop,
+    shop: user.shop,
+    accessToken: user.accessToken || null,
+    status: user.status || null,
+    productsCount: user.productsCount ?? user.totalProducts ?? 0,
+    lastSync: user.lastSync || user.syncStatus?.lastUpdated || null
+  };
+}
+
+/**
  * POST /api/sync/start
  * Start a sync job for a store
  */
@@ -28,17 +51,14 @@ router.post("/start", asyncHandler(async (req, res) => {
     throw ApiError.notFound("User not found");
   }
 
-  // Verify user owns this store
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
 
-  // Get accessToken from user record based on platform
-  // For Shopify: accessToken is at user root level
-  // For VTEX: vtexApiKey and vtexToken at user root level
+  // Shopify: accessToken at the user root. VTEX: vtexApiKey/vtexToken at root.
   let accessToken = store.accessToken;
-  if (store.platform?.toLowerCase() === 'shopify' && user.accessToken) {
+  if (store.platform === "shopify" && user.accessToken) {
     accessToken = user.accessToken;
   }
 
@@ -103,9 +123,8 @@ router.post("/start", asyncHandler(async (req, res) => {
 router.get("/status/:storeId", asyncHandler(async (req, res) => {
   const { storeId } = req.params;
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -137,9 +156,8 @@ router.get("/status/:storeId", asyncHandler(async (req, res) => {
 router.post("/cancel/:storeId", asyncHandler(async (req, res) => {
   const { storeId } = req.params;
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -164,9 +182,8 @@ router.get("/history/:storeId", asyncHandler(async (req, res) => {
   const { storeId } = req.params;
   const { limit = 10 } = req.query;
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -253,21 +270,15 @@ async function startSyncJob(job) {
     console.log(`Errors: ${result.errorCount}`);
     console.log(`Duration: ${Math.round((result.duration || 0) / 1000)}s`);
 
-    // Update store's lastSync in user data
+    // Update store's lastSync on the user row (top-level fields).
     const user = await dynamodb.users.getUserById(job.userId);
     if (user) {
-      // Find store by either domain or id
-      const storeIndex = (user.stores || []).findIndex(s => 
-        s.domain === job.storeDomain || s.id === job.storeId
-      );
-      
-      if (storeIndex !== -1) {
-        user.stores[storeIndex].lastSync = new Date().toISOString();
-        user.stores[storeIndex].productsCount = result.processedCount;
-        user.stores[storeIndex].status = result.success ? "active" : "error";
-        await dynamodb.users.saveUser(user);
-        console.log(`Updated store sync status for user ${user.id}`);
-      }
+      user.lastSync = new Date().toISOString();
+      user.productsCount = result.processedCount;
+      user.status = result.success ? "active" : "error";
+      user.updatedAt = user.lastSync;
+      await dynamodb.users.saveUser(user);
+      console.log(`Updated store sync status for user ${user.id}`);
     }
 
     return result;
@@ -279,18 +290,14 @@ async function startSyncJob(job) {
     job.error = error.message;
     job.completedAt = new Date().toISOString();
 
-    // Update store status to error
+    // Update store status to error (top-level fields).
     try {
       const user = await dynamodb.users.getUserById(job.userId);
       if (user) {
-        const storeIndex = (user.stores || []).findIndex(s => 
-          s.domain === job.storeDomain || s.id === job.storeId
-        );
-        if (storeIndex !== -1) {
-          user.stores[storeIndex].status = "error";
-          user.stores[storeIndex].lastError = error.message;
-          await dynamodb.users.saveUser(user);
-        }
+        user.status = "error";
+        user.lastError = error.message;
+        user.updatedAt = new Date().toISOString();
+        await dynamodb.users.saveUser(user);
       }
     } catch (updateError) {
       console.error("Failed to update store error status:", updateError.message);

@@ -1,214 +1,118 @@
 import { Router } from "express";
-import { v4 as uuidv4 } from "uuid";
 import { dynamodb, neo4j } from "@runa/core";
 import { authenticate } from "../middleware/auth.js";
 import { asyncHandler, ApiError } from "../middleware/error.js";
 
 const router = Router();
 
-// All routes require authentication
 router.use(authenticate);
 
 /**
+ * Project the user row into the "store" shape the frontend expects.
+ * Each user row IS one store (1:1 with the Shopify install row), so this
+ * just lifts the relevant top-level fields.
+ */
+function buildStoreView(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    platform: (user.platform || "shopify").toLowerCase(),
+    domain: user.websiteDomain || user.shop,
+    name: user.storeName || (user.shop || "").split(".")[0],
+    status: user.status || (user.password ? "active" : "pending"),
+    productsCount: user.productsCount ?? user.totalProducts ?? 0,
+    lastSync: user.lastSync || user.syncStatus?.lastUpdated || null,
+    createdAt: user.createdAt || null,
+    updatedAt: user.updatedAt || null,
+    vtexApiKey: user.vtexApiKey || undefined,
+    vtexToken: user.vtexToken || undefined
+  };
+}
+
+/**
  * GET /api/stores
- * List all stores for the current user
+ * Returns the current user's single store. The response keeps a `stores: [..]`
+ * array (with one entry) for backward compatibility with the existing UI.
  */
 router.get("/", asyncHandler(async (req, res) => {
   const user = await dynamodb.users.getUserById(req.user.userId);
+  if (!user) throw ApiError.notFound("User not found");
 
-  if (!user) {
-    throw ApiError.notFound("User not found");
-  }
-
-  const stores = user.stores || [];
-
-  // Also return shop field for Lambda API calls (e.g., runa-ai-fashion.myshopify.com)
-  // For Shopify stores, also return the accessToken (for display/editing in admin)
+  const store = buildStoreView(user);
   res.json({
-    stores,
+    store,
+    stores: store ? [store] : [],
     shop: user.shop || null,
-    // Public website domain (e.g., "andreearaicu.com") — what humans recognize.
     websiteDomain:
       user.websiteDomain || user.domain || user.shopDomain || user.shop || null,
-    accessToken: user.platform?.toLowerCase() === 'shopify' ? user.accessToken : null
-  });
-}));
-
-/**
- * POST /api/stores
- * Add a new store
- */
-router.post("/", asyncHandler(async (req, res) => {
-  const { platform, domain, accessToken, name } = req.body;
-
-  if (!platform || !domain || !accessToken) {
-    throw ApiError.badRequest("Platform, domain, and accessToken are required");
-  }
-
-  // Validate platform
-  const validPlatforms = ["shopify", "woocommerce", "vtex", "custom"];
-  if (!validPlatforms.includes(platform.toLowerCase())) {
-    throw ApiError.badRequest(`Invalid platform. Must be one of: ${validPlatforms.join(", ")}`);
-  }
-
-  // Get user
-  const user = await dynamodb.users.getUserById(req.user.userId);
-  if (!user) {
-    throw ApiError.notFound("User not found");
-  }
-
-  // Check if store already exists
-  const existingStore = (user.stores || []).find(s => s.domain === domain);
-  if (existingStore) {
-    throw ApiError.conflict("Store already exists");
-  }
-
-  // Create store object
-  const store = {
-    id: uuidv4(),
-    platform: platform.toLowerCase(),
-    domain,
-    accessToken, // TODO: Encrypt this
-    name: name || domain,
-    status: "pending",
-    productsCount: 0,
-    lastSync: null,
-    createdAt: new Date().toISOString()
-  };
-
-  // Add to user's stores
-  if (!user.stores) user.stores = [];
-  user.stores.push(store);
-
-  await dynamodb.users.saveUser(user);
-
-  // Create in Neo4j
-  await neo4j.applications.createApplicationAndStore(
-    { id: domain, storeName: name || domain },
-    { id: "runa", appName: "Runa" }
-  );
-
-  res.status(201).json({
-    message: "Store added successfully",
-    store: {
-      id: store.id,
-      platform: store.platform,
-      domain: store.domain,
-      name: store.name,
-      status: store.status
-    }
+    accessToken:
+      (user.platform || "").toLowerCase() === "shopify" ? user.accessToken : null
   });
 }));
 
 /**
  * GET /api/stores/:storeId
- * Get store details
+ * Each user has exactly one store (their own row), so storeId is essentially
+ * a routing param — we ignore it and return the current user's store. This
+ * keeps the existing frontend routes (`/stores/:storeId`) working unchanged.
  */
 router.get("/:storeId", asyncHandler(async (req, res) => {
-  const { storeId } = req.params;
-
   const user = await dynamodb.users.getUserById(req.user.userId);
-  if (!user) {
-    throw ApiError.notFound("User not found");
+  if (!user) throw ApiError.notFound("User not found");
+
+  const store = buildStoreView(user);
+  if (!store) throw ApiError.notFound("Store not found");
+
+  // Optionally enrich with a fresh Neo4j product count.
+  try {
+    if (store.domain) {
+      store.productsCount = await neo4j.products.countProductsByStore(store.domain);
+    }
+  } catch (err) {
+    // Non-fatal — keep the projected count.
   }
 
-  const store = (user.stores || []).find(s => s.id === storeId);
-  if (!store) {
-    throw ApiError.notFound("Store not found");
-  }
-
-  // Get product count from Neo4j
-  const productCount = await neo4j.products.countProductsByStore(store.domain);
-
-  res.json({
-    ...store,
-    productsCount: productCount,
-    accessToken: undefined // Don't expose token
-  });
+  res.json({ ...store, accessToken: undefined });
 }));
 
 /**
  * PUT /api/stores/:storeId
- * Update store settings
+ * Update editable store-level fields on the current user's row.
  */
 router.put("/:storeId", asyncHandler(async (req, res) => {
-  const { storeId } = req.params;
   const { name, accessToken } = req.body;
 
   const user = await dynamodb.users.getUserById(req.user.userId);
-  if (!user) {
-    throw ApiError.notFound("User not found");
-  }
+  if (!user) throw ApiError.notFound("User not found");
 
-  const storeIndex = (user.stores || []).findIndex(s => s.id === storeId);
-  if (storeIndex === -1) {
-    throw ApiError.notFound("Store not found");
+  if (typeof name === "string" && name.trim()) {
+    user.storeName = name.trim();
   }
-
-  // Update fields
-  if (name) user.stores[storeIndex].name = name;
-  if (accessToken) user.stores[storeIndex].accessToken = accessToken;
-  user.stores[storeIndex].updatedAt = new Date().toISOString();
+  if (typeof accessToken === "string" && accessToken.trim()) {
+    user.accessToken = accessToken.trim();
+  }
+  user.updatedAt = new Date().toISOString();
 
   await dynamodb.users.saveUser(user);
 
   res.json({
     message: "Store updated successfully",
-    store: {
-      ...user.stores[storeIndex],
-      accessToken: undefined
-    }
+    store: { ...buildStoreView(user), accessToken: undefined }
   });
 }));
 
 /**
- * DELETE /api/stores/:storeId
- * Remove a store
- */
-router.delete("/:storeId", asyncHandler(async (req, res) => {
-  const { storeId } = req.params;
-
-  const user = await dynamodb.users.getUserById(req.user.userId);
-  if (!user) {
-    throw ApiError.notFound("User not found");
-  }
-
-  const storeIndex = (user.stores || []).findIndex(s => s.id === storeId);
-  if (storeIndex === -1) {
-    throw ApiError.notFound("Store not found");
-  }
-
-  const store = user.stores[storeIndex];
-
-  // Remove from user's stores
-  user.stores.splice(storeIndex, 1);
-  await dynamodb.users.saveUser(user);
-
-  // Optionally delete from Neo4j (commented out for safety)
-  // await neo4j.applications.deleteStore(store.domain);
-
-  res.json({ message: "Store removed successfully" });
-}));
-
-/**
  * GET /api/stores/:storeId/categories
- * Get categories for a store
+ * List Neo4j categories for the user's store domain.
  */
 router.get("/:storeId/categories", asyncHandler(async (req, res) => {
-  const { storeId } = req.params;
-
   const user = await dynamodb.users.getUserById(req.user.userId);
-  if (!user) {
-    throw ApiError.notFound("User not found");
-  }
+  if (!user) throw ApiError.notFound("User not found");
 
-  const store = (user.stores || []).find(s => s.id === storeId);
-  if (!store) {
-    throw ApiError.notFound("Store not found");
-  }
+  const store = buildStoreView(user);
+  if (!store?.domain) throw ApiError.notFound("Store not found");
 
   const categories = await neo4j.categories.getCategoriesByStore(store.domain);
-
   res.json({ categories });
 }));
 

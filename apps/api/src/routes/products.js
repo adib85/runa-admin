@@ -5,8 +5,24 @@ import { asyncHandler, ApiError } from "../middleware/error.js";
 
 const router = Router();
 
-// All routes require authentication
 router.use(authenticate);
+
+/**
+ * Resolve the user's single store from a routing storeId. Accepts the row id,
+ * the shop, or the public website domain.
+ */
+function resolveStore(user, storeId) {
+  if (!user) return null;
+  const matches =
+    storeId === user.id || storeId === user.shop || storeId === user.websiteDomain;
+  if (!matches) return null;
+  return {
+    id: user.id,
+    domain: user.websiteDomain || user.shop,
+    platform: (user.platform || "shopify").toLowerCase(),
+    lastSync: user.lastSync || user.syncStatus?.lastUpdated || null
+  };
+}
 
 /**
  * GET /api/products
@@ -19,9 +35,8 @@ router.get("/", asyncHandler(async (req, res) => {
     throw ApiError.badRequest("storeId query parameter is required");
   }
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -64,9 +79,8 @@ router.get("/:productId", asyncHandler(async (req, res) => {
     throw ApiError.badRequest("storeId query parameter is required");
   }
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -90,9 +104,8 @@ router.post("/search", asyncHandler(async (req, res) => {
     throw ApiError.badRequest("storeId and query are required");
   }
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
@@ -127,9 +140,8 @@ router.post("/search", asyncHandler(async (req, res) => {
 router.get("/stats/:storeId", asyncHandler(async (req, res) => {
   const { storeId } = req.params;
 
-  // Verify user owns this store
   const user = await dynamodb.users.getUserById(req.user.userId);
-  const store = (user?.stores || []).find(s => s.id === storeId);
+  const store = resolveStore(user, storeId);
   if (!store) {
     throw ApiError.notFound("Store not found");
   }
