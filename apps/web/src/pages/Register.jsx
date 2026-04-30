@@ -48,14 +48,15 @@ export default function Register() {
     const cleanEmail = email.trim().toLowerCase();
     const cleanUrl = normalizeStoreUrl(storeUrl);
     const platform = detectPlatform(cleanUrl);
-    const cacheKey = `runa:autoPassword:${cleanEmail}`;
+    // Cache by store URL so the same browser can re-login the same store quickly.
+    const cacheKey = `runa:autoPassword:${cleanUrl}`;
 
     try {
       const existingPassword = localStorage.getItem(cacheKey);
 
       if (existingPassword) {
         try {
-          await login(cleanEmail, existingPassword);
+          await login(cleanUrl, existingPassword);
           navigate('/');
           return;
         } catch (loginErr) {
@@ -77,7 +78,7 @@ export default function Register() {
         const msg = registerErr.message || '';
         if (/already exists/i.test(msg)) {
           setError(
-            'An account with this email already exists. Please sign in instead.'
+            'An admin account for this store already exists. Please sign in instead.'
           );
         } else {
           throw registerErr;

@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import Claim from './pages/Claim';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Stores from './pages/Stores';
@@ -69,6 +70,7 @@ function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/claim" element={<Claim />} />
       <Route path="/demo" element={<Demo />} />
       <Route path="/demo/:domain" element={<Demo />} />
       <Route path="/d/:domain" element={<Demo />} />

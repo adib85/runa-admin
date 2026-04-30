@@ -2,17 +2,16 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-function normalizeIdentifier(value) {
-  const v = value.trim();
-  if (v.includes('@')) return v.toLowerCase();
-  return v
+function normalizeUrl(value) {
+  return value
+    .trim()
     .replace(/^https?:\/\//i, '')
     .replace(/\/+$/, '')
     .toLowerCase();
 }
 
 export default function Login() {
-  const [identifier, setIdentifier] = useState('');
+  const [storeUrl, setStoreUrl] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,8 +24,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const id = normalizeIdentifier(identifier);
-      await login(id, password);
+      await login(normalizeUrl(storeUrl), password);
       navigate('/');
     } catch (err) {
       setError(err.message || 'Failed to sign in');
@@ -52,7 +50,7 @@ export default function Login() {
             Welcome back
           </h2>
           <p className="text-sm text-neutral-500 mt-2">
-            Sign in to your account
+            Sign in to your store
           </p>
         </div>
 
@@ -64,14 +62,14 @@ export default function Login() {
           )}
 
           <div>
-            <label className="label">Email or website</label>
+            <label className="label">Store URL</label>
             <input
               type="text"
               className="input"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              value={storeUrl}
+              onChange={(e) => setStoreUrl(e.target.value)}
               required
-              placeholder="jane@mystore.com or mystore.com"
+              placeholder="mystore.com"
               autoComplete="username"
             />
           </div>

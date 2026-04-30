@@ -2,8 +2,17 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 
+function normalizeUrl(value) {
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState('');
+  const [storeUrl, setStoreUrl] = useState('');
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -15,7 +24,8 @@ export default function ForgotPassword() {
 
     try {
       await api.post('/auth/forgot-password', {
-        email: email.trim().toLowerCase()
+        email: email.trim().toLowerCase(),
+        storeUrl: normalizeUrl(storeUrl)
       });
       setSubmitted(true);
     } catch (err) {
@@ -42,14 +52,15 @@ export default function ForgotPassword() {
             Forgot your password?
           </h2>
           <p className="text-sm text-neutral-500 mt-2">
-            Enter your email and we'll send you a reset link.
+            Enter your store URL and email — we'll send a reset link.
           </p>
         </div>
 
         {submitted ? (
           <div className="p-4 border border-green-200 bg-green-50 text-green-800 text-sm rounded">
-            If an account exists for <strong>{email}</strong>, a password reset
-            link has been sent. Check your inbox (and spam folder).
+            If an admin account exists for <strong>{storeUrl}</strong> with
+            email <strong>{email}</strong>, a password reset link has been sent.
+            Check your inbox (and spam folder).
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -58,6 +69,19 @@ export default function ForgotPassword() {
                 {error}
               </div>
             )}
+
+            <div>
+              <label className="label">Store URL</label>
+              <input
+                type="text"
+                className="input"
+                value={storeUrl}
+                onChange={(e) => setStoreUrl(e.target.value)}
+                required
+                placeholder="mystore.com"
+                autoComplete="username"
+              />
+            </div>
 
             <div>
               <label className="label">Email</label>

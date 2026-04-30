@@ -1,27 +1,50 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
-export default function ResetPassword() {
+export default function Claim() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { setUser } = useAuth();
 
   const token = useMemo(() => searchParams.get('token') || '', [searchParams]);
-  const id = useMemo(() => searchParams.get('id') || '', [searchParams]);
-  // Backward-compat: older reset emails included `email=` instead of `id=`.
-  const legacyEmail = useMemo(
-    () => searchParams.get('email') || '',
-    [searchParams]
-  );
 
+  const [info, setInfo] = useState(null); // { shop, alreadyClaimed, suggestedEmail }
+  const [verifyError, setVerifyError] = useState('');
+  const [verifying, setVerifying] = useState(true);
+
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const missingParams = !token || (!id && !legacyEmail);
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      setVerifying(false);
+      setVerifyError('Missing setup link. Re-open the Runa app in your Shopify admin to get a fresh link.');
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api.get(`/auth/claim?token=${encodeURIComponent(token)}`);
+        if (cancelled) return;
+        setInfo(res.data);
+        if (res.data?.suggestedEmail) setEmail(res.data.suggestedEmail);
+      } catch (err) {
+        if (cancelled) return;
+        setVerifyError(err.message || 'This setup link is invalid.');
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -36,14 +59,15 @@ export default function ResetPassword() {
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
     try {
-      const payload = { token, password };
-      if (id) payload.id = id;
-      else if (legacyEmail) payload.email = legacyEmail;
-
-      const response = await api.post('/auth/reset-password', payload);
-      const { token: authToken, user } = response.data;
+      const res = await api.post('/auth/claim', {
+        token,
+        email: email.trim().toLowerCase(),
+        password,
+        name: name.trim() || undefined
+      });
+      const { token: authToken, user } = res.data;
       if (authToken) {
         localStorage.setItem('token', authToken);
         if (user?.shop) {
@@ -53,9 +77,9 @@ export default function ResetPassword() {
       }
       navigate('/');
     } catch (err) {
-      setError(err.message || 'Failed to reset password');
+      setError(err.message || 'Failed to set up your account');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -73,17 +97,30 @@ export default function ResetPassword() {
 
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-semibold text-neutral-900">
-            Choose a new password
+            Set up your admin login
           </h2>
+          {info?.shop && (
+            <p className="text-sm text-neutral-500 mt-2">
+              for <strong>{info.shop}</strong>
+            </p>
+          )}
         </div>
 
-        {missingParams ? (
+        {verifying ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="spinner"></div>
+          </div>
+        ) : verifyError ? (
           <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">
-            This reset link is invalid. Please request a new one from the{' '}
-            <Link to="/forgot-password" className="link">
-              forgot password
+            {verifyError}
+          </div>
+        ) : info?.alreadyClaimed ? (
+          <div className="p-4 border border-amber-200 bg-amber-50 text-amber-800 text-sm">
+            This account has already been set up. Please{' '}
+            <Link to="/login" className="link">
+              sign in
             </Link>{' '}
-            page.
+            with your store URL and password.
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -94,7 +131,32 @@ export default function ResetPassword() {
             )}
 
             <div>
-              <label className="label">New password</label>
+              <label className="label">Email</label>
+              <input
+                type="email"
+                className="input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="jane@mystore.com"
+                autoComplete="email"
+              />
+            </div>
+
+            <div>
+              <label className="label">Your name (optional)</label>
+              <input
+                type="text"
+                className="input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Jane Doe"
+                autoComplete="name"
+              />
+            </div>
+
+            <div>
+              <label className="label">Password</label>
               <input
                 type="password"
                 className="input"
@@ -123,24 +185,25 @@ export default function ResetPassword() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={submitting}
               className="btn btn-primary w-full mt-2"
             >
-              {loading ? (
+              {submitting ? (
                 <span className="flex items-center justify-center">
                   <span className="spinner mr-2"></span>
-                  Updating
+                  Setting up
                 </span>
               ) : (
-                'Update password'
+                'Create my login'
               )}
             </button>
           </form>
         )}
 
         <p className="mt-8 text-center text-sm text-neutral-500">
+          Already have a login?{' '}
           <Link to="/login" className="link">
-            Back to sign in
+            Sign in
           </Link>
         </p>
       </div>

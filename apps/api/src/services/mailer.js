@@ -29,13 +29,16 @@ export async function sendEmail({ to, subject, html, text }) {
   return sgMail.send(msg);
 }
 
-export function buildPasswordResetEmail({ resetUrl, email }) {
+export function buildPasswordResetEmail({ resetUrl, email, shop }) {
   const subject = "Reset your Runa password";
+  const storeLine = shop
+    ? ` for store <strong>${shop}</strong>`
+    : "";
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; color: #111;">
       <h1 style="font-size: 22px; font-weight: 600; margin: 0 0 16px;">Reset your password</h1>
       <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 16px;">
-        We received a request to reset the password for the Runa account associated with <strong>${email}</strong>.
+        We received a request to reset the password for the Runa account associated with <strong>${email}</strong>${storeLine}.
       </p>
       <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 24px;">
         Click the button below to choose a new password. This link will expire in 1 hour.
@@ -56,7 +59,7 @@ export function buildPasswordResetEmail({ resetUrl, email }) {
       </p>
     </div>
   `;
-  const text = `Reset your Runa password\n\nWe received a request to reset the password for ${email}.\n\nOpen this link to choose a new password (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`;
+  const text = `Reset your Runa password\n\nWe received a request to reset the password for ${email}${shop ? ` (store ${shop})` : ""}.\n\nOpen this link to choose a new password (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`;
   return { subject, html, text };
 }
 

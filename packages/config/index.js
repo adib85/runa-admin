@@ -84,6 +84,17 @@ export const config = {
     fromName: process.env.SENDGRID_FROM_NAME || "Runa"
   },
 
+  // Claim tokens (used by the Shopify install side to hand off a freshly
+  // installed shop to the runa-admin "set up your account" page).
+  // The Shopify install backend signs a JWT with the same secret; runa-admin
+  // verifies it on the /api/auth/claim endpoint.
+  claim: {
+    secret:
+      process.env.CLAIM_TOKEN_SECRET ||
+      "runa-claim-secret-change-in-production",
+    ttl: process.env.CLAIM_TOKEN_TTL || "7d"
+  },
+
   // Shopify API
   shopify: {
     apiVersion: "2025-10"
