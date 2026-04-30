@@ -221,7 +221,7 @@ export default function Home() {
       {isComplete && (!aiStylistReady || isSuperAdmin) && (
         <section className="border border-neutral-200 rounded-md p-8 mb-8">
           <h2 className="text-lg font-semibold text-neutral-900 mb-3">
-            Setting up your AI Stylist
+            Training your AI Stylist
           </h2>
           {aiStylistReady ? (
             <p className="text-sm text-neutral-600">
