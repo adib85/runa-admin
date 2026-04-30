@@ -272,22 +272,6 @@ export default function DemoSearches() {
                 · 🚧 {curationCount} need{curationCount === 1 ? 's' : ''} curation
               </span>
             )}
-            {(data.botVisits ?? 0) > 0 && (
-              <span
-                className="text-neutral-500 ml-1"
-                title="Visits classified as bot/datacenter/proxy/Tor/known crawler. Hidden by default — toggle 'Show bots' to include them."
-              >
-                · 🤖 {data.botVisits} bot{data.botVisits === 1 ? '' : 's'} {includeBots ? 'shown' : 'hidden'}
-              </span>
-            )}
-            {(data.romaniaVisits ?? 0) > 0 && (
-              <span
-                className="text-neutral-500 ml-1"
-                title="Visits from Romanian residential ISPs. Hidden by default since the dev location is Bucharest; toggle 'Show Romania' to include them."
-              >
-                · 🇷🇴 {data.romaniaVisits} RO {showRomania ? 'shown' : 'hidden'}
-              </span>
-            )}
           </p>
         </div>
         <div className="flex items-center gap-4">
