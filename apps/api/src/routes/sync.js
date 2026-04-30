@@ -20,12 +20,12 @@ const jobQueue = new Map();
 function resolveStore(user, storeId) {
   if (!user) return null;
   const matches =
-    storeId === user.id || storeId === user.shop || storeId === user.websiteDomain;
+    storeId === user.id || storeId === user.shop || storeId === user.domain;
   if (!matches) return null;
   return {
     id: user.id,
     platform: (user.platform || "shopify").toLowerCase(),
-    domain: user.websiteDomain || user.shop,
+    domain: user.domain || user.shop,
     shop: user.shop,
     accessToken: user.accessToken || null,
     status: user.status || null,

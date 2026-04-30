@@ -103,8 +103,9 @@ router.post("/register", asyncHandler(async (req, res) => {
     shop: resolved.shop,
     // Human-readable public website domain (e.g., "andreearaicu.com"), kept
     // alongside `shop` (the canonical *.myshopify.com / custom.<domain> id)
-    // so the UI can show the name the merchant recognizes.
-    websiteDomain: resolved.domain,
+    // so the UI can show the name the merchant recognizes. Matches the field
+    // name Shopify itself returns from /shop.json.
+    domain: resolved.domain,
     storeName: existingByShop?.storeName || resolved.domain.split(".")[0],
     email: String(email).trim().toLowerCase(),
     name: name || String(email).split("@")[0],
@@ -146,7 +147,7 @@ router.post("/register", asyncHandler(async (req, res) => {
     user: {
       id: user.id,
       shop: user.shop,
-      websiteDomain: user.websiteDomain,
+      domain: user.domain,
       platform: user.platform,
       email: user.email,
       name: user.name,
@@ -200,7 +201,7 @@ router.post("/login", asyncHandler(async (req, res) => {
     user: {
       id: user.id,
       shop: user.shop,
-      websiteDomain: user.websiteDomain,
+      domain: user.domain,
       platform: user.platform,
       email: user.email,
       name: user.name,
@@ -229,7 +230,7 @@ router.get("/me", authenticate, asyncHandler(async (req, res) => {
   res.json({
     id: user.id,
     shop: user.shop,
-    websiteDomain: user.websiteDomain,
+    domain: user.domain,
     platform: user.platform,
     email: user.email,
     name: user.name,
@@ -347,7 +348,7 @@ router.post("/reset-password", asyncHandler(async (req, res) => {
     user: {
       id: user.id,
       shop: user.shop,
-      websiteDomain: user.websiteDomain,
+      domain: user.domain,
       platform: user.platform,
       email: user.email,
       name: user.name,
@@ -456,8 +457,7 @@ router.get("/claim", asyncHandler(async (req, res) => {
   }
   res.json({
     shop: user.shop || decoded.shop,
-    websiteDomain:
-      user.websiteDomain || user.domain || user.shopDomain || user.shop || decoded.shop,
+    domain: user.domain || user.shopDomain || user.shop || decoded.shop,
     id: user.id,
     alreadyClaimed: Boolean(user.password),
     suggestedEmail: user.email || null
@@ -501,8 +501,7 @@ router.post("/claim", asyncHandler(async (req, res) => {
   // Best-effort public website domain: use whatever the row already has
   // (set by the Shopify install side via /shop.json), otherwise fall back
   // to the shop handle so we never store an empty value.
-  user.websiteDomain =
-    user.websiteDomain ||
+  user.domain =
     user.domain ||
     user.shopDomain ||
     user.shop ||
@@ -533,7 +532,7 @@ router.post("/claim", asyncHandler(async (req, res) => {
     user: {
       id: user.id,
       shop: user.shop,
-      websiteDomain: user.websiteDomain,
+      domain: user.domain,
       platform: user.platform,
       email: user.email,
       name: user.name,

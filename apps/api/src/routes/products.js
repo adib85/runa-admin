@@ -14,11 +14,11 @@ router.use(authenticate);
 function resolveStore(user, storeId) {
   if (!user) return null;
   const matches =
-    storeId === user.id || storeId === user.shop || storeId === user.websiteDomain;
+    storeId === user.id || storeId === user.shop || storeId === user.domain;
   if (!matches) return null;
   return {
     id: user.id,
-    domain: user.websiteDomain || user.shop,
+    domain: user.domain || user.shop,
     platform: (user.platform || "shopify").toLowerCase(),
     lastSync: user.lastSync || user.syncStatus?.lastUpdated || null
   };

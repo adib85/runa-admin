@@ -17,7 +17,7 @@ function buildStoreView(user) {
   return {
     id: user.id,
     platform: (user.platform || "shopify").toLowerCase(),
-    domain: user.websiteDomain || user.shop,
+    domain: user.domain || user.shop,
     name: user.storeName || (user.shop || "").split(".")[0],
     status: user.status || (user.password ? "active" : "pending"),
     productsCount: user.productsCount ?? user.totalProducts ?? 0,
@@ -43,8 +43,7 @@ router.get("/", asyncHandler(async (req, res) => {
     store,
     stores: store ? [store] : [],
     shop: user.shop || null,
-    websiteDomain:
-      user.websiteDomain || user.domain || user.shopDomain || user.shop || null,
+    domain: user.domain || user.shopDomain || user.shop || null,
     accessToken:
       (user.platform || "").toLowerCase() === "shopify" ? user.accessToken : null
   });
