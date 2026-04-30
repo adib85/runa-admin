@@ -799,13 +799,14 @@ async function getGeoFromIp(ip) {
     const isPrivateRelay = !!data.privacy?.is_icloud_relay
       || data.hosting?.service === "iCloud Private Relay";
 
-    // For iCloud Private Relay, iplocate returns the visitor's REAL city in
-    // `hosting.country` / `hosting.city` (in CAPS) — Apple deliberately leaks
-    // approximate location so sites can serve the right region. Prefer that
-    // over the Fastly/Akamai exit-node city.
-    const relayCountry = isPrivateRelay && data.hosting?.country ? data.hosting.country : null;
+    // For iCloud Private Relay, iplocate returns the visitor's REAL location
+    // in `hosting.country` (ISO code like "RO") and `hosting.city` (CAPS like
+    // "BUCHAREST") — Apple deliberately leaks approximate location so sites
+    // can serve the right region. Use the relay's *city* (title-cased) but
+    // keep the top-level `data.country` (full name like "Romania") so it
+    // matches the country names used by every other code path.
     const relayCity = isPrivateRelay && data.hosting?.city
-      ? data.hosting.city.replace(/\b\w/g, (c) => c.toUpperCase()).replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
+      ? data.hosting.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
       : null;
 
     // Bot heuristic helper: human-readable hosting service (e.g. "GitHub
@@ -814,8 +815,8 @@ async function getGeoFromIp(ip) {
     const hostingProvider = data.hosting?.provider || null;
 
     return {
-      country: relayCountry || data.country || null,
-      countryCode: (relayCountry ? null : data.country_code) || null,
+      country: data.country || null,
+      countryCode: data.country_code || null,
       city: relayCity || data.city || null,
       org: data.company?.name || data.asn?.name || null,
       orgType: data.company?.type || null,
@@ -1019,6 +1020,12 @@ router.get("/searches", async (req, res) => {
     // default. Pass `?includeBots=1` (or `?includeBots=true`) to include them
     // and let the dashboard show the 🤖 badge instead of hiding the rows.
     const includeBots = req.query.includeBots === "1" || req.query.includeBots === "true";
+    // Romania is the dev location — historically we hid all RO visits as
+    // internal test traffic. Now there are real Romanian customers, so RO is
+    // shown by default. Pass `?hideRomania=1` to revert to the old behavior
+    // (handy when you're personally testing the demo and don't want your own
+    // visits cluttering the list).
+    const hideRomania = req.query.hideRomania === "1" || req.query.hideRomania === "true";
     const docClient = dynamoClient.getDocClient();
     const results = [];
     let lastKey = undefined;
@@ -1061,9 +1068,10 @@ router.get("/searches", async (req, res) => {
         };
       });
 
-    // Visits from these countries (or with no resolvable country / localhost IP) are
-    // treated as internal/test traffic and excluded from "real" visit counts.
-    const TEST_COUNTRIES = new Set(["Romania"]);
+    // Romania is conditionally treated as internal/test traffic via the
+    // ?hideRomania toggle (see top of handler). Localhost / private IPs are
+    // always excluded.
+    const TEST_COUNTRIES = new Set(hideRomania ? ["Romania"] : []);
     const isLocalIp = (ip) => {
       if (!ip) return true;
       const v = String(ip).replace(/^::ffff:/, ""); // strip IPv4-mapped IPv6 prefix
@@ -1083,12 +1091,14 @@ router.get("/searches", async (req, res) => {
     };
 
     let totalBotVisits = 0;
+    let totalRomaniaVisits = 0;
 
     const stores = results
       .filter(r => r.id?.startsWith("demo_visits_"))
       .map(r => {
         const allVisits = r.visits || [];
         totalBotVisits += allVisits.filter((v) => v.isBot).length;
+        totalRomaniaVisits += allVisits.filter((v) => v.country === "Romania" && !v.isBot).length;
         const externalVisits = allVisits.filter(isExternalVisit);
         // Use the most recent EXTERNAL visit's timestamp for sorting. The raw
         // r.lastVisit field is bumped on every visit (including internal /
@@ -1149,6 +1159,8 @@ router.get("/searches", async (req, res) => {
       curationQueue: Object.keys(needsCurationByDomain).length,
       botVisits: totalBotVisits,
       includeBots,
+      romaniaVisits: totalRomaniaVisits,
+      hideRomania,
       outfitsByDomain,
       needsCurationByDomain,
       stores,

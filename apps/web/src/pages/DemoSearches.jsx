@@ -21,11 +21,13 @@ function isLocalIp(ip) {
   return false;
 }
 
-// A visit is "internal" (test traffic) if it comes from a local/private IP,
-// has no resolved country, or is from Romania (our dev location). These get
-// hidden from the UI entirely and excluded from counters.
+// A visit is "internal" (test traffic) if it comes from a local/private IP
+// or has no resolved country. Romania visits are now opt-in hidden via the
+// "Hide Romania" toggle (data.hideRomania); the backend already filters them
+// out of `store.visits` when the toggle is on, so we don't need to mirror
+// that rule client-side anymore.
 function isInternalVisit(v) {
-  return isLocalIp(v.ip) || !v.country || v.country === 'Romania';
+  return isLocalIp(v.ip) || !v.country;
 }
 
 // Compact, human-friendly explanation of why a visit was classified as a bot.
@@ -175,6 +177,7 @@ export default function DemoSearches() {
   // the demo once but hasn't come back yet — warm but not hot).
   const [filter, setFilter] = useState('all');
   const [includeBots, setIncludeBots] = useState(false);
+  const [hideRomania, setHideRomania] = useState(false);
 
   const toggleVisits = (domain) => {
     setExpandedVisits(prev => ({ ...prev, [domain]: !prev[domain] }));
@@ -184,8 +187,11 @@ export default function DemoSearches() {
     async function load() {
       try {
         setLoading(true);
-        const url = includeBots ? '/api/demo/searches?includeBots=1' : '/api/demo/searches';
-        const res = await fetch(url);
+        const params = new URLSearchParams();
+        if (includeBots) params.set('includeBots', '1');
+        if (hideRomania) params.set('hideRomania', '1');
+        const qs = params.toString();
+        const res = await fetch(`/api/demo/searches${qs ? `?${qs}` : ''}`);
         if (!res.ok) throw new Error('Failed to fetch');
         setData(await res.json());
       } catch (err) {
@@ -195,7 +201,7 @@ export default function DemoSearches() {
       }
     }
     load();
-  }, [includeBots]);
+  }, [includeBots, hideRomania]);
 
   if (loading) {
     return (
@@ -274,20 +280,42 @@ export default function DemoSearches() {
                 · 🤖 {data.botVisits} bot{data.botVisits === 1 ? '' : 's'} {includeBots ? 'shown' : 'hidden'}
               </span>
             )}
+            {(data.romaniaVisits ?? 0) > 0 && (
+              <span
+                className="text-neutral-500 ml-1"
+                title="Real visits from Romanian residential ISPs. Shown by default; toggle 'Hide Romania' to exclude (useful while you're personally testing)."
+              >
+                · 🇷🇴 {data.romaniaVisits} RO {hideRomania ? 'hidden' : 'shown'}
+              </span>
+            )}
           </p>
         </div>
-        <label
-          className="inline-flex items-center gap-2 text-xs text-neutral-600 select-none cursor-pointer"
-          title="Show visits from datacenter IPs (Microsoft Azure, AWS, Google, Fastly…), known crawler User-Agents (GPTBot, ClaudeBot, link-preview bots…), proxies, and Tor exit nodes."
-        >
-          <input
-            type="checkbox"
-            checked={includeBots}
-            onChange={(e) => setIncludeBots(e.target.checked)}
-            className="h-3.5 w-3.5 accent-neutral-900"
-          />
-          Show bots
-        </label>
+        <div className="flex items-center gap-4">
+          <label
+            className="inline-flex items-center gap-2 text-xs text-neutral-600 select-none cursor-pointer"
+            title="Show visits from datacenter IPs (Microsoft Azure, AWS, Google, Fastly…), known crawler User-Agents (GPTBot, ClaudeBot, link-preview bots…), proxies, and Tor exit nodes."
+          >
+            <input
+              type="checkbox"
+              checked={includeBots}
+              onChange={(e) => setIncludeBots(e.target.checked)}
+              className="h-3.5 w-3.5 accent-neutral-900"
+            />
+            Show bots
+          </label>
+          <label
+            className="inline-flex items-center gap-2 text-xs text-neutral-600 select-none cursor-pointer"
+            title="Hide all visits from Romanian IPs (useful while you're personally testing the demo)."
+          >
+            <input
+              type="checkbox"
+              checked={hideRomania}
+              onChange={(e) => setHideRomania(e.target.checked)}
+              className="h-3.5 w-3.5 accent-neutral-900"
+            />
+            Hide Romania
+          </label>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-8">

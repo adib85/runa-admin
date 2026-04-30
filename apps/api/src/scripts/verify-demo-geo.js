@@ -81,13 +81,12 @@ async function lookupIp(ip) {
     if (!d || d.error) return { error: d?.error || "no-data" };
     const isPrivateRelay = !!d.privacy?.is_icloud_relay
       || d.hosting?.service === "iCloud Private Relay";
-    const relayCountry = isPrivateRelay && d.hosting?.country ? d.hosting.country : null;
     const relayCity = isPrivateRelay && d.hosting?.city
       ? d.hosting.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
       : null;
     return {
-      country: relayCountry || d.country || null,
-      country_code: (relayCountry ? null : d.country_code) || null,
+      country: d.country || null,
+      country_code: d.country_code || null,
       city: relayCity || d.city || null,
       org: d.company?.name || d.asn?.name || null,
       type: d.company?.type || null,
