@@ -97,7 +97,15 @@ export const config = {
 
   // Shopify API
   shopify: {
-    apiVersion: "2025-10"
+    apiVersion: "2025-10",
+    // Used to build the auto-activate theme editor URL — Shopify accepts
+    // `?activateAppId=<APP_KEY>/<HANDLE>` to pre-toggle the embed on so the
+    // merchant only has to click Save. Defaults match the Runa Shopify app
+    // (shopify.app.toml client_id + app-embed.liquid block name).
+    appKey:
+      process.env.SHOPIFY_APP_KEY ||
+      "9d0ddc183253fd6b4df65b810d274dc5",
+    appEmbedHandle: process.env.SHOPIFY_APP_EMBED_HANDLE || "app-embed"
   },
 
   // Sync Settings

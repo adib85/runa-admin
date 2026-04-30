@@ -135,29 +135,31 @@ export default function Home() {
 
               <StepStatus active={active} />
 
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleCta}
-                  disabled={!active.ctaPath}
-                  className="btn btn-primary disabled:opacity-50"
-                >
-                  {active.done ? `Manage in ${ctaShortLabel(active)}` : active.ctaLabel}
-                  <svg
-                    className="w-4 h-4 ml-2"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+              {!active.done && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleCta}
+                    disabled={!active.ctaPath}
+                    className="btn btn-primary disabled:opacity-50"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.8}
-                      d="M14 3h7v7m0-7L10 14m-7 7h7v-7"
-                    />
-                  </svg>
-                </button>
-              </div>
+                    {active.ctaLabel}
+                    <svg
+                      className="w-4 h-4 ml-2"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.8}
+                        d="M14 3h7v7m0-7L10 14m-7 7h7v-7"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -214,9 +216,4 @@ function StepStatus({ active }) {
     }
   }
   return null;
-}
-
-function ctaShortLabel(step) {
-  if (step.id === 'enable-ai-stylist') return 'theme editor';
-  return 'Shopify';
 }
