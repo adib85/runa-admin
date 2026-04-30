@@ -227,6 +227,11 @@ router.get("/me", authenticate, asyncHandler(async (req, res) => {
     throw ApiError.notFound("User not found");
   }
 
+  // Session role lives on the JWT (so elevation via /auth/elevate survives a
+  // reload), not on the DB row. Fall back to the stored role only if the JWT
+  // doesn't carry one.
+  const sessionRole = req.user.role || user.role || "user";
+
   res.json({
     id: user.id,
     shop: user.shop,
@@ -234,7 +239,7 @@ router.get("/me", authenticate, asyncHandler(async (req, res) => {
     platform: user.platform,
     email: user.email,
     name: user.name,
-    role: user.role || "user"
+    role: sessionRole
   });
 }));
 

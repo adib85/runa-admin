@@ -33,6 +33,7 @@ import Layout from './components/Layout';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -43,6 +44,17 @@ function ProtectedRoute({ children }) {
   }
 
   if (!user) {
+    // Preserve where the user was trying to go (and any URL params they had)
+    // so the login screen can send them back here after a successful sign in.
+    // Used by `?superadmin=…&shop=…` deep links pasted while logged out.
+    const target = `${location.pathname}${location.search}${location.hash}`;
+    if (target && target !== '/' && target !== '/login') {
+      try {
+        sessionStorage.setItem('runa:postLoginRedirect', target);
+      } catch {
+        // ignore
+      }
+    }
     return <Navigate to="/login" replace />;
   }
 

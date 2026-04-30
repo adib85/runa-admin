@@ -52,7 +52,19 @@ export default function Login() {
     setLoading(true);
     try {
       await login(normalizeUrl(storeUrl), password);
-      navigate('/');
+      // If the user was deep-linked here (e.g. ?superadmin=…&shop=…) we
+      // stashed the target URL in sessionStorage; pop it now and resume.
+      let next = '/';
+      try {
+        const stored = sessionStorage.getItem('runa:postLoginRedirect');
+        if (stored) {
+          next = stored;
+          sessionStorage.removeItem('runa:postLoginRedirect');
+        }
+      } catch {
+        // ignore
+      }
+      navigate(next, { replace: true });
     } catch (err) {
       setError(err.message || 'Failed to sign in');
     } finally {
