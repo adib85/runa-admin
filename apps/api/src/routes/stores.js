@@ -24,9 +24,12 @@ router.get("/", asyncHandler(async (req, res) => {
 
   // Also return shop field for Lambda API calls (e.g., runa-ai-fashion.myshopify.com)
   // For Shopify stores, also return the accessToken (for display/editing in admin)
-  res.json({ 
+  res.json({
     stores,
     shop: user.shop || null,
+    // Public website domain (e.g., "andreearaicu.com") — what humans recognize.
+    websiteDomain:
+      user.websiteDomain || user.domain || user.shopDomain || user.shop || null,
     accessToken: user.platform?.toLowerCase() === 'shopify' ? user.accessToken : null
   });
 }));

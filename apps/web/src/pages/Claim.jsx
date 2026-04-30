@@ -99,9 +99,9 @@ export default function Claim() {
           <h2 className="text-2xl font-semibold text-neutral-900">
             Set up your admin login
           </h2>
-          {info?.shop && (
+          {(info?.websiteDomain || info?.shop) && (
             <p className="text-sm text-neutral-500 mt-2">
-              for <strong>{info.shop}</strong>
+              for <strong>{info.websiteDomain || info.shop}</strong>
             </p>
           )}
         </div>
