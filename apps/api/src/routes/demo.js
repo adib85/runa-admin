@@ -782,23 +782,69 @@ async function saveDemoResult(domain, storeName, resultData) {
   }
 }
 
+const IPLOCATE_API_KEY = process.env.IPLOCATE_API_KEY || "a356a1ece830de39681b8b20f87b07ec";
+
 async function getGeoFromIp(ip) {
   if (!ip || ip === "unknown" || ip === "::1" || ip === "127.0.0.1") return null;
   try {
     const cleanIp = ip.replace(/^::ffff:/, "");
-    const res = await fetchWithTimeout(`http://ip-api.com/json/${cleanIp}?fields=country,city`, 3000);
+    const res = await fetchWithTimeout(
+      `https://iplocate.io/api/lookup/${cleanIp}?apikey=${IPLOCATE_API_KEY}`,
+      3000,
+    );
     if (!res.ok) return null;
     const data = await res.json();
-    if (data.status === "fail") return null;
-    return { country: data.country, city: data.city };
+    if (!data || data.error) return null;
+    return {
+      country: data.country || null,
+      countryCode: data.country_code || null,
+      city: data.city || null,
+      org: data.company?.name || data.asn?.name || null,
+      orgType: data.company?.type || null,
+      isHosting: !!data.privacy?.is_hosting,
+      isVpn: !!data.privacy?.is_vpn,
+      isProxy: !!data.privacy?.is_proxy,
+      isTor: !!data.privacy?.is_tor,
+    };
   } catch {
     return null;
   }
 }
 
-async function logDemoSearch(domain, storeName, fromCache, ip) {
+// Bot detection. We classify a visit as a bot if ANY of these match:
+//   - IP belongs to a hosting/datacenter provider (Microsoft Azure, AWS, Google, Fastly, …)
+//   - IP is a known proxy or Tor exit node
+//   - User-Agent matches a bot/crawler signature, is missing, or implausibly short
+//   - Accept-Language header is missing (almost every real browser sends one)
+// VPN traffic is flagged via `isVpn` but NOT classified as a bot, since plenty
+// of real users browse on commercial VPNs (NordVPN, iCloud Private Relay, etc).
+const BOT_UA_RE = /bot|crawler|spider|preview|monitor|headless|lighthouse|axios|curl\/|python-requests|wget|httpclient|http-client|fetch\/|node-fetch|okhttp|java-http|go-http-client|GPTBot|ClaudeBot|PerplexityBot|Bytespider|Amazonbot|Google-Extended|CCBot|OAI-SearchBot|FacebookExternalHit|Twitterbot|Slackbot|LinkedInBot|WhatsApp|Discordbot|TelegramBot|Pingdom|UptimeRobot|StatusCake|NewRelic|Datadog/i;
+
+function classifyBot(geo, headers) {
+  const ua = (headers?.["user-agent"] || "").trim();
+  const al = (headers?.["accept-language"] || "").trim();
+
+  if (geo?.isHosting) return { isBot: true, botReason: `hosting:${geo.org || "datacenter"}` };
+  if (geo?.isProxy) return { isBot: true, botReason: "proxy" };
+  if (geo?.isTor) return { isBot: true, botReason: "tor" };
+  if (!ua) return { isBot: true, botReason: "no-user-agent" };
+  if (ua.length < 20) return { isBot: true, botReason: "short-user-agent" };
+  const m = ua.match(BOT_UA_RE);
+  if (m) return { isBot: true, botReason: `ua:${m[0]}` };
+  if (!al) return { isBot: true, botReason: "no-accept-language" };
+  return { isBot: false, botReason: null };
+}
+
+async function logDemoSearch(req, domain, storeName, fromCache, ip) {
   try {
+    const headers = req?.headers || {};
+    const userAgent = headers["user-agent"] || null;
+    const acceptLanguage = headers["accept-language"] || null;
+    const referer = headers["referer"] || headers["referrer"] || null;
+
     const geo = await getGeoFromIp(ip);
+    const { isBot, botReason } = classifyBot(geo, headers);
+
     const docClient = dynamoClient.getDocClient();
     const existing = await docClient.send(new GetCommand({
       TableName: config.dynamodb.tables.cache,
@@ -810,7 +856,21 @@ async function logDemoSearch(domain, storeName, fromCache, ip) {
       time: Date.now(),
       fromCache,
       ip: ip || "unknown",
-      ...(geo && { country: geo.country, city: geo.city }),
+      ...(geo && {
+        country: geo.country,
+        countryCode: geo.countryCode,
+        city: geo.city,
+        org: geo.org,
+        isHosting: geo.isHosting,
+        isVpn: geo.isVpn,
+        isProxy: geo.isProxy,
+        isTor: geo.isTor,
+      }),
+      userAgent,
+      acceptLanguage,
+      referer,
+      isBot,
+      botReason,
     });
 
     await docClient.send(new PutCommand({
@@ -918,6 +978,10 @@ async function fetchLeadsByDomains(domains) {
 
 router.get("/searches", async (req, res) => {
   try {
+    // Bots (datacenter / proxy / Tor / known crawler UAs) are excluded by
+    // default. Pass `?includeBots=1` (or `?includeBots=true`) to include them
+    // and let the dashboard show the 🤖 badge instead of hiding the rows.
+    const includeBots = req.query.includeBots === "1" || req.query.includeBots === "true";
     const docClient = dynamoClient.getDocClient();
     const results = [];
     let lastKey = undefined;
@@ -977,13 +1041,17 @@ router.get("/searches", async (req, res) => {
       if (isLocalIp(v.ip)) return false;        // localhost / private network → internal
       if (!v.country) return false;             // no geo resolved → likely local/test
       if (TEST_COUNTRIES.has(v.country)) return false;
+      if (!includeBots && v.isBot) return false; // datacenter / crawler / proxy
       return true;
     };
+
+    let totalBotVisits = 0;
 
     const stores = results
       .filter(r => r.id?.startsWith("demo_visits_"))
       .map(r => {
         const allVisits = r.visits || [];
+        totalBotVisits += allVisits.filter((v) => v.isBot).length;
         const externalVisits = allVisits.filter(isExternalVisit);
         // Use the most recent EXTERNAL visit's timestamp for sorting. The raw
         // r.lastVisit field is bumped on every visit (including internal /
@@ -1042,6 +1110,8 @@ router.get("/searches", async (req, res) => {
       totalSearches,
       totalStores: stores.length,
       curationQueue: Object.keys(needsCurationByDomain).length,
+      botVisits: totalBotVisits,
+      includeBots,
       outfitsByDomain,
       needsCurationByDomain,
       stores,
@@ -1154,7 +1224,7 @@ router.get("/analyze", async (req, res) => {
         return res.end();
       }
       await replayCuratedDemoFlow(res, cached);
-      logDemoSearch(domain, cached.store?.name || domain, true, clientIp).catch(() => {});
+      logDemoSearch(req, domain, cached.store?.name || domain, true, clientIp).catch(() => {});
       return res.end();
     } catch (err) {
       console.error("Fashion Days demo error:", err);
@@ -1297,7 +1367,7 @@ router.get("/analyze", async (req, res) => {
             // of streaming an empty payload. Otherwise the frontend renders
             // a blank product page (no outfit to show).
             if (cached.needsCuration) {
-              logDemoSearch(domain, store.name, true, clientIp).catch(() => {});
+              logDemoSearch(req, domain, store.name, true, clientIp).catch(() => {});
               sendSSE(res, "error", {
                 message: "Your catalog has unique characteristics that benefit from a custom curation. Our Creative Director Graziella will prepare a tailored demo for you within 24 hours — we'll send it to your email when ready.",
               });
@@ -1305,7 +1375,7 @@ router.get("/analyze", async (req, res) => {
             }
             await sleep(5000);
             completeData = cached;
-            logDemoSearch(domain, store.name, true, clientIp).catch(() => {});
+            logDemoSearch(req, domain, store.name, true, clientIp).catch(() => {});
           } else {
             // Gemini #2: Select 3 anchors from different categories
             const anchors = await selectAnchors(allProducts, selectedCollections, store.name, prompts, debug);
@@ -1341,7 +1411,7 @@ router.get("/analyze", async (req, res) => {
                   collectionCount: validHandles.length,
                 };
                 await saveDemoResult(domain, store.name, curationPayload).catch(() => {});
-                logDemoSearch(domain, store.name, false, clientIp).catch(() => {});
+                logDemoSearch(req, domain, store.name, false, clientIp).catch(() => {});
                 sendSSE(res, "error", {
                   message: "Your catalog has unique characteristics that benefit from a custom curation. Our Creative Director Graziella will prepare a tailored demo for you within 24 hours — we'll send it to your email when ready.",
                 });
@@ -1355,7 +1425,7 @@ router.get("/analyze", async (req, res) => {
                   collectionCount: validHandles.length,
                 };
                 saveDemoResult(domain, store.name, completeData).catch(() => {});
-                logDemoSearch(domain, store.name, false, clientIp).catch(() => {});
+                logDemoSearch(req, domain, store.name, false, clientIp).catch(() => {});
               }
             }
           }
@@ -1417,7 +1487,7 @@ router.get("/analyze", async (req, res) => {
     if (isDebug) completeData.debug = debug.getData();
     sendSSE(res, "complete", completeData);
     saveDemoResult(domain, store.name, completeData).catch(() => {});
-    logDemoSearch(domain, store.name, false, clientIp).catch(() => {});
+    logDemoSearch(req, domain, store.name, false, clientIp).catch(() => {});
     res.end();
   } catch (err) {
     console.error("Demo analyze error:", err);

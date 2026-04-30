@@ -28,6 +28,21 @@ function isInternalVisit(v) {
   return isLocalIp(v.ip) || !v.country || v.country === 'Romania';
 }
 
+// Compact, human-friendly explanation of why a visit was classified as a bot.
+// Mirrors the reasons emitted by classifyBot() in apps/api/src/routes/demo.js
+// and by the verify-demo-geo.js --classify backfill.
+function botReasonLabel(reason) {
+  if (!reason) return 'bot';
+  if (reason.startsWith('hosting:')) return `datacenter (${reason.slice(8)})`;
+  if (reason === 'proxy') return 'anonymizing proxy';
+  if (reason === 'tor') return 'Tor exit node';
+  if (reason.startsWith('ua:')) return `crawler UA (${reason.slice(3)})`;
+  if (reason === 'no-user-agent') return 'no User-Agent';
+  if (reason === 'short-user-agent') return 'suspicious User-Agent';
+  if (reason === 'no-accept-language') return 'no Accept-Language';
+  return reason;
+}
+
 // Country name → IANA timezone map for the most common visit origins. For
 // large multi-zone countries (US, CA, AU, RU) we use the most populated
 // commercial centre. Sufficient accuracy for "what time was it for them"
@@ -159,6 +174,7 @@ export default function DemoSearches() {
   // 'interested' = stores with exactly 1 real external visit (someone who tried
   // the demo once but hasn't come back yet — warm but not hot).
   const [filter, setFilter] = useState('all');
+  const [includeBots, setIncludeBots] = useState(false);
 
   const toggleVisits = (domain) => {
     setExpandedVisits(prev => ({ ...prev, [domain]: !prev[domain] }));
@@ -167,7 +183,9 @@ export default function DemoSearches() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/demo/searches');
+        setLoading(true);
+        const url = includeBots ? '/api/demo/searches?includeBots=1' : '/api/demo/searches';
+        const res = await fetch(url);
         if (!res.ok) throw new Error('Failed to fetch');
         setData(await res.json());
       } catch (err) {
@@ -177,7 +195,7 @@ export default function DemoSearches() {
       }
     }
     load();
-  }, []);
+  }, [includeBots]);
 
   if (loading) {
     return (
@@ -227,7 +245,7 @@ export default function DemoSearches() {
     <div>
       <DemoNav />
       <div className="max-w-3xl mx-auto px-6 py-12">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-light tracking-tight text-neutral-900">Searches</h1>
           <p className="text-sm text-neutral-500 mt-2">
@@ -248,8 +266,28 @@ export default function DemoSearches() {
                 · 🚧 {curationCount} need{curationCount === 1 ? 's' : ''} curation
               </span>
             )}
+            {(data.botVisits ?? 0) > 0 && (
+              <span
+                className="text-neutral-500 ml-1"
+                title="Visits classified as bot/datacenter/proxy/Tor/known crawler. Hidden by default — toggle 'Show bots' to include them."
+              >
+                · 🤖 {data.botVisits} bot{data.botVisits === 1 ? '' : 's'} {includeBots ? 'shown' : 'hidden'}
+              </span>
+            )}
           </p>
         </div>
+        <label
+          className="inline-flex items-center gap-2 text-xs text-neutral-600 select-none cursor-pointer"
+          title="Show visits from datacenter IPs (Microsoft Azure, AWS, Google, Fastly…), known crawler User-Agents (GPTBot, ClaudeBot, link-preview bots…), proxies, and Tor exit nodes."
+        >
+          <input
+            type="checkbox"
+            checked={includeBots}
+            onChange={(e) => setIncludeBots(e.target.checked)}
+            className="h-3.5 w-3.5 accent-neutral-900"
+          />
+          Show bots
+        </label>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-8">
@@ -500,6 +538,22 @@ export default function DemoSearches() {
                             );
                           })()}
                           {v.fromCache && <span className="text-purple-400 ml-1 no-underline">·cache</span>}
+                          {v.isBot && (
+                            <span
+                              className="ml-1 text-neutral-400"
+                              title={`Bot/datacenter visit — ${botReasonLabel(v.botReason)}${v.org ? ` · ${v.org}` : ''}`}
+                            >
+                              ·🤖 {botReasonLabel(v.botReason)}
+                            </span>
+                          )}
+                          {!v.isBot && v.isVpn && (
+                            <span
+                              className="ml-1 text-neutral-400"
+                              title={`Visitor on a VPN${v.org ? ` (${v.org})` : ''} — counted as a real visit`}
+                            >
+                              ·vpn
+                            </span>
+                          )}
                           {v.city && <span className="ml-1">·{v.city}, {v.country}</span>}
                           {!v.city && v.ip && v.ip !== 'unknown' && <span className="text-neutral-300 ml-1">·{v.ip}</span>}
                         </span>
