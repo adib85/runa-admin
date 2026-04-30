@@ -37,7 +37,7 @@ AWS.config.update({ region: AWS_REGION });
 const ddb = new AWS.DynamoDB.DocumentClient();
 
 const CACHE_TABLE = process.env.DYNAMODB_CACHE_TABLE || "CacheTable";
-const IPLOCATE_API_KEY = process.env.IPLOCATE_API_KEY || "a356a1ece830de39681b8b20f87b07ec";
+const IPAPI_IS_KEY = process.env.IPAPI_IS_KEY || "c53e943ae4ed8fe820c6";
 const DEMO_STORE_ID = "demo_searches";
 
 const args = process.argv.slice(2);
@@ -73,29 +73,31 @@ async function scanDemoVisits() {
 async function lookupIp(ip) {
   const cleanIp = String(ip).replace(/^::ffff:/, "");
   if (!cleanIp || cleanIp === "unknown" || cleanIp === "::1" || cleanIp === "127.0.0.1") return null;
-  const url = `https://iplocate.io/api/lookup/${cleanIp}?apikey=${IPLOCATE_API_KEY}`;
+  const url = `https://api.ipapi.is?q=${cleanIp}&key=${IPAPI_IS_KEY}`;
   try {
     const r = await fetch(url, { timeout: 8000 });
     if (!r.ok) return { error: `HTTP ${r.status}` };
     const d = await r.json();
     if (!d || d.error) return { error: d?.error || "no-data" };
-    const isPrivateRelay = !!d.privacy?.is_icloud_relay
-      || d.hosting?.service === "iCloud Private Relay";
-    const relayCity = isPrivateRelay && d.hosting?.city
-      ? d.hosting.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
+    const dcName = d.datacenter?.datacenter || null;
+    const isPrivateRelay = dcName === "iCloud Private Relay";
+    const relayCity = isPrivateRelay && d.datacenter?.city
+      ? d.datacenter.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
       : null;
     return {
-      country: d.country || null,
-      country_code: d.country_code || null,
-      city: relayCity || d.city || null,
-      org: d.company?.name || d.asn?.name || null,
-      type: d.company?.type || null,
-      hostingService: d.hosting?.service || null,
-      hostingProvider: d.hosting?.provider || null,
-      hosting: !!d.privacy?.is_hosting,
-      vpn: !!d.privacy?.is_vpn,
-      proxy: !!d.privacy?.is_proxy,
-      tor: !!d.privacy?.is_tor,
+      country: d.location?.country || null,
+      country_code: d.location?.country_code || null,
+      city: relayCity || d.location?.city || null,
+      org: d.company?.name || d.asn?.org || null,
+      type: d.company?.type || d.asn?.type || null,
+      hostingService: isPrivateRelay ? "iCloud Private Relay" : null,
+      hostingProvider: isPrivateRelay ? "Apple" : null,
+      hosting: !!d.is_datacenter,
+      vpn: !!d.is_vpn,
+      proxy: !!d.is_proxy,
+      tor: !!d.is_tor,
+      crawler: !!d.is_crawler,
+      abuser: !!d.is_abuser,
       privateRelay: isPrivateRelay,
     };
   } catch (e) {
@@ -126,6 +128,7 @@ function classifyBot(geo, userAgent, acceptLanguage) {
     if (ua && ua.match(BOT_UA_RE)) return { isBot: true, botReason: `ua:${ua.match(BOT_UA_RE)[0]}` };
     return { isBot: false, botReason: null };
   }
+  if (geo?.crawler) return { isBot: true, botReason: `crawler:${geo.org || "known"}` };
   if (geo?.proxy) return { isBot: true, botReason: "proxy" };
   if (geo?.tor) return { isBot: true, botReason: "tor" };
   if (geo?.hosting) {
@@ -188,6 +191,8 @@ async function runClassifyBackfill(records) {
           isVpn: !!geo.vpn,
           isProxy: !!geo.proxy,
           isTor: !!geo.tor,
+          isCrawler: !!geo.crawler,
+          isAbuser: !!geo.abuser,
           isPrivateRelay: !!geo.privateRelay,
         }),
         isBot: cls.isBot,

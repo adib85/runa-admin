@@ -782,50 +782,49 @@ async function saveDemoResult(domain, storeName, resultData) {
   }
 }
 
-const IPLOCATE_API_KEY = process.env.IPLOCATE_API_KEY || "a356a1ece830de39681b8b20f87b07ec";
+const IPAPI_IS_KEY = process.env.IPAPI_IS_KEY || "c53e943ae4ed8fe820c6";
 
 async function getGeoFromIp(ip) {
   if (!ip || ip === "unknown" || ip === "::1" || ip === "127.0.0.1") return null;
   try {
     const cleanIp = ip.replace(/^::ffff:/, "");
     const res = await fetchWithTimeout(
-      `https://iplocate.io/api/lookup/${cleanIp}?apikey=${IPLOCATE_API_KEY}`,
+      `https://api.ipapi.is?q=${cleanIp}&key=${IPAPI_IS_KEY}`,
       3000,
     );
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || data.error) return null;
 
-    const isPrivateRelay = !!data.privacy?.is_icloud_relay
-      || data.hosting?.service === "iCloud Private Relay";
-
-    // For iCloud Private Relay, iplocate returns the visitor's REAL location
-    // in `hosting.country` (ISO code like "RO") and `hosting.city` (CAPS like
-    // "BUCHAREST") — Apple deliberately leaks approximate location so sites
-    // can serve the right region. Use the relay's *city* (title-cased) but
-    // keep the top-level `data.country` (full name like "Romania") so it
-    // matches the country names used by every other code path.
-    const relayCity = isPrivateRelay && data.hosting?.city
-      ? data.hosting.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
+    // ipapi.is marks iCloud Private Relay via the datacenter.datacenter name
+    // and conveniently returns the visitor's real country/state/city right
+    // there (e.g. RO / RO-B / BUCHAREST). For non-relay datacenter IPs the
+    // datacenter name is just the cloud provider ("Microsoft Limited",
+    // "Amazon AWS", "Fastly, Inc.") with no per-network city.
+    const dcName = data.datacenter?.datacenter || null;
+    const isPrivateRelay = dcName === "iCloud Private Relay";
+    const relayCity = isPrivateRelay && data.datacenter?.city
+      ? data.datacenter.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
       : null;
 
-    // Bot heuristic helper: human-readable hosting service (e.g. "GitHub
-    // Actions", "AWS EC2", "iCloud Private Relay") if iplocate identified one.
-    const hostingService = data.hosting?.service || null;
-    const hostingProvider = data.hosting?.provider || null;
-
     return {
-      country: data.country || null,
-      countryCode: data.country_code || null,
-      city: relayCity || data.city || null,
-      org: data.company?.name || data.asn?.name || null,
-      orgType: data.company?.type || null,
-      hostingService,
-      hostingProvider,
-      isHosting: !!data.privacy?.is_hosting,
-      isVpn: !!data.privacy?.is_vpn,
-      isProxy: !!data.privacy?.is_proxy,
-      isTor: !!data.privacy?.is_tor,
+      country: data.location?.country || null,
+      countryCode: data.location?.country_code || null,
+      city: relayCity || data.location?.city || null,
+      org: data.company?.name || data.asn?.org || null,
+      orgType: data.company?.type || data.asn?.type || null,
+      // For iCloud relay we surface the friendly name; for plain datacenters
+      // we leave hostingService null and let the bot reason fall back to the
+      // company name (e.g. "Microsoft Limited"). ipapi.is doesn't break out
+      // GitHub Actions vs raw Azure — both come back as "Microsoft Limited".
+      hostingService: isPrivateRelay ? "iCloud Private Relay" : null,
+      hostingProvider: isPrivateRelay ? "Apple" : null,
+      isHosting: !!data.is_datacenter,
+      isVpn: !!data.is_vpn,
+      isProxy: !!data.is_proxy,
+      isTor: !!data.is_tor,
+      isCrawler: !!data.is_crawler,
+      isAbuser: !!data.is_abuser,
       isPrivateRelay,
     };
   } catch {
@@ -847,14 +846,15 @@ function classifyBot(geo, headers) {
   const al = (headers?.["accept-language"] || "").trim();
 
   // iCloud Private Relay is a real user on Safari with Apple's privacy proxy.
-  // The exit IP belongs to Fastly/Akamai/Cloudflare so it lights up `is_hosting`,
-  // but the visitor is a person, not a bot. iplocate even gives us their real
-  // city via hosting.country/city (handled in getGeoFromIp).
+  // The exit IP belongs to Fastly/Akamai/Cloudflare so it lights up
+  // `is_datacenter`, but the visitor is a person, not a bot. ipapi.is even
+  // gives us their real city via datacenter.country/city.
   if (geo?.isPrivateRelay) {
     if (ua && ua.match(BOT_UA_RE)) return { isBot: true, botReason: `ua:${ua.match(BOT_UA_RE)[0]}` };
     return { isBot: false, botReason: null };
   }
 
+  if (geo?.isCrawler) return { isBot: true, botReason: `crawler:${geo.org || "known"}` };
   if (geo?.isProxy) return { isBot: true, botReason: "proxy" };
   if (geo?.isTor) return { isBot: true, botReason: "tor" };
   if (geo?.isHosting) {
@@ -902,6 +902,8 @@ async function logDemoSearch(req, domain, storeName, fromCache, ip) {
         isVpn: geo.isVpn,
         isProxy: geo.isProxy,
         isTor: geo.isTor,
+        isCrawler: geo.isCrawler,
+        isAbuser: geo.isAbuser,
         isPrivateRelay: geo.isPrivateRelay,
       }),
       userAgent,
