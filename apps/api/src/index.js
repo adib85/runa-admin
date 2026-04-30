@@ -17,6 +17,7 @@ import productsRoutes from "./routes/products.js";
 import syncRoutes from "./routes/sync.js";
 import aiRoutes from "./routes/ai.js";
 import demoRoutes from "./routes/demo.js";
+import onboardingRoutes from "./routes/onboarding.js";
 
 // Import middleware
 import { errorHandler } from "./middleware/error.js";
@@ -55,6 +56,7 @@ app.use("/api/products", productsRoutes);
 app.use("/api/sync", syncRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/demo", demoRoutes);
+app.use("/api/onboarding", onboardingRoutes);
 
 // Serve frontend static files in production
 if (existsSync(WEB_DIST)) {

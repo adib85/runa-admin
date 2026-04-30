@@ -1,10 +1,24 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState
+} from 'react';
+import { api } from '../services/api';
 
-const STORAGE_KEY = 'runa:onboarding:completedSteps';
-
+/**
+ * Static metadata for the onboarding steps. The "done" state for each step
+ * comes from the backend, NOT from local clicks — see /api/onboarding/status.
+ *
+ * `field` is the key on the backend response (`connectShopify`, `enableAIStylist`)
+ * whose `done: boolean` we read.
+ */
 export const ONBOARDING_STEPS = [
   {
     id: 'connect-shopify',
+    field: 'connectShopify',
     title: 'Connect Shopify',
     badge: '2 mins',
     heading: 'Connect your Shopify store',
@@ -16,73 +30,106 @@ export const ONBOARDING_STEPS = [
   },
   {
     id: 'enable-ai-stylist',
+    field: 'enableAIStylist',
     title: 'Enable AI Stylist',
     badge: '1 min',
     heading: 'Turn on the Runa AI Stylist',
     description:
-      'Let Runa\'s AI Stylist recommend personalized outfits and product bundles to your shoppers in real time.',
-    ctaLabel: 'Enable AI Stylist',
-    ctaPath: '/ai-stylist'
+      'Open your theme editor, toggle Runa AI Stylist on, and click Save. We\'ll detect it and unlock the rest of the dashboard.',
+    ctaLabel: 'Open theme editor',
+    // ctaPath is filled in dynamically from status.themeEditorUrl
+    ctaExternal: true
   }
 ];
 
 const OnboardingContext = createContext(null);
 
-function readStored() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
+const EMPTY_STATUS = {
+  shop: null,
+  domain: null,
+  platform: null,
+  themeEditorUrl: null,
+  connectShopify: { done: false },
+  enableAIStylist: { done: false, reason: null }
+};
 
 export function OnboardingProvider({ children }) {
-  const [completedSteps, setCompletedSteps] = useState(() => new Set(readStored()));
+  const [status, setStatus] = useState(EMPTY_STATUS);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const refresh = useCallback(async (opts = {}) => {
+    const { bypassCache = false, silent = false } = opts;
+    if (!silent) setLoading(true);
+    try {
+      const url = bypassCache
+        ? '/onboarding/status?refresh=1'
+        : '/onboarding/status';
+      const res = await api.get(url);
+      setStatus({ ...EMPTY_STATUS, ...(res.data || {}) });
+      setError(null);
+    } catch (err) {
+      console.error('Onboarding status fetch failed:', err);
+      setError(err.message || 'Failed to load onboarding status');
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  // Tell the backend to invalidate its 5-min cache for this shop. Useful
+  // right after the merchant clicks "Open theme editor" — they're about to
+  // change something, the next /status check should hit Shopify fresh.
+  const invalidateBackendCache = useCallback(async () => {
+    try {
+      await api.post('/onboarding/recheck');
+    } catch (err) {
+      // Non-fatal — we'll still pass refresh=1 on the next read.
+      console.error('Failed to invalidate onboarding cache:', err);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(completedSteps)));
-  }, [completedSteps]);
-
-  const markStepComplete = (id) => {
-    setCompletedSteps((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  };
-
-  const markStepIncomplete = (id) => {
-    setCompletedSteps((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
-
-  const resetOnboarding = () => setCompletedSteps(new Set());
+    refresh();
+  }, [refresh]);
 
   const value = useMemo(() => {
+    const completedSteps = new Set();
+    for (const step of ONBOARDING_STEPS) {
+      if (status?.[step.field]?.done) completedSteps.add(step.id);
+    }
+
+    // Decorate the static step metadata with dynamic state from the backend.
+    const steps = ONBOARDING_STEPS.map((step) => {
+      const stepStatus = status?.[step.field] || {};
+      const merged = { ...step, ...stepStatus, done: stepStatus.done === true };
+      // The "Enable AI Stylist" CTA targets the merchant's theme editor.
+      if (step.id === 'enable-ai-stylist' && status?.themeEditorUrl) {
+        merged.ctaPath = status.themeEditorUrl;
+      }
+      return merged;
+    });
+
     const isComplete = ONBOARDING_STEPS.every((s) => completedSteps.has(s.id));
     const currentStep =
-      ONBOARDING_STEPS.find((s) => !completedSteps.has(s.id)) || ONBOARDING_STEPS[0];
+      steps.find((s) => !completedSteps.has(s.id)) || steps[0];
+
     return {
-      steps: ONBOARDING_STEPS,
+      status,
+      loading,
+      error,
+      steps,
       completedSteps,
-      isComplete,
       currentStep,
-      markStepComplete,
-      markStepIncomplete,
-      resetOnboarding
+      isComplete,
+      refresh,
+      invalidateBackendCache
     };
-  }, [completedSteps]);
+  }, [status, loading, error, refresh, invalidateBackendCache]);
 
   return (
-    <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>
+    <OnboardingContext.Provider value={value}>
+      {children}
+    </OnboardingContext.Provider>
   );
 }
 
