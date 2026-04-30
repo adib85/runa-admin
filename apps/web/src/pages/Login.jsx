@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -11,6 +11,7 @@ function normalizeUrl(value) {
 }
 
 export default function Login() {
+  const [step, setStep] = useState(1);
   const [storeUrl, setStoreUrl] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,11 +19,37 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  async function handleSubmit(e) {
+  const passwordInputRef = useRef(null);
+
+  useEffect(() => {
+    if (step === 2 && passwordInputRef.current) {
+      passwordInputRef.current.focus();
+    }
+  }, [step]);
+
+  function handleContinue(e) {
+    e.preventDefault();
+    setError('');
+    const cleaned = normalizeUrl(storeUrl);
+    if (!cleaned) {
+      setError('Please enter your store URL');
+      return;
+    }
+    setStoreUrl(cleaned);
+    setStep(2);
+  }
+
+  function handleEditStore(e) {
+    e.preventDefault();
+    setError('');
+    setPassword('');
+    setStep(1);
+  }
+
+  async function handleSignIn(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       await login(normalizeUrl(storeUrl), password);
       navigate('/');
@@ -50,66 +77,108 @@ export default function Login() {
             Welcome back
           </h2>
           <p className="text-sm text-neutral-500 mt-2">
-            Sign in to your store
+            {step === 1 ? 'Enter your store URL to continue' : 'Enter your password'}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && (
-            <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">
-              {error}
-            </div>
-          )}
+        {step === 1 ? (
+          <form onSubmit={handleContinue} className="space-y-5">
+            {error && (
+              <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
 
-          <div>
-            <label className="label">Store URL</label>
+            <div>
+              <label className="label">Store URL</label>
+              <input
+                type="text"
+                className="input"
+                value={storeUrl}
+                onChange={(e) => setStoreUrl(e.target.value)}
+                required
+                autoFocus
+                placeholder="mystore.com"
+                autoComplete="username"
+              />
+            </div>
+
+            <button type="submit" className="btn btn-primary w-full mt-2">
+              Continue
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSignIn} className="space-y-5">
+            {error && (
+              <div className="p-4 border border-red-200 bg-red-50 text-red-700 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border border-neutral-200 rounded px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-2xs font-medium uppercase text-neutral-400 tracking-widest">
+                  Store
+                </p>
+                <p className="text-sm text-neutral-900 truncate">{storeUrl}</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleEditStore}
+                className="text-xs text-neutral-500 hover:text-neutral-900 underline ml-3"
+              >
+                Change
+              </button>
+            </div>
+
+            {/* Hidden username field so password managers associate creds with the store. */}
             <input
               type="text"
-              className="input"
+              name="username"
               value={storeUrl}
-              onChange={(e) => setStoreUrl(e.target.value)}
-              required
-              placeholder="mystore.com"
+              readOnly
+              hidden
               autoComplete="username"
             />
-          </div>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="label">Password</label>
-              <Link
-                to="/forgot-password"
-                className="text-xs text-neutral-500 hover:text-neutral-900 underline"
-              >
-                Forgot password?
-              </Link>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="label">Password</label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-neutral-500 hover:text-neutral-900 underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <input
+                ref={passwordInputRef}
+                type="password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Enter your password"
+                autoComplete="current-password"
+              />
             </div>
-            <input
-              type="password"
-              className="input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="Enter your password"
-              autoComplete="current-password"
-            />
-          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn btn-primary w-full mt-2"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center">
-                <span className="spinner mr-2"></span>
-                Signing in
-              </span>
-            ) : (
-              'Sign in'
-            )}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn btn-primary w-full mt-2"
+            >
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <span className="spinner mr-2"></span>
+                  Signing in
+                </span>
+              ) : (
+                'Sign in'
+              )}
+            </button>
+          </form>
+        )}
 
         <p className="mt-8 text-center text-sm text-neutral-500">
           Don't have an account?{' '}

@@ -2,18 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-function generatePassword(length = 24) {
-  const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  const bytes = new Uint32Array(length);
-  crypto.getRandomValues(bytes);
-  let out = '';
-  for (let i = 0; i < length; i++) {
-    out += chars[bytes[i] % chars.length];
-  }
-  return out;
-}
-
 function detectPlatform(url) {
   const u = url.toLowerCase();
   if (u.includes('myshopify') || u.includes('shopify')) return 'shopify';
@@ -29,63 +17,53 @@ function normalizeStoreUrl(url) {
   return url
     .trim()
     .replace(/^https?:\/\//i, '')
-    .replace(/\/+$/, '');
+    .replace(/\/+$/, '')
+    .toLowerCase();
 }
 
 export default function Register() {
-  const [email, setEmail] = useState('');
   const [storeUrl, setStoreUrl] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, register } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
-    const cleanEmail = email.trim().toLowerCase();
     const cleanUrl = normalizeStoreUrl(storeUrl);
-    const platform = detectPlatform(cleanUrl);
-    // Cache by store URL so the same browser can re-login the same store quickly.
-    const cacheKey = `runa:autoPassword:${cleanUrl}`;
+    const cleanEmail = email.trim().toLowerCase();
 
+    if (!cleanUrl) {
+      setError('Please enter your store URL');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
     try {
-      const existingPassword = localStorage.getItem(cacheKey);
-
-      if (existingPassword) {
-        try {
-          await login(cleanUrl, existingPassword);
-          navigate('/');
-          return;
-        } catch (loginErr) {
-          // Fall through to register attempt
-        }
-      }
-
-      const password = generatePassword();
+      const platform = detectPlatform(cleanUrl);
       const name = cleanEmail.split('@')[0];
-
-      try {
-        await register(cleanEmail, password, name, {
-          storeUrl: cleanUrl,
-          platform
-        });
-        localStorage.setItem(cacheKey, password);
-        navigate('/');
-      } catch (registerErr) {
-        const msg = registerErr.message || '';
-        if (/already exists/i.test(msg)) {
-          setError(
-            'An admin account for this store already exists. Please sign in instead.'
-          );
-        } else {
-          throw registerErr;
-        }
-      }
+      await register(cleanEmail, password, name, {
+        storeUrl: cleanUrl,
+        platform
+      });
+      navigate('/');
     } catch (err) {
-      setError(err.message || 'Failed to create account');
+      const msg = err.message || '';
+      if (/already exists/i.test(msg)) {
+        setError(
+          'An admin account for this store already exists. Please sign in instead.'
+        );
+      } else {
+        setError(msg || 'Failed to create account');
+      }
     } finally {
       setLoading(false);
     }
@@ -120,18 +98,6 @@ export default function Register() {
           )}
 
           <div>
-            <label className="label">Email</label>
-            <input
-              type="email"
-              className="input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="jane@mystore.com"
-            />
-          </div>
-
-          <div>
             <label className="label">URL of your website</label>
             <input
               type="text"
@@ -140,6 +106,34 @@ export default function Register() {
               onChange={(e) => setStoreUrl(e.target.value)}
               required
               placeholder="mystore.com"
+              autoComplete="url"
+            />
+          </div>
+
+          <div>
+            <label className="label">Email</label>
+            <input
+              type="email"
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="jane@mystore.com"
+              autoComplete="email"
+            />
+          </div>
+
+          <div>
+            <label className="label">Password</label>
+            <input
+              type="password"
+              className="input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+              placeholder="Create a password"
+              autoComplete="new-password"
             />
           </div>
 
