@@ -79,16 +79,25 @@ async function lookupIp(ip) {
     if (!r.ok) return { error: `HTTP ${r.status}` };
     const d = await r.json();
     if (!d || d.error) return { error: d?.error || "no-data" };
+    const isPrivateRelay = !!d.privacy?.is_icloud_relay
+      || d.hosting?.service === "iCloud Private Relay";
+    const relayCountry = isPrivateRelay && d.hosting?.country ? d.hosting.country : null;
+    const relayCity = isPrivateRelay && d.hosting?.city
+      ? d.hosting.city.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())
+      : null;
     return {
-      country: d.country || null,
-      country_code: d.country_code || null,
-      city: d.city || null,
+      country: relayCountry || d.country || null,
+      country_code: (relayCountry ? null : d.country_code) || null,
+      city: relayCity || d.city || null,
       org: d.company?.name || d.asn?.name || null,
       type: d.company?.type || null,
+      hostingService: d.hosting?.service || null,
+      hostingProvider: d.hosting?.provider || null,
       hosting: !!d.privacy?.is_hosting,
       vpn: !!d.privacy?.is_vpn,
       proxy: !!d.privacy?.is_proxy,
       tor: !!d.privacy?.is_tor,
+      privateRelay: isPrivateRelay,
     };
   } catch (e) {
     return { error: e.message };
@@ -114,11 +123,18 @@ const BOT_UA_RE = /bot|crawler|spider|preview|monitor|headless|lighthouse|axios|
 function classifyBot(geo, userAgent, acceptLanguage) {
   const ua = (userAgent || "").trim();
   const al = (acceptLanguage || "").trim();
-  if (geo?.hosting) return { isBot: true, botReason: `hosting:${geo.org || "datacenter"}` };
+  if (geo?.privateRelay) {
+    if (ua && ua.match(BOT_UA_RE)) return { isBot: true, botReason: `ua:${ua.match(BOT_UA_RE)[0]}` };
+    return { isBot: false, botReason: null };
+  }
   if (geo?.proxy) return { isBot: true, botReason: "proxy" };
   if (geo?.tor) return { isBot: true, botReason: "tor" };
-  // For historical visits we don't have UA — fall back to IP-only signals.
-  // For visits logged after the rollout, we'll have UA and can apply it.
+  if (geo?.hosting) {
+    const label = geo.hostingService
+      ? `${geo.hostingProvider || geo.org || "datacenter"} ${geo.hostingService}`
+      : (geo.org || "datacenter");
+    return { isBot: true, botReason: `hosting:${label}` };
+  }
   if (ua) {
     if (ua.length < 20) return { isBot: true, botReason: "short-user-agent" };
     const m = ua.match(BOT_UA_RE);
@@ -163,11 +179,17 @@ async function runClassifyBackfill(records) {
       return {
         ...v,
         ...(geo && {
+          // Promote iCloud Private Relay's real city up over the relay-exit city.
+          country: geo.country || v.country || null,
+          countryCode: geo.country_code || v.countryCode || null,
+          city: geo.city || v.city || null,
           org: geo.org || v.org || null,
+          hostingService: geo.hostingService || null,
           isHosting: !!geo.hosting,
           isVpn: !!geo.vpn,
           isProxy: !!geo.proxy,
           isTor: !!geo.tor,
+          isPrivateRelay: !!geo.privateRelay,
         }),
         isBot: cls.isBot,
         botReason: cls.botReason,

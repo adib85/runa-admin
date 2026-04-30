@@ -33,7 +33,7 @@ function isInternalVisit(v) {
 // and by the verify-demo-geo.js --classify backfill.
 function botReasonLabel(reason) {
   if (!reason) return 'bot';
-  if (reason.startsWith('hosting:')) return `datacenter (${reason.slice(8)})`;
+  if (reason.startsWith('hosting:')) return reason.slice(8); // already "GitHub Actions" / "AWS EC2"
   if (reason === 'proxy') return 'anonymizing proxy';
   if (reason === 'tor') return 'Tor exit node';
   if (reason.startsWith('ua:')) return `crawler UA (${reason.slice(3)})`;
@@ -546,7 +546,15 @@ export default function DemoSearches() {
                               ·🤖 {botReasonLabel(v.botReason)}
                             </span>
                           )}
-                          {!v.isBot && v.isVpn && (
+                          {!v.isBot && v.isPrivateRelay && (
+                            <span
+                              className="ml-1 text-neutral-400"
+                              title="Real Safari/iPhone user behind Apple's iCloud Private Relay. Real city resolved from iplocate's hosting.country/city. Counted as a real visit."
+                            >
+                              ·iCloud Relay
+                            </span>
+                          )}
+                          {!v.isBot && !v.isPrivateRelay && v.isVpn && (
                             <span
                               className="ml-1 text-neutral-400"
                               title={`Visitor on a VPN${v.org ? ` (${v.org})` : ''} — counted as a real visit`}
