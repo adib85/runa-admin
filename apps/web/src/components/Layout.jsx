@@ -108,11 +108,19 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { isSuperAdmin, disableSuperAdmin } = useSuperAdmin();
-  const { isComplete: onboardingComplete } = useOnboarding();
+  const {
+    isSuperAdmin,
+    impersonatedShop,
+    stopImpersonating,
+    exitSuperAdmin
+  } = useSuperAdmin();
+  const { fullyReady } = useOnboarding();
 
   const isHomePath = (p) => p === '/';
-  const isLocked = (path) => !onboardingComplete && !isHomePath(path);
+  // Superadmin always sees the full menu; for everyone else, non-Home items
+  // are locked until setup AND the AI Stylist live flag are both done.
+  const isLocked = (path) =>
+    !isSuperAdmin && !fullyReady && !isHomePath(path);
 
   const handleNavClick = (e, path) => {
     if (isLocked(path)) {
@@ -134,13 +142,27 @@ export default function Layout() {
 
           {/* User Menu */}
           <div className="flex items-center space-x-6">
+            {impersonatedShop && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-sm bg-orange-50 border border-orange-200 text-xs text-orange-800">
+                <span>
+                  Viewing as <strong>{impersonatedShop}</strong>
+                </span>
+                <button
+                  onClick={stopImpersonating}
+                  className="text-orange-600 hover:text-orange-800 underline"
+                >
+                  exit
+                </button>
+              </div>
+            )}
             <p className="text-xs text-neutral-900 hidden sm:block">{user?.name}</p>
             {isSuperAdmin && (
               <button
-                onClick={disableSuperAdmin}
-                className="text-xs text-orange-500 hover:text-orange-700 transition-colors"
+                onClick={exitSuperAdmin}
+                className="text-xs text-orange-600 hover:text-orange-800 tracking-wide uppercase transition-colors"
+                title="Drop superadmin role and stop viewing as another shop"
               >
-                Disable Superadmin
+                Exit superadmin
               </button>
             )}
             <button

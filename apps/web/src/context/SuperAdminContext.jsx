@@ -1,35 +1,217 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState
+} from 'react';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from './AuthContext';
+import { api } from '../services/api';
 
 const SuperAdminContext = createContext(null);
 
-const STORAGE_KEY = 'runa_superadmin';
+const LEGACY_FLAG_KEY = 'runa_superadmin';
+const IMPERSONATE_KEY = 'runa:impersonateShop';
+
+function readImpersonate() {
+  try {
+    return localStorage.getItem(IMPERSONATE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeImpersonate(shop) {
+  try {
+    if (shop) localStorage.setItem(IMPERSONATE_KEY, shop);
+    else localStorage.removeItem(IMPERSONATE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function normalizeShop(value) {
+  if (!value) return null;
+  return String(value)
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
 
 export function SuperAdminProvider({ children }) {
   const location = useLocation();
-  const [isSuperAdmin, setIsSuperAdmin] = useState(() => {
-    return localStorage.getItem(STORAGE_KEY) === 'true';
-  });
+  const { user, setUser } = useAuth();
 
-  // Check URL param on location change
+  // Authoritative: superadmin if the JWT-issued user has role === 'superadmin'.
+  // Backend won't honor /activate or impersonation without it.
+  const isJwtSuperAdmin = user?.role === 'superadmin';
+
+  // Legacy fallback for dev — kept so the URL trick (?superadmin=true) still
+  // toggles extra UI bits, but it grants ZERO backend privileges.
+  const [legacyFlag, setLegacyFlag] = useState(
+    () => localStorage.getItem(LEGACY_FLAG_KEY) === 'true'
+  );
+
+  const [impersonatedShop, setImpersonatedShop] = useState(() =>
+    readImpersonate()
+  );
+
+  // Trade the current session JWT for one with role: "superadmin" by hitting
+  // /api/auth/elevate with the SUPERADMIN_KEY. Triggered when the URL contains
+  // `?superadmin=<key>` (and the value isn't the literal "true").
+  //
+  // After a successful elevation we hard-reload the page. This is the simplest
+  // way to make sure every downstream context (OnboardingProvider etc.)
+  // re-initializes with the new JWT in `localStorage` AND with whatever
+  // impersonation header was set in the same URL, with no race.
+  const elevate = useCallback(
+    async (key) => {
+      try {
+        const res = await api.post('/auth/elevate', { key });
+        const newToken = res.data?.token;
+        if (newToken) {
+          localStorage.setItem('token', newToken);
+          if (typeof setUser === 'function' && user) {
+            setUser({ ...user, role: 'superadmin' });
+          }
+          // Reload so onboarding/status etc. re-fetch with the new JWT and
+          // any X-Impersonate-Shop header set from the same URL.
+          window.location.reload();
+        }
+      } catch (err) {
+        console.error('Superadmin elevation failed:', err);
+      }
+    },
+    [setUser, user]
+  );
+
+  // Pick up `?superadmin=…` and `?shop=foo.myshopify.com` from any URL.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    if (params.get('superadmin') === 'true') {
-      setIsSuperAdmin(true);
-      localStorage.setItem(STORAGE_KEY, 'true');
-      // Remove the param from URL without reload
-      const newUrl = window.location.pathname;
+
+    if (params.has('superadmin')) {
+      const value = params.get('superadmin');
+      // ?superadmin=true is the legacy client-only toggle (no backend power).
+      // Any other value is treated as the SUPERADMIN_KEY and exchanged for a
+      // real superadmin JWT via /auth/elevate.
+      if (value === 'true') {
+        setLegacyFlag(true);
+        localStorage.setItem(LEGACY_FLAG_KEY, 'true');
+      } else if (value) {
+        elevate(value);
+      }
+      params.delete('superadmin');
+    }
+
+    if (params.has('shop')) {
+      const target = normalizeShop(params.get('shop'));
+      if (target) {
+        // Stash even before elevation completes — header is harmless until
+        // the JWT actually carries the superadmin role.
+        setImpersonatedShop(target);
+        writeImpersonate(target);
+      }
+      params.delete('shop');
+    }
+
+    if (params.has('stopShop')) {
+      setImpersonatedShop(null);
+      writeImpersonate(null);
+      params.delete('stopShop');
+    }
+
+    // Clean the params from the URL bar without reloading.
+    const cleaned = params.toString();
+    const newUrl =
+      window.location.pathname + (cleaned ? `?${cleaned}` : '');
+    if (newUrl !== window.location.pathname + window.location.search) {
       window.history.replaceState({}, '', newUrl);
     }
-  }, [location]);
+  }, [location, elevate]);
 
-  const disableSuperAdmin = () => {
-    setIsSuperAdmin(false);
-    localStorage.removeItem(STORAGE_KEY);
-  };
+  // If the logged-in user loses superadmin (or logs out), drop impersonation.
+  useEffect(() => {
+    if (!isJwtSuperAdmin && impersonatedShop) {
+      setImpersonatedShop(null);
+      writeImpersonate(null);
+    }
+  }, [isJwtSuperAdmin, impersonatedShop]);
+
+  const startImpersonating = useCallback(
+    (shop) => {
+      if (!isJwtSuperAdmin) return;
+      const normalized = normalizeShop(shop);
+      setImpersonatedShop(normalized);
+      writeImpersonate(normalized);
+    },
+    [isJwtSuperAdmin]
+  );
+
+  const stopImpersonating = useCallback(() => {
+    setImpersonatedShop(null);
+    writeImpersonate(null);
+  }, []);
+
+  const disableSuperAdmin = useCallback(() => {
+    setLegacyFlag(false);
+    localStorage.removeItem(LEGACY_FLAG_KEY);
+    setImpersonatedShop(null);
+    writeImpersonate(null);
+  }, []);
+
+  /**
+   * Fully exit superadmin mode:
+   *   1. Drop the impersonated shop (header gone next request).
+   *   2. Clear the legacy URL flag.
+   *   3. Trade the superadmin JWT for a regular one (server resolves the
+   *      original user's stored role) and reload so every context boots
+   *      fresh as a normal user.
+   */
+  const exitSuperAdmin = useCallback(async () => {
+    setImpersonatedShop(null);
+    writeImpersonate(null);
+    setLegacyFlag(false);
+    localStorage.removeItem(LEGACY_FLAG_KEY);
+
+    if (isJwtSuperAdmin) {
+      try {
+        const res = await api.post('/auth/exit-superadmin');
+        if (res.data?.token) {
+          localStorage.setItem('token', res.data.token);
+        }
+      } catch (err) {
+        console.error('Failed to exit superadmin:', err);
+      }
+    }
+    window.location.reload();
+  }, [isJwtSuperAdmin]);
+
+  const value = useMemo(
+    () => ({
+      isSuperAdmin: isJwtSuperAdmin || legacyFlag,
+      isJwtSuperAdmin,
+      impersonatedShop,
+      startImpersonating,
+      stopImpersonating,
+      disableSuperAdmin,
+      exitSuperAdmin
+    }),
+    [
+      isJwtSuperAdmin,
+      legacyFlag,
+      impersonatedShop,
+      startImpersonating,
+      stopImpersonating,
+      disableSuperAdmin,
+      exitSuperAdmin
+    ]
+  );
 
   return (
-    <SuperAdminContext.Provider value={{ isSuperAdmin, disableSuperAdmin }}>
+    <SuperAdminContext.Provider value={value}>
       {children}
     </SuperAdminContext.Provider>
   );

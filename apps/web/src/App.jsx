@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
-import { SuperAdminProvider } from './context/SuperAdminContext';
+import { SuperAdminProvider, useSuperAdmin } from './context/SuperAdminContext';
 import { OnboardingProvider, useOnboarding } from './context/OnboardingContext';
 
 // Pages
@@ -50,10 +50,13 @@ function ProtectedRoute({ children }) {
 }
 
 function OnboardingGate({ children }) {
-  const { isComplete } = useOnboarding();
+  const { fullyReady } = useOnboarding();
+  const { isSuperAdmin } = useSuperAdmin();
   const location = useLocation();
 
-  if (!isComplete && location.pathname !== '/') {
+  // Superadmin always sees everything; everyone else has to finish setup AND
+  // wait for a superadmin to flip the AI Stylist live flag.
+  if (!fullyReady && !isSuperAdmin && location.pathname !== '/') {
     return <Navigate to="/" replace />;
   }
 

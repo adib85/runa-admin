@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '../context/OnboardingContext';
+import { useSuperAdmin } from '../context/SuperAdminContext';
 
 export default function Home() {
   const {
@@ -8,11 +9,39 @@ export default function Home() {
     completedSteps,
     currentStep,
     isComplete,
+    aiStylistReady,
     loading,
     refresh,
-    invalidateBackendCache
+    invalidateBackendCache,
+    activate,
+    deactivate
   } = useOnboarding();
+  const { isSuperAdmin } = useSuperAdmin();
   const navigate = useNavigate();
+
+  const [activating, setActivating] = useState(false);
+
+  async function handleActivate() {
+    setActivating(true);
+    try {
+      await activate();
+    } catch (err) {
+      alert(err.message || 'Failed to activate');
+    } finally {
+      setActivating(false);
+    }
+  }
+
+  async function handleDeactivate() {
+    setActivating(true);
+    try {
+      await deactivate();
+    } catch (err) {
+      alert(err.message || 'Failed to deactivate');
+    } finally {
+      setActivating(false);
+    }
+  }
 
   const [activeId, setActiveId] = useState(currentStep?.id || steps[0]?.id);
   const [refreshing, setRefreshing] = useState(false);
@@ -186,9 +215,67 @@ export default function Home() {
       </section>
       )}
 
+      {/* Training card — shown once the merchant finished setup but the AI
+          Stylist hasn't been flipped live yet. Also shown to superadmins
+          (so they can manually flip it). */}
+      {isComplete && (!aiStylistReady || isSuperAdmin) && (
+        <section className="border border-neutral-200 rounded-md p-8 mb-8">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-3">
+            Setting up your AI Stylist
+          </h2>
+          {aiStylistReady ? (
+            <p className="text-sm text-neutral-600">
+              Runa is live on your storefront.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-neutral-600 mb-2">
+                We're training Runa on your products and brand voice — this
+                takes 24–48 hours.
+              </p>
+              <p className="text-sm text-neutral-600">
+                You'll get an email the moment it's ready.
+              </p>
+            </>
+          )}
+
+          {isSuperAdmin && (
+            <div className="mt-6 pt-4 border-t border-neutral-100 flex items-center gap-3">
+              <span className="text-2xs uppercase tracking-widest text-orange-600">
+                Superadmin
+              </span>
+              {aiStylistReady ? (
+                <button
+                  type="button"
+                  onClick={handleDeactivate}
+                  disabled={activating}
+                  className="text-xs text-orange-600 hover:text-orange-800 underline disabled:opacity-50"
+                >
+                  {activating ? 'Working…' : 'Mark as training again'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleActivate}
+                  disabled={activating}
+                  className="btn btn-primary text-xs"
+                >
+                  {activating ? 'Activating…' : 'Activate AI Stylist'}
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       {!isComplete && (
         <p className="text-xs text-neutral-500">
           The other tools become available once you finish setting up.
+        </p>
+      )}
+      {isComplete && !aiStylistReady && !isSuperAdmin && (
+        <p className="text-xs text-neutral-500">
+          The other tools become available once your AI Stylist finishes training.
         </p>
       )}
     </div>

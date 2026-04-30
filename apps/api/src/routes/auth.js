@@ -373,6 +373,78 @@ router.post("/refresh", authenticate, asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /api/auth/elevate
+ * Body: { key }
+ *
+ * Trade the caller's regular session JWT for one that carries role: "superadmin".
+ * Anyone who knows the SUPERADMIN_KEY env var can do this — the server enforces
+ * absolutely nothing else. Treat that key like a password.
+ *
+ * Returns 404-ish silence if the key is wrong, so the endpoint can't be probed
+ * for "is the feature enabled" without already having the key.
+ */
+router.post("/elevate", authenticate, asyncHandler(async (req, res) => {
+  const expected = config.superadmin?.key;
+  const provided = req.body?.key;
+
+  if (!expected || !provided) {
+    throw ApiError.unauthorized("Invalid key");
+  }
+
+  // Constant-time comparison to dodge timing-based key guessing.
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(String(expected));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    throw ApiError.unauthorized("Invalid key");
+  }
+
+  const token = generateToken({
+    userId: req.user.userId,
+    shop: req.user.shop,
+    email: req.user.email,
+    role: "superadmin"
+  });
+
+  res.json({ token, role: "superadmin" });
+}));
+
+/**
+ * POST /api/auth/exit-superadmin
+ * Trade a superadmin session JWT for a regular one. Resolves the user's true
+ * stored role from DynamoDB (defaulting to "user") so anyone whose row really
+ * is `role: "superadmin"` keeps it; everyone else drops back to a normal user.
+ *
+ * Honors X-Impersonate-Shop while elevated, but the response always re-issues
+ * the JWT for the *original* logged-in user (req.user.actor), not the
+ * impersonated one.
+ */
+router.post("/exit-superadmin", authenticate, asyncHandler(async (req, res) => {
+  // If the caller is impersonating, the original identity is on req.user.actor.
+  const realUserId = req.user.actor || req.user.userId;
+  const realShop = req.user.actorShop || req.user.shop;
+  const realEmail = req.user.actorEmail || req.user.email;
+
+  // Look up the row to recover the *stored* role (almost always "user").
+  let storedRole = "user";
+  try {
+    const stored = await dynamodb.users.getUserById(realUserId);
+    if (stored?.role && stored.role !== "superadmin") storedRole = stored.role;
+    else if (stored?.role === "superadmin") storedRole = "superadmin";
+  } catch {
+    // Non-fatal — fall back to "user".
+  }
+
+  const token = generateToken({
+    userId: realUserId,
+    shop: realShop,
+    email: realEmail,
+    role: storedRole
+  });
+
+  res.json({ token, role: storedRole });
+}));
+
+/**
  * POST /api/auth/claim-link
  * Server-to-server endpoint called by the Shopify install backend to mint a
  * fresh "set up your admin login" URL for a shop.

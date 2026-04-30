@@ -95,6 +95,14 @@ export const config = {
     ttl: process.env.CLAIM_TOKEN_TTL || "7d"
   },
 
+  // Superadmin elevation. Visit `/?superadmin=<key>` while logged in to swap
+  // your own JWT for one that carries role: "superadmin". Empty / unset
+  // disables the feature entirely. Use a long random string in production
+  // (openssl rand -hex 24) and treat it like a password.
+  superadmin: {
+    key: process.env.SUPERADMIN_KEY || ""
+  },
+
   // Shopify API
   shopify: {
     apiVersion: "2025-10",

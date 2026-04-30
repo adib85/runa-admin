@@ -15,6 +15,14 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    // Superadmin "view as": when set, the backend swaps the user lookup to
+    // the target shop. The header is only honored if the JWT has
+    // role === 'superadmin', so it's safe to always send.
+    const impersonate = localStorage.getItem('runa:impersonateShop');
+    if (impersonate) {
+      headers['X-Impersonate-Shop'] = impersonate;
+    }
+
     return headers;
   }
 

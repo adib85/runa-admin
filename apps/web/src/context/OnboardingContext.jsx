@@ -7,6 +7,7 @@ import {
   useState
 } from 'react';
 import { api } from '../services/api';
+import { useSuperAdmin } from './SuperAdminContext';
 
 /**
  * Static metadata for the onboarding steps. The "done" state for each step
@@ -54,6 +55,7 @@ const EMPTY_STATUS = {
 };
 
 export function OnboardingProvider({ children }) {
+  const { impersonatedShop } = useSuperAdmin();
   const [status, setStatus] = useState(EMPTY_STATUS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -88,9 +90,32 @@ export function OnboardingProvider({ children }) {
     }
   }, []);
 
+  // Superadmin-only: flip the "live on storefront" flag for the current
+  // (or impersonated) shop. Backend enforces the role check.
+  const activate = useCallback(async () => {
+    const res = await api.post('/onboarding/activate');
+    setStatus((prev) => ({
+      ...prev,
+      aiStylistReady: true,
+      aiStylistActivatedAt: res.data?.aiStylistActivatedAt || new Date().toISOString()
+    }));
+  }, []);
+
+  const deactivate = useCallback(async () => {
+    await api.post('/onboarding/deactivate');
+    setStatus((prev) => ({
+      ...prev,
+      aiStylistReady: false,
+      aiStylistActivatedAt: null
+    }));
+  }, []);
+
+  // Re-fetch on mount AND whenever the superadmin switches which shop they
+  // are viewing-as — the X-Impersonate-Shop header changes so the next
+  // /onboarding/status returns a different row.
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, impersonatedShop]);
 
   const value = useMemo(() => {
     const completedSteps = new Set();
@@ -112,6 +137,10 @@ export function OnboardingProvider({ children }) {
     const isComplete = ONBOARDING_STEPS.every((s) => completedSteps.has(s.id));
     const currentStep =
       steps.find((s) => !completedSteps.has(s.id)) || steps[0];
+    const aiStylistReady = Boolean(status?.aiStylistReady);
+    // The dashboard "fully unlocks" only once both setup is done AND a
+    // superadmin has flipped the AI Stylist live flag (after training).
+    const fullyReady = isComplete && aiStylistReady;
 
     return {
       status,
@@ -121,10 +150,22 @@ export function OnboardingProvider({ children }) {
       completedSteps,
       currentStep,
       isComplete,
+      aiStylistReady,
+      fullyReady,
       refresh,
-      invalidateBackendCache
+      invalidateBackendCache,
+      activate,
+      deactivate
     };
-  }, [status, loading, error, refresh, invalidateBackendCache]);
+  }, [
+    status,
+    loading,
+    error,
+    refresh,
+    invalidateBackendCache,
+    activate,
+    deactivate
+  ]);
 
   return (
     <OnboardingContext.Provider value={value}>

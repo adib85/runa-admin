@@ -4,7 +4,15 @@ const JWT_SECRET = process.env.JWT_SECRET || "runa-admin-secret-change-in-produc
 
 /**
  * Authentication middleware
- * Verifies JWT token from Authorization header
+ * Verifies JWT token from Authorization header.
+ *
+ * Superadmin impersonation:
+ *   If the caller's JWT has role === "superadmin" AND the request includes an
+ *   X-Impersonate-Shop header (e.g. "andreearaicu.myshopify.com"), we swap
+ *   `req.user.userId` and `req.user.shop` to point at that target shop. The
+ *   superadmin's own identity is preserved on `req.user.actor` / `req.user.actorEmail`
+ *   for audit logging. All downstream handlers can stay oblivious — they just
+ *   read req.user.userId/shop the same way they always do.
  */
 export function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -18,6 +26,22 @@ export function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
+
+    const impersonate = req.headers["x-impersonate-shop"];
+    if (impersonate && req.user.role === "superadmin") {
+      const targetShop = String(impersonate).trim().toLowerCase();
+      if (targetShop) {
+        req.user.actor = decoded.userId;
+        req.user.actorEmail = decoded.email;
+        req.user.actorShop = decoded.shop;
+        req.user.shop = targetShop;
+        req.user.userId = targetShop.startsWith("offline_")
+          ? targetShop
+          : `offline_${targetShop}`;
+        req.user.impersonating = true;
+      }
+    }
+
     next();
   } catch (error) {
     if (error.name === "TokenExpiredError") {
