@@ -65,19 +65,39 @@ export default function Home() {
         <h1 className="page-title">Home</h1>
       </div>
 
+      {isComplete ? (
+        <section className="border border-neutral-200 rounded-md px-6 py-4 mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center justify-center w-6 h-6">
+              <svg
+                className="w-5 h-5 text-neutral-900"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 12.5l3 3 5-6"
+                />
+              </svg>
+            </span>
+            <h2 className="text-base font-semibold text-neutral-900">
+              Get set up
+            </h2>
+          </div>
+          <span className="text-sm text-neutral-500">Completed</span>
+        </section>
+      ) : (
       <section className="border border-neutral-200 rounded-md p-8 mb-8">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-neutral-900">Get set up</h2>
           <div className="flex items-center gap-3">
-            {isComplete ? (
-              <span className="text-xs uppercase tracking-wide text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
-                Complete
-              </span>
-            ) : (
-              <span className="text-xs text-neutral-500">
-                {completedSteps.size} of {steps.length} done
-              </span>
-            )}
+            <span className="text-xs text-neutral-500">
+              {completedSteps.size} of {steps.length} done
+            </span>
             <button
               type="button"
               onClick={handleRecheck}
@@ -164,6 +184,7 @@ export default function Home() {
           </div>
         )}
       </section>
+      )}
 
       {!isComplete && (
         <p className="text-xs text-neutral-500">
