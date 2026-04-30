@@ -88,9 +88,29 @@ export function SuperAdminProvider({ children }) {
     [setUser, user]
   );
 
-  // Pick up `?superadmin=…` and `?shop=foo.myshopify.com` from any URL.
+  // Resolve a user-typed shop/domain ("naomi.com", "naomi.myshopify.com",
+  // "https://naomi.com/foo", "custom.brand.com") into the canonical shop
+  // handle the impersonation header needs. Requires JWT to already be
+  // superadmin (the endpoint enforces that). Falls back to the raw value
+  // if the resolve call fails — harmless.
+  const resolveShop = useCallback(async (value) => {
+    if (!value) return null;
+    const normalized = normalizeShop(value);
+    try {
+      const res = await api.get(
+        `/auth/find-shop?value=${encodeURIComponent(normalized)}`
+      );
+      return res.data?.shop || normalized;
+    } catch (err) {
+      console.error('Could not resolve shop:', err);
+      return normalized;
+    }
+  }, []);
+
+  // Pick up `?superadmin=…`, `?shop=…` / `?domain=…`, `?stopShop` from any URL.
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    let touched = false;
 
     if (params.has('superadmin')) {
       const value = params.get('superadmin');
@@ -104,33 +124,52 @@ export function SuperAdminProvider({ children }) {
         elevate(value);
       }
       params.delete('superadmin');
+      touched = true;
     }
 
-    if (params.has('shop')) {
-      const target = normalizeShop(params.get('shop'));
-      if (target) {
-        // Stash even before elevation completes — header is harmless until
-        // the JWT actually carries the superadmin role.
-        setImpersonatedShop(target);
-        writeImpersonate(target);
+    // ?shop= and ?domain= are interchangeable — the value can be a Shopify
+    // handle ("naomi.myshopify.com") or a public domain ("naomi.com").
+    const target = params.get('shop') || params.get('domain');
+    if (target) {
+      // Optimistically stash the typed value so the badge shows immediately;
+      // resolve() then upgrades it to the canonical shop in the background.
+      const normalized = normalizeShop(target);
+      setImpersonatedShop(normalized);
+      writeImpersonate(normalized);
+      // Only attempt resolution if we already have a superadmin JWT in this
+      // tab; otherwise the URL likely contains ?superadmin=<key> too and the
+      // page will reload after elevation, at which point the unresolved value
+      // will be passed to the backend impersonation lookup directly.
+      if (isJwtSuperAdmin) {
+        resolveShop(normalized).then((canonical) => {
+          if (canonical && canonical !== normalized) {
+            setImpersonatedShop(canonical);
+            writeImpersonate(canonical);
+          }
+        });
       }
       params.delete('shop');
+      params.delete('domain');
+      touched = true;
     }
 
     if (params.has('stopShop')) {
       setImpersonatedShop(null);
       writeImpersonate(null);
       params.delete('stopShop');
+      touched = true;
     }
 
-    // Clean the params from the URL bar without reloading.
-    const cleaned = params.toString();
-    const newUrl =
-      window.location.pathname + (cleaned ? `?${cleaned}` : '');
-    if (newUrl !== window.location.pathname + window.location.search) {
-      window.history.replaceState({}, '', newUrl);
+    if (touched) {
+      // Clean the params from the URL bar without reloading.
+      const cleaned = params.toString();
+      const newUrl =
+        window.location.pathname + (cleaned ? `?${cleaned}` : '');
+      if (newUrl !== window.location.pathname + window.location.search) {
+        window.history.replaceState({}, '', newUrl);
+      }
     }
-  }, [location, elevate]);
+  }, [location, elevate, resolveShop, isJwtSuperAdmin]);
 
   // If the logged-in user loses superadmin (or logs out), drop impersonation.
   useEffect(() => {
@@ -139,6 +178,32 @@ export function SuperAdminProvider({ children }) {
       writeImpersonate(null);
     }
   }, [isJwtSuperAdmin, impersonatedShop]);
+
+  // After elevation completes, if the impersonation value still looks like a
+  // raw public domain (e.g. "naomi.com" rather than "naomi.myshopify.com" or
+  // "custom.naomi.com"), upgrade it to the canonical shop. Idempotent — a
+  // value that's already canonical resolves to itself.
+  useEffect(() => {
+    if (!isJwtSuperAdmin || !impersonatedShop) return;
+    const looksCanonical =
+      impersonatedShop.endsWith('.myshopify.com') ||
+      impersonatedShop.startsWith('custom.');
+    if (looksCanonical) return;
+
+    let cancelled = false;
+    resolveShop(impersonatedShop).then((canonical) => {
+      if (cancelled || !canonical) return;
+      if (canonical !== impersonatedShop) {
+        setImpersonatedShop(canonical);
+        writeImpersonate(canonical);
+        // Reload so contexts re-fetch with the corrected impersonation value.
+        window.location.reload();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isJwtSuperAdmin, impersonatedShop, resolveShop]);
 
   const startImpersonating = useCallback(
     (shop) => {

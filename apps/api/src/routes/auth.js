@@ -418,6 +418,61 @@ router.post("/elevate", authenticate, asyncHandler(async (req, res) => {
  * the JWT for the *original* logged-in user (req.user.actor), not the
  * impersonated one.
  */
+/**
+ * GET /api/auth/find-shop?value=<anything>
+ *
+ * Superadmin-only helper for the "?shop=" / "?domain=" URL params. Takes
+ * whatever the caller typed (a Shopify handle like `naomi.myshopify.com`,
+ * a public domain like `naomi.com`, or even `https://naomi.com/foo`) and
+ * returns the canonical row identifier the impersonation header expects.
+ *
+ * Resolution order (cheap → expensive):
+ *   1. Strip protocol/path/www, lowercase.
+ *   2. getUserByShop(value)              — direct GSI hit
+ *   3. getUserByShop(`custom.<value>`)   — custom-platform shops
+ *   4. getUserById(`offline_<value>`)    — partition-key direct read
+ *   5. resolveShopId(value)              — Shopify storefront detection (slow)
+ */
+router.get("/find-shop", authenticate, asyncHandler(async (req, res) => {
+  if (req.user.role !== "superadmin") {
+    throw ApiError.forbidden("Only superadmins can resolve shops");
+  }
+
+  const raw = String(req.query.value || "").trim().toLowerCase();
+  if (!raw) throw ApiError.badRequest("value is required");
+
+  const clean = raw
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("/")[0]
+    .replace(/\/+$/, "");
+
+  let user =
+    (await dynamodb.users.getUserByShop(clean)) ||
+    (await dynamodb.users.getUserByShop(`custom.${clean}`)) ||
+    (await dynamodb.users.getUserById(`offline_${clean}`)) ||
+    (await dynamodb.users.getUserById(`offline_custom.${clean}`));
+
+  // Last resort: hit the live storefront to detect Shopify (~1-3s).
+  if (!user) {
+    try {
+      const resolved = await resolveShopId(clean);
+      user = await dynamodb.users.getUserById(resolved.id);
+    } catch {
+      // ignore — handled below
+    }
+  }
+
+  if (!user) throw ApiError.notFound("Shop not found");
+
+  res.json({
+    id: user.id,
+    shop: user.shop,
+    domain: user.domain || null,
+    email: user.email || null
+  });
+}));
+
 router.post("/exit-superadmin", authenticate, asyncHandler(async (req, res) => {
   // If the caller is impersonating, the original identity is on req.user.actor.
   const realUserId = req.user.actor || req.user.userId;
