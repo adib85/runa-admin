@@ -122,6 +122,13 @@ export function OnboardingProvider({ children }) {
   }, [refresh, impersonatedShop]);
 
   const value = useMemo(() => {
+    const platform = (status?.platform || 'shopify').toLowerCase();
+    // The "Connect Shopify / Enable AI Stylist" steps only make sense for
+    // Shopify-hosted stores. For custom / other platforms the integration
+    // is handled manually by the Runa team — there's nothing for the
+    // merchant to do, so we treat the Shopify-specific setup as N/A.
+    const isShopifyMerchant = platform === 'shopify';
+
     const completedSteps = new Set();
     for (const step of ONBOARDING_STEPS) {
       if (status?.[step.field]?.done) completedSteps.add(step.id);
@@ -138,18 +145,23 @@ export function OnboardingProvider({ children }) {
       return merged;
     });
 
-    const isComplete = ONBOARDING_STEPS.every((s) => completedSteps.has(s.id));
+    const shopifySetupComplete = ONBOARDING_STEPS.every((s) =>
+      completedSteps.has(s.id)
+    );
+    const isComplete = isShopifyMerchant ? shopifySetupComplete : true;
     const currentStep =
       steps.find((s) => !completedSteps.has(s.id)) || steps[0];
     const aiStylistReady = Boolean(status?.aiStylistReady);
-    // The dashboard "fully unlocks" only once both setup is done AND a
-    // superadmin has flipped the AI Stylist live flag (after training).
+    // The dashboard "fully unlocks" only once setup is done AND a superadmin
+    // has flipped the AI Stylist live flag (after training).
     const fullyReady = isComplete && aiStylistReady;
 
     return {
       status,
       loading,
       error,
+      platform,
+      isShopifyMerchant,
       steps,
       completedSteps,
       currentStep,

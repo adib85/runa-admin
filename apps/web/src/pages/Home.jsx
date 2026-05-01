@@ -10,6 +10,8 @@ export default function Home() {
     currentStep,
     isComplete,
     aiStylistReady,
+    isShopifyMerchant,
+    status,
     loading,
     refresh,
     invalidateBackendCache,
@@ -94,7 +96,17 @@ export default function Home() {
         <h1 className="page-title">Home</h1>
       </div>
 
-      {isComplete ? (
+      {!isShopifyMerchant ? (
+        <CustomIntegrationCard
+          platform={status?.platform}
+          domain={status?.domain || status?.shop}
+          isSuperAdmin={isSuperAdmin}
+          aiStylistReady={aiStylistReady}
+          onActivate={handleActivate}
+          onDeactivate={handleDeactivate}
+          activating={activating}
+        />
+      ) : isComplete ? (
         <section className="border border-neutral-200 rounded-md px-6 py-4 mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center justify-center w-6 h-6">
@@ -225,10 +237,11 @@ export default function Home() {
       </section>
       )}
 
-      {/* Training card — shown once the merchant finished setup but the AI
-          Stylist hasn't been flipped live yet. Also shown to superadmins
-          (so they can manually flip it). */}
-      {isComplete && (!aiStylistReady || isSuperAdmin) && (
+      {/* Training card — shown once a Shopify merchant finished setup but the
+          AI Stylist hasn't been flipped live yet. Also shown to superadmins
+          (so they can manually flip it). For non-Shopify merchants the
+          equivalent activate control lives inside CustomIntegrationCard. */}
+      {isShopifyMerchant && isComplete && (!aiStylistReady || isSuperAdmin) && (
         <section className="border border-neutral-200 rounded-md p-8 mb-8">
           <h2 className="text-lg font-semibold text-neutral-900 mb-3">
             Training your AI Stylist
@@ -278,17 +291,97 @@ export default function Home() {
         </section>
       )}
 
-      {!isComplete && (
+      {isShopifyMerchant && !isComplete && (
         <p className="text-xs text-neutral-500">
           The other tools become available once you finish setting up.
         </p>
       )}
       {isComplete && !aiStylistReady && !isSuperAdmin && (
         <p className="text-xs text-neutral-500">
-          The other tools become available once your AI Stylist finishes training.
+          {isShopifyMerchant
+            ? 'The other tools become available once your AI Stylist finishes training.'
+            : 'The other tools become available once your custom integration is live.'}
         </p>
       )}
     </div>
+  );
+}
+
+function CustomIntegrationCard({
+  platform,
+  domain,
+  isSuperAdmin,
+  aiStylistReady,
+  onActivate,
+  onDeactivate,
+  activating
+}) {
+  const SUPPORT_EMAIL = 'support@askruna.ai';
+  const platformLabel = platform && platform !== 'other' ? platform : 'custom';
+  return (
+    <section className="border border-neutral-200 rounded-md p-8 mb-8">
+      <div className="flex items-center gap-3 mb-3">
+        <h2 className="text-lg font-semibold text-neutral-900">
+          Custom integration in progress
+        </h2>
+        <span className="text-2xs uppercase tracking-widest text-neutral-500 border border-neutral-200 rounded px-2 py-0.5">
+          {platformLabel}
+        </span>
+      </div>
+      <p className="text-sm text-neutral-700 leading-relaxed mb-3">
+        Runa works with any e-commerce stack — but for stores outside Shopify
+        the integration is set up manually by our team
+        {domain ? (
+          <>
+            {' '}for <strong>{domain}</strong>
+          </>
+        ) : null}
+        .
+      </p>
+      <p className="text-sm text-neutral-700 leading-relaxed mb-6">
+        We'll reach out within one business day to schedule a short
+        onboarding call. Nothing for you to do here yet.
+      </p>
+
+      <div className="border-t border-neutral-100 pt-5">
+        <p className="text-sm text-neutral-700 mb-2">
+          Need to get in touch sooner?
+        </p>
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=Custom%20integration%20-%20${encodeURIComponent(domain || '')}`}
+          className="text-sm text-neutral-900 underline hover:text-neutral-700"
+        >
+          {SUPPORT_EMAIL}
+        </a>
+      </div>
+
+      {isSuperAdmin && (
+        <div className="mt-6 pt-4 border-t border-neutral-100 flex items-center gap-3">
+          <span className="text-2xs uppercase tracking-widest text-orange-600">
+            Superadmin
+          </span>
+          {aiStylistReady ? (
+            <button
+              type="button"
+              onClick={onDeactivate}
+              disabled={activating}
+              className="text-xs text-orange-600 hover:text-orange-800 underline disabled:opacity-50"
+            >
+              {activating ? 'Working…' : 'Lock dashboard again'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onActivate}
+              disabled={activating}
+              className="btn btn-primary text-xs"
+            >
+              {activating ? 'Activating…' : 'Mark integration complete'}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
