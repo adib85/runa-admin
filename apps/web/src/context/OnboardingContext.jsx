@@ -34,10 +34,14 @@ export const ONBOARDING_STEPS = [
     field: 'enableAIStylist',
     title: 'Enable AI Stylist',
     badge: '1 min',
-    heading: 'Turn on the Runa AI Stylist',
+    heading: 'Activate the Runa AI Stylist',
     description:
-      'Open your theme editor, toggle Runa AI Stylist on, and click Save. We\'ll detect it and unlock the rest of the dashboard.',
-    ctaLabel: 'Open theme editor',
+      'Click the button below to open your Shopify app embed settings. In the new tab, simply click Save in the top-right corner.',
+    detail:
+      'This will activate the Runa AI Stylist and enable training mode, so it can learn your products and brand voice.',
+    note:
+      'The AI Stylist will not be visible on your site until you choose to launch.',
+    ctaLabel: 'Activate Stylist',
     // ctaPath is filled in dynamically from status.themeEditorUrl
     ctaExternal: true
   }

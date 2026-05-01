@@ -178,9 +178,19 @@ export default function Home() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-neutral-600 mb-4">
+              <p className="text-sm text-neutral-600 mb-3">
                 {active.description}
               </p>
+              {active.detail && (
+                <p className="text-sm text-neutral-600 mb-3">
+                  {active.detail}
+                </p>
+              )}
+              {active.note && (
+                <p className="text-sm text-neutral-700 bg-neutral-50 border border-neutral-200 rounded px-3 py-2 mb-4">
+                  <span className="font-semibold">Note:</span> {active.note}
+                </p>
+              )}
 
               <StepStatus active={active} />
 
@@ -317,8 +327,8 @@ function StepStatus({ active }) {
     if (active.reason === 'block-disabled') {
       return (
         <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-4">
-          The Runa app embed is added to your theme but currently turned off.
-          Open the editor and toggle it on.
+          Almost there — the embed is added to your theme but the toggle is off.
+          Open the editor and click <strong>Save</strong>.
         </p>
       );
     }
