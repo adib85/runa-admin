@@ -23,6 +23,7 @@ import DemoManual from './pages/DemoManual';
 import AIMerchant from './pages/AIMerchant';
 import AIVisualMerchandiser from './pages/AIVisualMerchandiser';
 import AIStylist from './pages/AIStylist';
+import AITrendSpotter from './pages/AITrendSpotter';
 import AIStudio from './pages/AIStudio';
 import AIConfig from './pages/AIConfig';
 import AICustom from './pages/AICustom';
@@ -221,6 +222,14 @@ function App() {
               element={
                 <OnboardingGate>
                   <AIStylist />
+                </OnboardingGate>
+              }
+            />
+            <Route
+              path="ai-trend-spotter"
+              element={
+                <OnboardingGate>
+                  <AITrendSpotter />
                 </OnboardingGate>
               }
             />
