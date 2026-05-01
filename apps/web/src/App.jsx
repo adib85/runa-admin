@@ -61,6 +61,28 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+/**
+ * Wrap auth-only entry pages (Login, Register, ForgotPassword) so already
+ * signed-in users get sent straight to the app instead of seeing the form.
+ */
+function GuestOnly({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
 function OnboardingGate({ children }) {
   const { fullyReady } = useOnboarding();
   const { isSuperAdmin } = useSuperAdmin();
@@ -80,10 +102,33 @@ const isDemoHost = window.location.hostname.startsWith('demo.');
 function App() {
   return (
     <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
+      {/* Public routes — auth-entry pages bounce signed-in users to the app */}
+      <Route
+        path="/login"
+        element={
+          <GuestOnly>
+            <Login />
+          </GuestOnly>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <GuestOnly>
+            <Register />
+          </GuestOnly>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <GuestOnly>
+            <ForgotPassword />
+          </GuestOnly>
+        }
+      />
+      {/* Reset link still usable when signed in (token in URL); same for the
+          Shopify SSO claim, which switches the active session for you. */}
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/claim" element={<Claim />} />
       <Route path="/demo" element={<Demo />} />

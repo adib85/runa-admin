@@ -103,6 +103,13 @@ export const config = {
     key: process.env.SUPERADMIN_KEY || ""
   },
 
+  // Internal ops notifications. We email this address whenever a new merchant
+  // shows up (registers via /register or claims via the Shopify SSO link).
+  // Comma-separated; empty disables the feature.
+  notifications: {
+    newMerchantTo: process.env.NEW_MERCHANT_NOTIFY || "adrian@askruna.ai"
+  },
+
   // Shopify API
   shopify: {
     apiVersion: "2025-10",

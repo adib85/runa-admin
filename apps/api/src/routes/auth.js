@@ -6,7 +6,11 @@ import { dynamodb } from "@runa/core";
 import { config } from "@runa/config";
 import { generateToken, authenticate } from "../middleware/auth.js";
 import { asyncHandler, ApiError } from "../middleware/error.js";
-import { sendEmail, buildPasswordResetEmail } from "../services/mailer.js";
+import {
+  sendEmail,
+  buildPasswordResetEmail,
+  notifyNewMerchant
+} from "../services/mailer.js";
 import { resolveShopId, shopToId } from "../services/shopDetector.js";
 
 /**
@@ -131,6 +135,9 @@ router.post("/register", asyncHandler(async (req, res) => {
   delete user.stores;
 
   await dynamodb.users.saveUser(user);
+
+  // Fire-and-forget ops notification — never blocks the response.
+  notifyNewMerchant({ user, source: "register" });
 
   const token = generateToken({
     userId: user.id,
@@ -624,7 +631,8 @@ router.post("/claim", asyncHandler(async (req, res) => {
       decoded.name ||
       (user.email ? user.email.split("@")[0] : (user.shop || "").split(".")[0]);
   }
-  if (!user.claimedAt) {
+  const isFirstClaim = !user.claimedAt;
+  if (isFirstClaim) {
     user.claimedAt = new Date().toISOString();
   }
   user.lastLoginAt = new Date().toISOString();
@@ -633,6 +641,11 @@ router.post("/claim", asyncHandler(async (req, res) => {
   delete user.stores; // legacy field, no longer used
 
   await dynamodb.users.saveUser(user);
+
+  // Notify ops on the first claim only — subsequent SSO logins shouldn't spam.
+  if (isFirstClaim) {
+    notifyNewMerchant({ user, source: "claim-first-time" });
+  }
 
   const sessionToken = generateToken({
     userId: user.id,

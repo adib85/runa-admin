@@ -137,7 +137,6 @@ export default function Layout() {
           {/* Logo */}
           <Link to="/" className="flex items-center">
             <span className="text-lg font-medium tracking-tight">RUNA</span>
-            <span className="ml-2 text-xs text-neutral-400 tracking-wide">ADMIN</span>
           </Link>
 
           {/* User Menu */}

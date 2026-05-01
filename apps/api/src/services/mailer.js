@@ -63,4 +63,73 @@ export function buildPasswordResetEmail({ resetUrl, email, shop }) {
   return { subject, html, text };
 }
 
-export default { sendEmail, buildPasswordResetEmail };
+/**
+ * Build the internal "new merchant joined" notification for ops/founders.
+ * Sent whenever a new shop signs up — either via /register or via the
+ * Shopify SSO claim link (first time only).
+ */
+export function buildNewMerchantEmail({ user, source }) {
+  const labelMap = {
+    register: "Self-registered via runa-admin",
+    "claim-first-time": "Claimed via Shopify SSO link"
+  };
+  const sourceLabel = labelMap[source] || source || "Unknown";
+
+  const subject = `New Runa merchant: ${user.shop || user.domain || user.email || "(unknown)"}`;
+  const rows = [
+    ["Source", sourceLabel],
+    ["Shop", user.shop || "—"],
+    ["Domain", user.domain || "—"],
+    ["Platform", user.platform || "—"],
+    ["Email", user.email || "—"],
+    ["Name", user.name || "—"],
+    ["ID", user.id || "—"],
+    ["Created", user.createdAt || user.claimedAt || new Date().toISOString()]
+  ];
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 540px; margin: 0 auto; padding: 24px; color: #111;">
+      <h1 style="font-size: 18px; font-weight: 600; margin: 0 0 12px;">New Runa merchant</h1>
+      <p style="font-size: 14px; color: #444; margin: 0 0 16px;">
+        A new merchant just joined Runa. ${sourceLabel}.
+      </p>
+      <table style="border-collapse: collapse; font-size: 13px; line-height: 1.5; width: 100%;">
+        ${rows
+          .map(
+            ([k, v]) => `
+          <tr>
+            <td style="padding: 6px 12px 6px 0; color: #888; vertical-align: top; white-space: nowrap;">${k}</td>
+            <td style="padding: 6px 0; color: #111; word-break: break-all;">${v}</td>
+          </tr>
+        `
+          )
+          .join("")}
+      </table>
+    </div>
+  `;
+  const text = `New Runa merchant\n\n${sourceLabel}\n\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}`;
+
+  return { subject, html, text };
+}
+
+/**
+ * Fire-and-forget notification — never throws, never delays the caller.
+ */
+export async function notifyNewMerchant({ user, source }) {
+  const to = config.notifications?.newMerchantTo;
+  if (!to) return;
+  if (!config.sendgrid?.apiKey) return;
+  try {
+    const { subject, html, text } = buildNewMerchantEmail({ user, source });
+    await sendEmail({ to, subject, html, text });
+  } catch (err) {
+    console.error("notifyNewMerchant failed:", err?.response?.body || err);
+  }
+}
+
+export default {
+  sendEmail,
+  buildPasswordResetEmail,
+  buildNewMerchantEmail,
+  notifyNewMerchant
+};
