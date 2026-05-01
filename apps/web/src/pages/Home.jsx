@@ -316,7 +316,7 @@ function CustomIntegrationCard({
   onDeactivate,
   activating
 }) {
-  const SUPPORT_EMAIL = 'support@askruna.ai';
+  const ACCOUNT_MANAGER_EMAIL = 'adrian@askruna.ai';
   const platformLabel = platform && platform !== 'other' ? platform : 'custom';
   return (
     <section className="border border-neutral-200 rounded-md p-8 mb-8">
@@ -348,10 +348,10 @@ function CustomIntegrationCard({
           Need to get in touch sooner?
         </p>
         <a
-          href={`mailto:${SUPPORT_EMAIL}?subject=Custom%20integration%20-%20${encodeURIComponent(domain || '')}`}
+          href={`mailto:${ACCOUNT_MANAGER_EMAIL}?subject=Custom%20integration%20-%20${encodeURIComponent(domain || '')}`}
           className="text-sm text-neutral-900 underline hover:text-neutral-700"
         >
-          {SUPPORT_EMAIL}
+          {ACCOUNT_MANAGER_EMAIL}
         </a>
       </div>
 
