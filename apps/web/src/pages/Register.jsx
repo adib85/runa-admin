@@ -98,16 +98,13 @@ export default function Register() {
   return (
     <div className="min-h-screen flex items-center justify-center p-8 bg-white">
       <div className="w-full max-w-sm">
-        <div className="mb-10 flex flex-col items-center text-center">
+        <div className="mb-8 flex flex-col items-center text-center">
           <img
             src="https://cdn.prod.website-files.com/6598727d8180e7b6c126a6cf/69344ca971a7628e577f32ab_runa_logo.png"
             alt="Runa"
-            className="w-16 h-16 rounded-full"
+            className="w-14 h-14 rounded-full mb-5"
           />
-        </div>
-
-        <div className="mb-8 text-center">
-          <h2 className="text-2xl font-semibold text-neutral-900">
+          <h2 className="text-2xl font-semibold text-neutral-900 tracking-tight">
             Install Runa on your store
           </h2>
           <p className="text-xs text-neutral-500 mt-2">
