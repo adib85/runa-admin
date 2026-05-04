@@ -198,9 +198,8 @@ function ResultsView({ data, setResult }) {
         <h2 className="text-2xl sm:text-4xl font-bold text-purple-400 mb-3 sm:mb-5">
           {store.name}
         </h2>
-        <p className="text-neutral-300 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
-          AI-built outfits from your catalog.
-          Live on your PDPs in 48 hours.
+        <p className="text-neutral-300 max-w-md sm:max-w-2xl mx-auto text-sm sm:text-lg leading-relaxed sm:whitespace-nowrap">
+          AI-built outfits from your catalog. Live on your PDPs in 48 hours.
         </p>
         <div className="flex flex-col items-center justify-center gap-3 mt-7">
           <a
