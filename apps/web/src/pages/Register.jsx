@@ -17,8 +17,32 @@ function normalizeStoreUrl(url) {
   return url
     .trim()
     .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0]
     .replace(/\/+$/, '')
     .toLowerCase();
+}
+
+/**
+ * Same rules as the login form — accepts domains / Shopify handles, rejects
+ * emails and obviously-wrong input. Returns null on success or an error
+ * message string.
+ */
+function validateStoreUrl(raw) {
+  const value = raw.trim();
+  if (!value) return 'Please enter your store URL';
+  if (value.includes('@')) {
+    return 'That looks like an email — please enter your store URL';
+  }
+  if (/\s/.test(value)) {
+    return 'Store URL can\'t contain spaces';
+  }
+  const domain = normalizeStoreUrl(value);
+  if (!domain) return 'Please enter your store URL';
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(domain)) {
+    return 'Enter a valid store URL (e.g. mystore.com or mystore.myshopify.com)';
+  }
+  return null;
 }
 
 export default function Register() {
@@ -34,13 +58,15 @@ export default function Register() {
     e.preventDefault();
     setError('');
 
+    const validationError = validateStoreUrl(storeUrl);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     const cleanUrl = normalizeStoreUrl(storeUrl);
     const cleanEmail = email.trim().toLowerCase();
 
-    if (!cleanUrl) {
-      setError('Please enter your store URL');
-      return;
-    }
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
       return;

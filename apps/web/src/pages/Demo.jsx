@@ -4,6 +4,8 @@ import { formatPrice } from '../utils/formatPrice';
 
 const API_URL = '/api';
 const RUNA_URL = 'https://www.askruna.ai';
+const INSTALL_URL = 'https://app.askruna.ai/register';
+const CALENDLY_URL = 'https://calendly.com/adrian-askruna/30min';
 
 const STEPS = [
   { key: 'scan', label: 'Scan' },
@@ -142,6 +144,24 @@ function ComplementaryCard({ product, currency }) {
   );
 }
 
+// ─── Platform Support Line ───────────────────────────────────────────
+
+function PlatformSupportLine({ theme = 'dark' }) {
+  const labelColor = theme === 'dark' ? 'text-neutral-500' : 'text-neutral-400';
+  const platformColor = theme === 'dark' ? 'text-neutral-300' : 'text-neutral-700';
+
+  return (
+    <p className={`mt-1 text-xs leading-relaxed ${labelColor} max-w-md`}>
+      Works with{' '}
+      <span className={`font-semibold ${platformColor}`}>Shopify</span>,{' '}
+      <span className={`font-semibold ${platformColor}`}>Shopify Plus</span>,{' '}
+      <span className={`font-semibold ${platformColor}`}>VTEX</span>,{' '}
+      <span className={`font-semibold ${platformColor}`}>WooCommerce</span>{' '}
+      &amp; custom platforms
+    </p>
+  );
+}
+
 // ─── Results View ────────────────────────────────────────────────────
 
 function ResultsView({ data, setResult }) {
@@ -181,38 +201,39 @@ function ResultsView({ data, setResult }) {
         <h2 className="text-2xl sm:text-4xl font-bold text-purple-400 mb-3 sm:mb-5">
           {store.name}
         </h2>
-        <p className="text-neutral-400 max-w-md mx-auto text-xs sm:text-base leading-relaxed">
-          A quick preview using a sample of your products.
-          Install Runa to unlock styling across your entire catalog.
+        <p className="text-neutral-300 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+          AI-built outfits from your catalog.
+          Live on your PDPs in 48 hours.
         </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-6">
+        <div className="flex flex-col items-center justify-center gap-3 mt-7">
           <a
-            href="https://calendly.com/adrian-askruna/30min"
+            href={INSTALL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-200 transition-colors"
+            className="group inline-flex items-center gap-2 px-7 py-3.5 bg-purple-600 text-white text-base font-bold rounded-full hover:bg-purple-500 transition-all shadow-lg shadow-purple-600/30 hover:shadow-purple-500/50 hover:scale-[1.02]"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
             </svg>
-            Book a Call
+            Start free trial — 2 minutes
+            <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            </svg>
           </a>
+          <PlatformSupportLine theme="dark" />
           <a
-            href={RUNA_URL}
+            href={CALENDLY_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-3 border border-white text-white text-sm font-semibold rounded-full hover:bg-white/10 transition-colors"
+            className="text-neutral-400 text-sm hover:text-white transition-colors underline-offset-4 hover:underline mt-1"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-            Explore Runa
+            or book a 15-minute call
           </a>
         </div>
       </div>
 
       {/* Product Demo Section */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12 pb-28">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12 pb-32 sm:pb-36">
         {/* Simulated PDP */}
         <div id="product-demo" />
         <div className="border border-neutral-200 rounded-2xl overflow-hidden shadow-soft">
@@ -372,37 +393,149 @@ function ResultsView({ data, setResult }) {
         )}
 
         {/* Footer section */}
-        <div className="mt-6 sm:mt-8 mb-4 sm:mb-16 text-center">
+        <div className="mt-6 sm:mt-8 mb-4 sm:mb-12 text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-50 mb-4">
             <span className="text-purple-500 text-sm">✦</span>
             <span className="text-sm text-purple-700 font-medium">Styled by <em className="italic">Runa</em> AI</span>
           </div>
-          <p className="text-sm text-neutral-600 mb-8 max-w-sm mx-auto leading-relaxed">
-            This is a preview with default styling. With Runa installed, outfits are tailored to your brand guidelines, visual identity, and merchandising rules.
+          <p className="text-sm text-neutral-600 mb-8 max-w-md mx-auto leading-relaxed">
+            Preview only. Once installed, Runa adapts to your brand and merchandising rules.
           </p>
 
-          <p className="text-sm text-neutral-500 mb-6">Average lift from stores running Runa</p>
-          <div className="flex items-center justify-center gap-12">
-            <div className="text-center">
-              <p className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">+15<span className="text-purple-600">%</span></p>
-              <p className="text-xs text-neutral-500 mt-1">Conversion Rate</p>
-            </div>
-            <div className="w-px h-8 sm:h-10 bg-neutral-200" />
-            <div className="text-center">
-              <p className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">+10<span className="text-purple-600">%</span></p>
-              <p className="text-xs text-neutral-500 mt-1">Average Order Value</p>
+          {/* Headline lift stat — bold and unmissable */}
+          <div className="relative mt-2 mb-4 inline-block">
+            <div className="absolute -inset-x-8 sm:-inset-x-16 -inset-y-6 sm:-inset-y-8 bg-gradient-to-br from-purple-100 via-purple-50 to-white rounded-3xl -z-10" />
+            <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.2em] text-purple-700 mb-2">
+              Average lift on current clients
+            </p>
+            <p className="text-5xl sm:text-6xl font-black text-purple-600 tracking-tighter leading-none">
+              +20<span className="text-3xl sm:text-4xl align-top">%</span>
+            </p>
+            <p className="text-base sm:text-lg font-bold text-neutral-900 mt-2 tracking-tight">
+              Average Order Value
+            </p>
+          </div>
+
+          {/* Client logos — validates the lift numbers */}
+          <div className="mt-10">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400 mb-5">
+              Trusted by leading fashion brands
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-x-7 sm:gap-x-10 gap-y-3">
+              <span className="text-base sm:text-lg font-bold tracking-[0.25em] text-neutral-700">TOFF</span>
+              <span className="text-base sm:text-lg font-semibold italic tracking-tight text-neutral-700">DyFashion</span>
+              <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHER</span>
+              <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHIM</span>
+              <span className="text-base sm:text-lg font-serif italic tracking-tight text-neutral-700">Amalin</span>
+              <span className="text-base sm:text-lg font-bold tracking-[0.18em] text-neutral-700">BOGAS</span>
             </div>
           </div>
 
-          <a
-            href={RUNA_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 mt-8 text-xs text-neutral-500 hover:text-purple-600 transition-colors"
-          >
-            Visit askruna.ai
-            <span aria-hidden="true">→</span>
-          </a>
+          {/* Pricing — removes "I have to ask" friction */}
+          <div className="mt-10 inline-flex flex-col items-center gap-1.5 px-6 py-4 rounded-2xl border border-neutral-200 bg-neutral-50">
+            <p className="text-sm text-neutral-500">Plans starting from</p>
+            <p className="text-2xl font-bold text-neutral-900 tracking-tight">
+              $499<span className="text-base font-medium text-neutral-500">/mo</span>
+            </p>
+            <p className="text-xs text-neutral-500">30-day money-back guarantee · cancel anytime</p>
+          </div>
+
+          {/* Primary + secondary CTAs */}
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <a
+              href={INSTALL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-2 px-7 py-3.5 bg-purple-600 text-white text-base font-bold rounded-full hover:bg-purple-500 transition-all shadow-lg shadow-purple-600/20 hover:shadow-purple-500/40 hover:scale-[1.02]"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
+              </svg>
+              Start free trial — 2 minutes
+              <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+              </svg>
+            </a>
+            <PlatformSupportLine theme="light" />
+          </div>
+
+          {/* Book a call CTA */}
+          <div className="mt-12 pt-10 border-t border-neutral-100">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400 mb-2">
+              Prefer to talk first?
+            </p>
+            <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 mb-1">
+              Book a 15-minute call
+            </h3>
+            <p className="text-sm text-neutral-500 mb-6 max-w-md mx-auto">
+              Walk through Runa with Adrian. See how it would look on your store.
+            </p>
+            <a
+              href={CALENDLY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-center gap-2 px-6 py-3 bg-white border border-neutral-300 text-neutral-900 text-sm font-semibold rounded-full hover:border-purple-400 hover:text-purple-700 hover:shadow-md transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+              Book a call on Calendly
+              <svg className="w-3.5 h-3.5 text-neutral-400 group-hover:text-purple-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+          </div>
+
+          {/* Footer — supporting links for visitors who want more context */}
+          <div className="mt-12 pt-8 border-t border-neutral-100">
+            <p className="text-xs text-neutral-400 mb-3">Want to learn more?</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm">
+              <a
+                href={RUNA_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neutral-600 hover:text-purple-600 transition-colors font-medium"
+              >
+                All features
+              </a>
+              <span className="text-neutral-300">·</span>
+              <a
+                href={`${RUNA_URL}#pricing`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neutral-600 hover:text-purple-600 transition-colors font-medium"
+              >
+                Pricing
+              </a>
+              <span className="text-neutral-300">·</span>
+              <a
+                href={`${RUNA_URL}#testimonials`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neutral-600 hover:text-purple-600 transition-colors font-medium"
+              >
+                Customer stories
+              </a>
+              <span className="text-neutral-300">·</span>
+              <a
+                href="mailto:adrian@askruna.ai"
+                className="text-neutral-600 hover:text-purple-600 transition-colors font-medium"
+              >
+                Contact
+              </a>
+            </div>
+            <a
+              href={RUNA_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-5 text-base font-bold tracking-tight text-neutral-900 hover:text-purple-600 transition-colors"
+            >
+              askruna.ai →
+            </a>
+            <p className="text-[11px] text-neutral-400 mt-2">
+              RunaChat, Inc. · San Francisco
+            </p>
+          </div>
 
         </div>
 
@@ -440,23 +573,38 @@ function ResultsView({ data, setResult }) {
         </div>
       )}
 
-      {/* Bottom CTA */}
+      {/* Sticky bottom bar */}
       <div className="fixed bottom-0 inset-x-0 bg-neutral-950 border-t border-neutral-800 text-white z-50">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <p className="text-sm text-neutral-300 hidden sm:block">
-            Like what you see? <em className="not-italic italic font-light">Runa</em> costs less than an intern, works harder than a department.
-          </p>
-          <p className="text-sm text-neutral-300 sm:hidden">
-            Like what you see?
-          </p>
-          <a
-            href="https://calendly.com/adrian-askruna/30min"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-5 py-2 bg-white text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-100 transition-colors whitespace-nowrap ml-6"
-          >
-            Book a Call
-          </a>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-white font-semibold leading-tight truncate">
+              Get your store styled by AI in 2 minutes
+            </p>
+            <p className="hidden sm:block text-xs text-neutral-400 mt-1 truncate">
+              Works with Shopify, Shopify Plus, VTEX, WooCommerce & custom platforms
+            </p>
+          </div>
+          <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+            <a
+              href={CALENDLY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:inline text-xs text-neutral-400 hover:text-white transition-colors underline-offset-4 hover:underline"
+            >
+              Book a call
+            </a>
+            <a
+              href={INSTALL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-4 sm:px-5 py-2.5 bg-purple-600 text-white text-sm font-bold rounded-full hover:bg-purple-500 transition-all whitespace-nowrap shadow-lg shadow-purple-600/30"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z" />
+              </svg>
+              Start free trial
+            </a>
+          </div>
         </div>
       </div>
     </div>

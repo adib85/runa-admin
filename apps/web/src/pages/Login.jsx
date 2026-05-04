@@ -6,8 +6,37 @@ function normalizeUrl(value) {
   return value
     .trim()
     .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .split('/')[0]
     .replace(/\/+$/, '')
     .toLowerCase();
+}
+
+/**
+ * Accepts anything that looks like a website / store identifier:
+ *   - Public domains:           mystore.com, www.mystore.com, https://mystore.com/foo
+ *   - Shopify handles:          mystore.myshopify.com
+ *   - Internal canonical shops: custom.mystore.com
+ * Rejects emails, plain text, and other obviously-wrong input.
+ *
+ * Returns null on success, or an error message string.
+ */
+function validateStoreUrl(raw) {
+  const value = raw.trim();
+  if (!value) return 'Please enter your store URL';
+  if (value.includes('@')) {
+    return 'That looks like an email — please enter your store URL';
+  }
+  if (/\s/.test(value)) {
+    return 'Store URL can\'t contain spaces';
+  }
+  const domain = normalizeUrl(value);
+  if (!domain) return 'Please enter your store URL';
+  // Must look like a domain: has at least one dot, valid chars, non-empty parts.
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(domain)) {
+    return 'Enter a valid store URL (e.g. mystore.com or mystore.myshopify.com)';
+  }
+  return null;
 }
 
 export default function Login() {
@@ -30,12 +59,12 @@ export default function Login() {
   function handleContinue(e) {
     e.preventDefault();
     setError('');
-    const cleaned = normalizeUrl(storeUrl);
-    if (!cleaned) {
-      setError('Please enter your store URL');
+    const validationError = validateStoreUrl(storeUrl);
+    if (validationError) {
+      setError(validationError);
       return;
     }
-    setStoreUrl(cleaned);
+    setStoreUrl(normalizeUrl(storeUrl));
     setStep(2);
   }
 
