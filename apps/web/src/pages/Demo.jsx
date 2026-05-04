@@ -201,28 +201,26 @@ function ResultsView({ data, setResult }) {
         <p className="text-neutral-300 max-w-md sm:max-w-2xl mx-auto text-sm sm:text-lg leading-relaxed sm:whitespace-nowrap">
           AI-built outfits from your catalog. Live on your PDPs in 48 hours.
         </p>
-        <div className="flex flex-col items-center justify-center gap-3 mt-7">
-          <a
-            href={INSTALL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-2 px-7 py-3.5 bg-purple-600 text-white text-base font-bold rounded-full hover:bg-purple-500 transition-all shadow-lg shadow-purple-600/30 hover:shadow-purple-500/50 hover:scale-[1.02]"
+        {/* Scroll cue — outfits are the pitch; CTA comes after */}
+        <button
+          type="button"
+          onClick={() => document.getElementById('product-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          className="group mt-9 inline-flex flex-col items-center gap-2 text-neutral-400 hover:text-white transition-colors"
+          aria-label="Scroll to see your outfits"
+        >
+          <span className="text-xs sm:text-sm font-medium tracking-wide">
+            See your outfits below
+          </span>
+          <svg
+            className="w-5 h-5 animate-bounce-slow group-hover:text-purple-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            Start free trial — 2 minutes
-            <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-            </svg>
-          </a>
-          <PlatformSupportLine theme="dark" />
-          <a
-            href={CALENDLY_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-400 text-sm hover:text-white transition-colors underline-offset-4 hover:underline mt-1"
-          >
-            or book a 15-minute call
-          </a>
-        </div>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
       </div>
 
       {/* Product Demo Section */}

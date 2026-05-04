@@ -44,6 +44,15 @@ export default {
         'soft': '0 2px 8px 0 rgb(0 0 0 / 0.04)',
         'medium': '0 4px 12px 0 rgb(0 0 0 / 0.06)',
       },
+      keyframes: {
+        'bounce-slow': {
+          '0%, 100%': { transform: 'translateY(0)', animationTimingFunction: 'cubic-bezier(0.8, 0, 1, 1)' },
+          '50%':      { transform: 'translateY(25%)', animationTimingFunction: 'cubic-bezier(0, 0, 0.2, 1)' },
+        },
+      },
+      animation: {
+        'bounce-slow': 'bounce-slow 2s infinite',
+      },
     },
   },
   plugins: [],
