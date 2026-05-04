@@ -102,17 +102,16 @@ export default function Register() {
           <img
             src="https://cdn.prod.website-files.com/6598727d8180e7b6c126a6cf/69344ca971a7628e577f32ab_runa_logo.png"
             alt="Runa"
-            className="w-16 h-16 rounded-full mb-4"
+            className="w-16 h-16 rounded-full"
           />
-          <h1 className="text-2xl font-light tracking-tight">RUNA</h1>
         </div>
 
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-semibold text-neutral-900">
-            Get started for free
+            Install Runa on your store
           </h2>
           <p className="text-xs text-neutral-500 mt-2">
-            14-day free trial · All features unlocked · No credit card required
+            14-day free trial · No credit card required
           </p>
         </div>
 
