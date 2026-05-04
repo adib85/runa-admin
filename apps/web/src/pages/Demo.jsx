@@ -201,26 +201,6 @@ function ResultsView({ data, setResult }) {
         <p className="text-neutral-300 max-w-md sm:max-w-2xl mx-auto text-sm sm:text-lg leading-relaxed sm:whitespace-nowrap">
           AI-built outfits from your catalog. Live on your PDPs in 48 hours.
         </p>
-        {/* Scroll cue — outfits are the pitch; CTA comes after */}
-        <button
-          type="button"
-          onClick={() => document.getElementById('product-demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          className="group mt-9 inline-flex flex-col items-center gap-2 text-neutral-400 hover:text-white transition-colors"
-          aria-label="Scroll to see your outfits"
-        >
-          <span className="text-xs sm:text-sm font-medium tracking-wide">
-            See your outfits below
-          </span>
-          <svg
-            className="w-5 h-5 animate-bounce-slow group-hover:text-purple-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
       </div>
 
       {/* Product Demo Section */}
