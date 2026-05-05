@@ -1,10 +1,20 @@
 import fetch from "node-fetch";
 
 const SHOPIFY_API_VERSION = "2025-10";
-// Match by block file path, not by app handle. The handle changes between
-// dev/prod ("runa-chat" vs "runa-ai"); the file name in the repo is stable
-// (extensions/runa-ai/blocks/app-embed.liquid).
-const APP_EMBED_BLOCK_PATH = "/blocks/app-embed/";
+// Match by app handle so we don't false-positive on other apps that happen to
+// name their embed block "app-embed" (e.g. amp-back-in-stock). The block file
+// in the repo is extensions/runa-ai/blocks/app-embed.liquid, but the app
+// handle wrapping it on the live store has varied across dev/prod versions
+// — keep all known Runa handles here.
+const RUNA_APP_HANDLES = ["runa-ai-stylist", "runa-ai", "runa-ai-assistant"];
+const RUNA_APP_EMBED_PREFIXES = RUNA_APP_HANDLES.map(
+  (h) => `shopify://apps/${h}/blocks/app-embed/`
+);
+
+function isRunaAppEmbedType(type) {
+  if (typeof type !== "string") return false;
+  return RUNA_APP_EMBED_PREFIXES.some((prefix) => type.startsWith(prefix));
+}
 
 /**
  * Returns whether the Runa AI Stylist app embed is currently enabled in
@@ -63,9 +73,8 @@ export async function checkAppEmbedEnabled({ shop, accessToken }) {
 
   // 3. Find a Runa app embed block in current.blocks; check `disabled`.
   const blocks = settings?.current?.blocks ?? {};
-  const entry = Object.entries(blocks).find(
-    ([, b]) =>
-      typeof b?.type === "string" && b.type.includes(APP_EMBED_BLOCK_PATH)
+  const entry = Object.entries(blocks).find(([, b]) =>
+    isRunaAppEmbedType(b?.type)
   );
   if (!entry) {
     return {
