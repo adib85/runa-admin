@@ -393,12 +393,29 @@ function ResultsView({ data, setResult }) {
               Trusted by leading fashion brands
             </p>
             <div className="flex flex-wrap items-center justify-center gap-x-7 sm:gap-x-10 gap-y-3">
-              <span className="text-base sm:text-lg font-bold tracking-[0.25em] text-neutral-700">TOFF</span>
-              <span className="text-base sm:text-lg font-semibold italic tracking-tight text-neutral-700">DyFashion</span>
-              <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHER</span>
-              <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHIM</span>
-              <span className="text-base sm:text-lg font-serif italic tracking-tight text-neutral-700">Amalin</span>
-              <span className="text-base sm:text-lg font-bold tracking-[0.18em] text-neutral-700">BOGAS</span>
+              {(() => {
+                const isFashionDays = (store.domain || '')
+                  .toLowerCase()
+                  .replace(/^https?:\/\//, '')
+                  .replace(/^www\./, '')
+                  .startsWith('fashiondays.ro');
+                return (
+                  <>
+                    <span className="text-base sm:text-lg font-bold tracking-[0.25em] text-neutral-700">TOFF</span>
+                    {!isFashionDays && (
+                      <span className="text-base sm:text-lg font-semibold italic tracking-tight text-neutral-700">DyFashion</span>
+                    )}
+                    <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHER</span>
+                    <span className="text-base sm:text-lg font-bold tracking-[0.22em] text-neutral-700">RUNWAYHIM</span>
+                    {!isFashionDays && (
+                      <>
+                        <span className="text-base sm:text-lg font-serif italic tracking-tight text-neutral-700">Amalin</span>
+                        <span className="text-base sm:text-lg font-bold tracking-[0.18em] text-neutral-700">BOGAS</span>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
