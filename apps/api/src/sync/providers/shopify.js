@@ -13,9 +13,45 @@ import { BaseProvider } from "./base.js";
 import { s3Service, openaiService } from "../services/index.js";
 import { convertHtmlToMarkdown, extractRelevantFields, delay } from "../utils/index.js";
 
+// ─── Bronze Snake collection-handle taxonomy ─────────────────────────────────
+// Shared between `detectBronzeSnakeDemographic` and `determineBronzeSnakeCategory`
+// so both functions agree on which `mens-*` / `womens-*` handles are real
+// gender signals vs. smart filters / admin buckets.
+const BS_ADMIN_HANDLES = new Set([
+  "gift-cards", "doesnt-include-gift-cards",
+  "mens", "mens-1", "womens", "womens-1",
+  "mens-new", "mens-back-in-stock", "mens-coming-soon",
+  "womens-new", "womens-just-landed", "womens-back-in-stock", "womens-coming-soon",
+]);
+const BS_GENERIC_HANDLES = new Set(["mens-accessories", "womens-accessories"]);
+// Color smart collections (e.g. mens-ivory, womens-cream) auto-include
+// products of that color regardless of actual gender. Don't include real
+// category words like "denim".
+const BS_COLOR_SUFFIXES = new Set([
+  "black", "white", "ivory", "cream", "beige", "brown", "chocolate", "tan",
+  "grey", "gray", "navy", "blue", "red", "pink", "green", "olive", "khaki",
+  "yellow", "orange", "purple", "wine", "burgundy", "mocha", "stone", "sage",
+  "earth", "rust", "camel", "natural", "nude", "sand",
+]);
+const BS_HANDLE_TYPO_FIX = {
+  "womens-acccessories": "womens-accessories",
+  "mens-accesories": "mens-accessories",
+  "men-accessories": "mens-accessories",
+};
+
+function isBronzeSnakeAdminHandle(h) {
+  return BS_ADMIN_HANDLES.has(h)
+    || /(^|-)just-landed$/.test(h)
+    || /-back-in-stock$/.test(h)
+    || /-coming-soon$/.test(h)
+    || /-sale$/.test(h)
+    || /-\d+$/.test(h)
+    || BS_COLOR_SUFFIXES.has(h.replace(/^(mens|womens)-/, ""));
+}
+
 const GET_PRODUCTS_QUERY = gql`
-  query getProducts($first: Int!, $after: String) {
-    products(first: $first, after: $after, query: "status:active", sortKey: CREATED_AT, reverse: true) {
+  query getProducts($first: Int!, $after: String, $query: String!) {
+    products(first: $first, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
       edges {
         cursor
@@ -32,6 +68,7 @@ const GET_PRODUCTS_QUERY = gql`
           }
           collections(first: 10) { edges { node { id title handle } } }
           metafields(first: 10) { edges { node { key value namespace } } }
+          styleFilters: metafield(namespace: "custom", key: "style_filters_new") { value type }
         }
       }
     }
@@ -53,6 +90,7 @@ export class ShopifyProvider extends BaseProvider {
     this.defaultConcurrency = 10;
     this.geminiModel = config.geminiModel || runaConfig.gemini.liteModel || runaConfig.gemini.model;
     this.skipGrounding = true;
+    this.productQueryFilter = this.getProductQueryFilter();
 
     this.stats = {
       totalFetched: 0,
@@ -80,9 +118,23 @@ export class ShopifyProvider extends BaseProvider {
       batchSize = 2;
     }
 
+    // Lazy-load the set of products actually visible on the storefront.
+    // For Bronze Snake we restrict the sync to /collections/all (~3,377)
+    // instead of every "published" product (~3,445) so we never index
+    // sold-out / hidden / draft items.
+    if (this.shopName === "bronze-snake-1.myshopify.com" && this.storefrontHandleSet === undefined) {
+      this.storefrontHandleSet = await this.fetchStorefrontVisibleHandles();
+    }
+
+    let queryStr = this.productQueryFilter || "status:active";
+    if (this.sinceIso) {
+      queryStr += ` AND updated_at:>=${this.sinceIso}`;
+    }
+
     const response = await this.graphQLClient.request(GET_PRODUCTS_QUERY, {
       first: batchSize,
-      after: effectiveCursor
+      after: effectiveCursor,
+      query: queryStr
     });
 
     const products = this.transformGraphQLResponse(response);
@@ -106,6 +158,13 @@ export class ShopifyProvider extends BaseProvider {
   transformGraphQLResponse(response) {
     return response.products.edges.map(edge => {
       const node = edge.node;
+
+      // Bronze Snake: only index products visible on the storefront's
+      // /collections/all (skip FINAL SALE / hidden / out-of-stock items).
+      if (this.storefrontHandleSet && !this.storefrontHandleSet.has(node.handle)) {
+        return null;
+      }
+
       const id = node.id.replace("gid://shopify/Product/", "");
 
       const images = node.images?.edges?.map(e => ({ src: e.node.src, alt: e.node.altText })) || [];
@@ -136,7 +195,7 @@ export class ShopifyProvider extends BaseProvider {
       const totalStock = variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0);
       if (totalStock <= 0) this.stats.zeroInventory++;
 
-      return {
+      const product = {
         id,
         title: node.title,
         body_html: node.descriptionHtml,
@@ -162,7 +221,219 @@ export class ShopifyProvider extends BaseProvider {
           namespace: e.node.namespace
         })) || []
       };
-    });
+
+      const demographics = this.detectDemographic(product, node.tags || []);
+      if (demographics) product.detectedDemographics = demographics;
+
+      // Bronze Snake: overwrite collection.title with the handle so the
+      // Neo4j (:Category) nodes use the slug form (`womens-jackets-coats`)
+      // instead of the messy title (`womens: jackets & coats`); and, only
+      // for products in `womens-jackets-coats` or `womens-bags-and-shoes`,
+      // append the storefront's "Style" filter values (custom.style_filters_new
+      // metafield, e.g. "Trench Coats", "Bomber Jackets") as extra category
+      // edges (slugified, deduplicated case-insensitively).
+      if (this.shopName === "bronze-snake-1.myshopify.com") {
+        product.collections = product.collections.map(c => ({
+          ...c,
+          title: c.handle || c.title,
+        }));
+
+        const STYLE_FILTER_PRIMARY_CATEGORIES = new Set([
+          "womens-jackets-coats",
+          "womens-bags-and-shoes",
+          "womens-swim",
+        ]);
+        const productHandles = new Set(product.collections.map(c => (c.handle || "").toLowerCase()));
+        const isInAllowedCategory = [...STYLE_FILTER_PRIMARY_CATEGORIES].some(h => productHandles.has(h));
+
+        if (isInAllowedCategory) {
+          const styleSlugs = this.extractBronzeSnakeStyleFilters(node.styleFilters?.value, productHandles);
+
+          // Fallback: products without a useful style metafield still need
+          // at least one style slug, because the chatbot's Gemini context
+          // doesn't expose the parent `womens-bags-and-shoes` /
+          // `womens-jackets-coats` / `womens-swim` categories — every
+          // product must be reachable via at least one style category.
+          if (styleSlugs.length === 0) {
+            const pt = (product.product_type || "").toLowerCase();
+            const titleLc = (product.title || "").toLowerCase();
+            if (productHandles.has("womens-swim")) {
+              // Title-keyword inference for swim, falls through to "swimwear" generic.
+              const SWIM_TITLE_RULES = [
+                [/bikini.*top|\bbra\b|bandeau/, "bikini-tops"],
+                [/bikini.*bottom|\bbottom\b|brief/, "bikini-bottoms"],
+                [/one[- ]piece|swimsuit/, "swim-one-piece"],
+                [/maxi.*skirt|midi.*skirt|beach.*skirt/, "beach-skirts"],
+                // sarong / sheer pant / beach dress / halter dress → swimwear bucket
+                [/sarong|sheer.*pant|halter|mini.*dress|short.*sleeve.*dress|beach.*dress|cover[- ]up/, "swimwear"],
+              ];
+              let inferred = null;
+              for (const [re, slug] of SWIM_TITLE_RULES) {
+                if (re.test(titleLc)) { inferred = slug; break; }
+              }
+              styleSlugs.push(inferred || "swimwear");
+            } else if (productHandles.has("womens-bags-and-shoes")) {
+              if (pt.includes("shoes") || /\b(shoe|heel|boot|loafer|sandal|sneaker|flat|wedge|mule|pump)\b/.test(titleLc)) {
+                styleSlugs.push("shoes");
+              } else {
+                styleSlugs.push("bags");
+              }
+            } else if (productHandles.has("womens-jackets-coats")) {
+              // Title-keyword inference, falls through to "jackets" generic.
+              const TITLE_RULES = [
+                [/\btrench\b/, "trench-coats"],
+                [/\bbomber\b/, "bomber-jackets"],
+                [/\bwindbreaker\b/, "windbreakers"],
+                [/denim.*jacket/, "denim-jackets"],
+                [/leather.*jacket/, "leather-jackets"],
+                [/suede.*jacket/, "suede-jackets"],
+                [/biker.*jacket/, "biker-jackets"],
+                [/\bpuffer\b/, "puffer-jackets"],
+                [/\bblazer\b/, "blazers"],
+                [/\bcardigan\b/, "knitwear"],
+                [/\bshacket\b/, "shackets"],
+                [/\bcoat\b/, "coats"],
+                [/\bjacket\b/, "jackets"],
+                [/\bset\b/, "sets"],
+                [/\bknit\b/, "knitwear"],
+              ];
+              let inferred = null;
+              for (const [re, slug] of TITLE_RULES) {
+                if (re.test(titleLc)) { inferred = slug; break; }
+              }
+              styleSlugs.push(inferred || "jackets");
+            }
+          }
+
+          for (const slug of styleSlugs) {
+            if (!product.collections.some(c => (c.handle || c.title) === slug)) {
+              product.collections.push({ id: `style-${slug}`, title: slug, handle: slug });
+            }
+          }
+        }
+      }
+
+      return product;
+    }).filter(p => p !== null);
+  }
+
+  // Parses Bronze Snake's `custom.style_filters_new` metafield (a JSON list
+  // like `["Trench Coats","Long Coats"]`) into a deduplicated, normalized
+  // list of slugified style names. Case variants ("Windbreakers" /
+  // "WindBreakers") collapse via lowercase. Synonyms are merged to canonical
+  // slugs (e.g. "Cropped Trench" → "trench-coats"). Styles that don't belong
+  // in the gated parent category are dropped.
+  //
+  // contextHandles: Set of the product's collection handles (used to apply
+  //   context-specific synonyms — e.g. "Mini Dresses" only collapses to
+  //   "beach-dresses" when the product is in `womens-swim`, not when it's
+  //   in a regular jackets/coats context).
+  extractBronzeSnakeStyleFilters(rawValue, contextHandles = new Set()) {
+    if (!rawValue) return [];
+    let arr;
+    try {
+      arr = JSON.parse(rawValue);
+    } catch {
+      arr = [rawValue];
+    }
+    if (!Array.isArray(arr)) arr = [arr];
+
+    const isSwim = contextHandles.has("womens-swim");
+
+    // Swim-context overrides — applied first when the product is in womens-swim.
+    // Re-uses dress/skirt slugs that mean different things outside swim.
+    // Singletons (sarong / sheer pants / beach dress variants) all collapse
+    // into `swimwear` so we don't end up with one-product slugs.
+    const SWIM_SYNONYMS = {
+      "one-piece": "swim-one-piece",
+      "midi-skirts": "beach-skirts",
+      "maxi-skirts": "beach-skirts",
+      // beach cover-ups / pool-side pieces → all consolidated under swimwear
+      "mini-dresses": "swimwear",
+      "short-sleeve-dresses": "swimwear",
+      "halter-neck-dresses": "swimwear",
+      "sheer-pants": "swimwear",
+      "sarongs": "swimwear",
+    };
+
+    // Default synonyms (apply in non-swim contexts).
+    const SYNONYMS = {
+      // ── jackets/coats ────────────────────────────────────────────────
+      "cropped-trench": "trench-coats",
+      "trench": "trench-coats",
+      "cardigans": "knitwear",
+      "sweaters": "knitwear",
+      // drop (not jackets/coats — these are other product categories)
+      "denim-tops": null,
+      "long-sleeve-tops": null,
+      "shirts": null,
+      "sets": null,
+      // ── bags/shoes ───────────────────────────────────────────────────
+      "clutch": "clutches",       // singular → plural
+      // drop (material, not style)
+      "genuine-leather": null,
+      // NOTE: "bags" and "shoes" are kept as-is (not dropped) so every
+      // product in womens-bags-and-shoes gets at least a generic style
+      // category — needed because the chatbot's Gemini context doesn't
+      // expose the parent `womens-bags-and-shoes` category directly.
+    };
+
+    const slugSet = new Set();
+    for (const v of arr) {
+      const raw = String(v).trim().toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      if (!raw) continue;
+      // Swim-context lookup wins over the default map.
+      if (isSwim && raw in SWIM_SYNONYMS) {
+        if (SWIM_SYNONYMS[raw] === null) continue;
+        slugSet.add(SWIM_SYNONYMS[raw]);
+      } else if (raw in SYNONYMS) {
+        if (SYNONYMS[raw] === null) continue;
+        slugSet.add(SYNONYMS[raw]);
+      } else {
+        slugSet.add(raw);
+      }
+    }
+    return [...slugSet];
+  }
+
+  // Fetch every product handle visible on the storefront's /collections/all
+  // (paginated public storefront API, no auth needed). Used as a strict
+  // visibility filter for Bronze Snake so we don't index FINAL SALE /
+  // out-of-stock / hidden products that pass `published_status:published`
+  // but are excluded from the customer-facing /collections/all smart
+  // collection.
+  async fetchStorefrontVisibleHandles() {
+    const handles = new Set();
+    const domain = this.shopName.replace(/\.myshopify\.com$/, "");
+    // Try the canonical custom domain first, fall back to *.myshopify.com
+    const hosts = [
+      "bronzesnake.com",                  // Bronze Snake's primary domain
+      `${domain}.myshopify.com`,
+    ];
+    for (const host of hosts) {
+      handles.clear();
+      try {
+        let page = 1;
+        while (page <= 50) {
+          const url = `https://${host}/collections/all/products.json?limit=250&page=${page}`;
+          const r = await fetch(url);
+          if (!r.ok) break;
+          const j = await r.json();
+          if (!j.products?.length) break;
+          for (const p of j.products) handles.add(p.handle);
+          if (j.products.length < 250) break;
+          page++;
+        }
+        if (handles.size > 0) {
+          console.log(`  [Shopify] Storefront /collections/all visible handles: ${handles.size} (via ${host})`);
+          return handles;
+        }
+      } catch (e) {
+        console.log(`  [Shopify] Failed to fetch storefront handles via ${host}: ${e.message}`);
+      }
+    }
+    console.log(`  [Shopify] Could not load storefront handles — falling back to admin-only filter (no visibility filter applied)`);
+    return null;
   }
 
   extractOptions(variantEdges) {
@@ -223,13 +494,119 @@ export class ShopifyProvider extends BaseProvider {
     return null;
   }
 
+  // Decides whether to invoke `pickHeroImage` for this product.
+  // Bronze Snake-only opt-in: their image arrays often have lookbook/lifestyle
+  // shots in the [0] slot, so the AI hero pick is worth the per-product cost.
+  // Skips products that already have a heroImage unless `rewriteHeroes` is set.
+  // Skips products with < 2 images (single-image case is handled inside
+  // pickHeroImage as an early return — this gate is purely an optimization).
+  shouldPickHero(product) {
+    if (this.shopName !== "bronze-snake-1.myshopify.com") return false;
+    const imgCount = (product.images || []).length;
+    if (imgCount < 2) return false;
+    if (product.heroImage && !this.rewriteHeroes) return false;
+    return true;
+  }
+
+  // ==================== PER-SHOP PRODUCT QUERY FILTER ====================
+
+  // Returns the Shopify GraphQL `query` argument used when fetching products.
+  // Default: only `status:active`. Per-shop overrides go here.
+  getProductQueryFilter() {
+    if (this.shopName === "bronze-snake-1.myshopify.com") {
+      // Only products actually visible on the storefront.
+      return "status:active AND published_status:published";
+    }
+    return "status:active";
+  }
+
+  // ==================== PER-SHOP DEMOGRAPHIC DETECTION ====================
+
+  // Returns an array of demographics (["man"], ["woman"], or ["man","woman"])
+  // when the shop has gendered structure, or null to fall back to the CLI
+  // `--demographic` default.
+  detectDemographic(product, rawTags) {
+    if (this.shopName === "bronze-snake-1.myshopify.com") {
+      return this.detectBronzeSnakeDemographic(product);
+    }
+    return null;
+  }
+
+  // Bronze Snake stores men's and women's products with collection handles
+  // prefixed by `mens-` / `womens-` and a matching `product_type`. Color smart
+  // collections (mens-ivory, womens-cream) and admin buckets (gift-cards, mens,
+  // mens-1, *-back-in-stock, ...) are NOT real gender signals — they're filtered
+  // out via the shared `isBronzeSnakeAdminHandle` helper.
+  // Products explicitly in BOTH (e.g. unisex caps) get ["man", "woman"]. Products
+  // with no signal at all return [] and are saved without any HAS_DEMOGRAPHIC edge.
+  detectBronzeSnakeDemographic(p) {
+    const handles = (p.collections || [])
+      .map(c => (c.handle || "").toLowerCase())
+      .map(h => BS_HANDLE_TYPO_FIX[h] || h)
+      .filter(h => !isBronzeSnakeAdminHandle(h));
+    const productType = (p.product_type || "").toLowerCase();
+
+    const hasMens = handles.some(h => h.startsWith("mens-")) || productType.startsWith("men");
+    const hasWomens = handles.some(h => h.startsWith("womens-")) || productType.startsWith("women");
+
+    if (hasMens && hasWomens) return ["man", "woman"];
+    if (hasMens) return ["man"];
+    if (hasWomens) return ["woman"];
+    return [];
+  }
+
+  // Bronze Snake category resolution. Same two signals as the demographic
+  // detector: real `mens-*` / `womens-*` collection handles first (most specific
+  // wins), then the product's `product_type` lowercased & dash-normalized.
+  // Ignores admin/utility/color/numbered handles via `isBronzeSnakeAdminHandle`.
+  // Returns null when neither signal yields anything — no category is set and
+  // the product won't be linked to a canonical category. (No AI fallback.)
+  determineBronzeSnakeCategory(product) {
+    const handles = (product.collections || [])
+      .map(c => (c.handle || "").toLowerCase())
+      .map(h => BS_HANDLE_TYPO_FIX[h] || h);
+    const gendered = handles
+      .filter(h => (h.startsWith("mens-") || h.startsWith("womens-")) && !isBronzeSnakeAdminHandle(h));
+
+    if (gendered.length > 0) {
+      const specific = gendered.filter(h => !BS_GENERIC_HANDLES.has(h));
+      const candidates = specific.length > 0 ? specific : gendered;
+      candidates.sort((a, b) => {
+        const segDiff = b.split("-").length - a.split("-").length;
+        if (segDiff !== 0) return segDiff;
+        const lenDiff = b.length - a.length;
+        if (lenDiff !== 0) return lenDiff;
+        return a.localeCompare(b);
+      });
+      const cat = candidates[0];
+      console.log(`  [BronzeSnake] category from collection handle: "${cat}" (chosen from ${handles.length} collections)`);
+      return cat;
+    }
+
+    let productType = (product.product_type || "").toLowerCase().trim().replace(/\s+/g, "-");
+    if (BS_HANDLE_TYPO_FIX[productType]) productType = BS_HANDLE_TYPO_FIX[productType];
+    if (productType) {
+      console.log(`  [BronzeSnake] category from product_type: "${productType}" (no gendered handles)`);
+      return productType;
+    }
+
+    console.log(`  [BronzeSnake] no category signal (no gendered handle, no product_type) — returning null`);
+    return null;
+  }
+
   // ==================== SHOP-SPECIFIC FEATURES ====================
 
-  // Override for DyFashion-specific category handling
+  // Override for shop-specific category handling
   determineCategory(product, productProperties, websiteCategories) {
     let category;
     const productTypeCategory = product.product_type ? product.product_type.toLowerCase() : "";
     console.log("\n\ncheck", productTypeCategory);
+
+    // Special handling for Bronze Snake — pick the most specific
+    // mens-*/womens-* collection handle (e.g. "womens-jackets-coats")
+    if (this.shopName === "bronze-snake-1.myshopify.com") {
+      return this.determineBronzeSnakeCategory(product);
+    }
 
     // Special handling for DyFashion
     if (this.shopName.includes("dyfashion")) {

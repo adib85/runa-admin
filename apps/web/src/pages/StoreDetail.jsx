@@ -33,6 +33,48 @@ export default function StoreDetail() {
     }
   });
 
+  // Modular sync (latest pipeline) — separate state so both UIs can coexist.
+  const [modularProgress, setModularProgress] = useState(null);
+  const [modularSinceMode, setModularSinceMode] = useState('all'); // 'all' | 'recent'
+
+  const { data: modularStatusData, refetch: refetchModularStatus } = useQuery({
+    queryKey: ['modular-sync-status', storeId],
+    queryFn: () => apiEndpoints.getModularSyncStatus(storeId),
+    refetchInterval: modularProgress ? 3000 : false
+  });
+
+  const modularSyncMutation = useMutation({
+    mutationFn: (opts = {}) => apiEndpoints.startModularSync(storeId, opts),
+    onSuccess: () => {
+      setModularProgress({ status: 'running' });
+      refetchModularStatus();
+    }
+  });
+
+  useEffect(() => {
+    if (modularStatusData?.data) {
+      const s = modularStatusData.data;
+      if (s.status === 'running' || s.status === 'queued') {
+        setModularProgress({
+          status: s.status,
+          progress: s.progress,
+          total: s.total,
+          lastBatch: s.lastBatch,
+          recentLog: s.recentLog || [],
+        });
+      } else if (s.status === 'completed' || s.status === 'failed' || s.status === 'cancelled') {
+        setModularProgress(null);
+        queryClient.invalidateQueries(['store', storeId]);
+        queryClient.invalidateQueries(['store-stats', storeId]);
+      }
+    }
+  }, [modularStatusData, storeId, queryClient]);
+
+  const triggerModular = () => {
+    const opts = modularSinceMode === 'recent' ? { since: '24h' } : {};
+    modularSyncMutation.mutate(opts);
+  };
+
   useEffect(() => {
     if (syncStatusData?.data) {
       const status = syncStatusData.data;
@@ -103,21 +145,69 @@ export default function StoreDetail() {
           </div>
           <p className="text-sm text-neutral-500">{store.domain}</p>
         </div>
-        <button
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending || syncProgress}
-          className="btn btn-primary"
-        >
-          {syncProgress ? (
-            <span className="flex items-center">
-              <span className="spinner mr-2"></span>
-              Syncing
-            </span>
-          ) : (
-            'Sync Products'
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending || syncProgress}
+            className="btn btn-secondary"
+            title="Run the legacy @runa/core sync pipeline."
+          >
+            {syncProgress ? (
+              <span className="flex items-center"><span className="spinner mr-2"></span>Syncing</span>
+            ) : ('Sync (legacy)')}
+          </button>
+
+          <select
+            value={modularSinceMode}
+            onChange={(e) => setModularSinceMode(e.target.value)}
+            disabled={modularProgress}
+            className="input input-sm"
+            title="Restrict to recent changes (faster) or full catalog reconciliation."
+          >
+            <option value="all">All products</option>
+            <option value="recent">Last 24h only</option>
+          </select>
+
+          <button
+            onClick={triggerModular}
+            disabled={modularSyncMutation.isPending || modularProgress}
+            className="btn btn-primary"
+            title="Run the modular sync pipeline (Bronze Snake-aware: storefront filter, demographics, style filters)."
+          >
+            {modularProgress ? (
+              <span className="flex items-center">
+                <span className="spinner mr-2"></span>
+                Syncing {modularProgress.progress > 0 ? `${modularProgress.progress}/${modularProgress.total || '?'}` : ''}
+              </span>
+            ) : ('Sync Now')}
+          </button>
+        </div>
       </div>
+
+      {/* Modular sync progress panel */}
+      {modularProgress && (
+        <div className="border border-emerald-100 bg-emerald-50 p-6 mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-emerald-900">
+              Modular sync running{modularProgress.lastBatch ? ` — last batch: ${modularProgress.lastBatch.new} new, ${modularProgress.lastBatch.existing} existing` : ''}
+            </span>
+            <span className="text-xs text-emerald-700">
+              {modularProgress.progress || 0} / {modularProgress.total || '?'}
+            </span>
+          </div>
+          <div className="w-full h-1 bg-emerald-100 mb-3">
+            <div
+              className="h-1 bg-emerald-600 transition-all"
+              style={{ width: modularProgress.total ? `${Math.min(100, (modularProgress.progress / modularProgress.total) * 100)}%` : '0%' }}
+            ></div>
+          </div>
+          {modularProgress.recentLog?.length > 0 && (
+            <pre className="text-xs text-emerald-900 bg-white border border-emerald-200 p-2 max-h-32 overflow-auto">
+              {modularProgress.recentLog.slice(-6).join('\n')}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* Sync Progress */}
       {syncProgress && (

@@ -110,11 +110,16 @@ export const apiEndpoints = {
   searchProducts: (data) => api.post('/products/search', data),
   getProductStats: (storeId) => api.get(`/products/stats/${storeId}`),
 
-  // Sync
+  // Sync (legacy @runa/core pipeline)
   startSync: (storeId) => api.post('/sync/start', { storeId }),
   getSyncStatus: (storeId) => api.get(`/sync/status/${storeId}`),
   cancelSync: (storeId) => api.post(`/sync/cancel/${storeId}`),
   getSyncHistory: (storeId) => api.get(`/sync/history/${storeId}`),
+
+  // Modular sync (latest pipeline — Bronze Snake style filters, demographics, storefront visibility, etc.)
+  startModularSync: (storeId, opts = {}) => api.post('/sync/modular/start', { storeId, ...opts }),
+  getModularSyncStatus: (storeId) => api.get(`/sync/modular/status/${storeId}`),
+  cancelModularSync: (storeId) => api.post(`/sync/modular/cancel/${storeId}`),
 
   // AI Custom
   getProductDescription: (data) => api.post('/ai/product-description', data),

@@ -98,6 +98,27 @@ async function getProductById(productId, storeId) {
   }
 }
 
+async function getProductByHandle(handle, storeId) {
+  const driver = getDriver();
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `MATCH (p:Product {handle: $handle, storeId: $storeId})
+       RETURN p.id as id, p.title as title, p.handle as handle, p.storeId as storeId`,
+      { handle, storeId }
+    );
+    if (result.records.length === 0) return null;
+    const r = result.records[0];
+    return { id: r.get("id"), title: r.get("title"), handle: r.get("handle"), storeId: r.get("storeId") };
+  } catch (error) {
+    console.error("Error fetching product by handle:", error);
+    throw error;
+  } finally {
+    await session.close();
+    await driver.close();
+  }
+}
+
 async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false, reindexOnly = false) {
   const driver = getDriver();
   const session = driver.session();
@@ -321,6 +342,12 @@ async function processStoreProductsWithLambda(storeId, options = {}) {
   let totalDuration = 0;
   let skip = startFrom;
 
+  // Loop guard: in --missing mode, products that fail (Lambda HTTP error,
+  // etc.) never get their timestamp stamped, so the next batch fetches
+  // them again → infinite loop. Track which product ids we've seen this
+  // run; if a batch returns nothing new, abort with a clear error.
+  const seenProductIds = new Set();
+
   const results = { successful: [], errors: [] };
 
   try {
@@ -336,6 +363,20 @@ async function processStoreProductsWithLambda(storeId, options = {}) {
       if (products.length === 0) {
         console.log("No more products to process");
         break;
+      }
+
+      if (missingOnly) {
+        const newProducts = products.filter(p => !seenProductIds.has(String(p.id)));
+        if (newProducts.length === 0) {
+          const stuckHandles = products.map(p => `${p.handle} (${p.id})`).join(", ");
+          console.error(`\n!!! Loop guard: --missing batch returned ${products.length} product(s) we've already attempted this run.`);
+          console.error(`    These products keep failing without stamping their timestamp:`);
+          console.error(`    ${stuckHandles}`);
+          console.error(`    Aborting to avoid infinite loop. Investigate the Lambda failure or skip these handles manually:`);
+          console.error(`      MATCH (p:Product {handle: "<handle>", storeId: $s}) SET p.complete_the_look_updated_at = datetime()`);
+          break;
+        }
+        for (const p of products) seenProductIds.add(String(p.id));
       }
 
       console.log(`Fetched ${products.length} products`);
@@ -439,6 +480,7 @@ export {
   processStoreProductsWithLambda,
   processProductWithLambda,
   getProductById,
+  getProductByHandle,
   fetchProductsBatch,
   countStoreProducts,
   buildLambdaUrl,
@@ -455,6 +497,7 @@ const args = process.argv.slice(2);
 if (args.length === 0) {
   console.error("Usage: node sync-lambda-complete-the-look.js <storeId> [options]");
   console.error("  Options:");
+  console.error("    --handle <handle>    Process a single product by handle (skips batch mode)");
   console.error("    --batchSize <n>      Number of parallel requests (default: 10)");
   console.error("    --maxProducts <n>    Max products to process (default: unlimited)");
   console.error("    --startFrom <n>      Starting offset (default: 0)");
@@ -494,9 +537,35 @@ const missingOnly = args.includes("--missing");
 const language = cliOpts.language || "en";
 const geminiModel = cliOpts["gemini-model"] || null;
 const skipImages = args.includes("--skip-images");
+const singleHandle = typeof cliOpts.handle === "string" ? cliOpts.handle : null;
+
+const sharedLambdaOptions = {
+  userId: "default-2",
+  personality: "classic, romantic",
+  chromatic: "autumn",
+  isNeutral: 0,
+  action: "gpt-4",
+  tokens: 1024,
+  temperature: 1,
+  language,
+  geminiModel,
+  skipImages,
+};
 
 (async () => {
   try {
+    if (singleHandle) {
+      console.log(`\n[single-handle mode] storeId=${cliStoreId} handle=${singleHandle}\n`);
+      const product = await getProductByHandle(singleHandle, cliStoreId);
+      if (!product) {
+        console.error(`Product not found in Neo4j: handle="${singleHandle}" storeId="${cliStoreId}"`);
+        process.exit(1);
+      }
+      const result = await processProductWithLambda(product, sharedLambdaOptions);
+      console.log(`\nDone. Status: ${result.status}${result.duration ? `, duration: ${result.duration}ms` : ""}${result.error ? `, error: ${result.error}` : ""}`);
+      process.exit(result.status === "success" ? 0 : 1);
+    }
+
     const result = await processStoreProductsWithLambda(cliStoreId, {
       batchSize,
       maxProducts,
@@ -504,18 +573,7 @@ const skipImages = args.includes("--skip-images");
       hoursAgo,
       missingOnly,
       reindexOnly,
-      lambdaOptions: {
-        userId: "default-2",
-        personality: "classic, romantic",
-        chromatic: "autumn",
-        isNeutral: 0,
-        action: "gpt-4",
-        tokens: 1024,
-        temperature: 1,
-        language,
-        geminiModel,
-        skipImages
-      }
+      lambdaOptions: sharedLambdaOptions
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);
   } catch (error) {

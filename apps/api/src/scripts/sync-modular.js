@@ -51,6 +51,8 @@ async function main() {
   const args = process.argv.slice(2);
   const forceAll = args.includes('--force') || args.includes('-f');
   const rewriteDescriptions = args.includes('--rewrite-descriptions');
+  const dryRun = args.includes('--dry-run');
+  const rewriteHeroes = args.includes('--rewrite-heroes');
 
   const demoIdx = args.indexOf('--demographic');
   const demographic = demoIdx !== -1 ? args[demoIdx + 1] : null;
@@ -58,7 +60,24 @@ async function main() {
   const modelIdx = args.indexOf('--gemini-model');
   const geminiModel = modelIdx !== -1 ? args[modelIdx + 1] : null;
 
-  const flagsWithValues = ['--demographic', '--gemini-model'];
+  const maxIdx = args.indexOf('--max');
+  const maxProducts = maxIdx !== -1 ? parseInt(args[maxIdx + 1], 10) : null;
+
+  const sinceIdx = args.indexOf('--since');
+  const sinceArg = sinceIdx !== -1 ? args[sinceIdx + 1] : null;
+  let sinceIso = null;
+  if (sinceArg) {
+    const m = sinceArg.match(/^(\d+)([smhd])$/);
+    if (!m) {
+      console.error("--since must be in form like '70m', '4h', '2d', '300s'");
+      process.exit(1);
+    }
+    const unitMs = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+    sinceIso = new Date(Date.now() - parseInt(m[1], 10) * unitMs[m[2]]).toISOString();
+    console.log(`  [Sync] Filtering to products updated since ${sinceIso} (--since ${sinceArg})`);
+  }
+
+  const flagsWithValues = ['--demographic', '--gemini-model', '--max', '--since'];
   const filteredArgs = args.filter((a, i) => !a.startsWith('-') && !flagsWithValues.includes(args[i - 1]));
   
   const provider = filteredArgs[0] || 'shopify';
@@ -67,8 +86,12 @@ async function main() {
     provider,
     forceAll,
     rewriteDescriptions,
+    rewriteHeroes,
     demographic,
     geminiModel,
+    maxProducts,
+    dryRun,
+    sinceIso,
     region: "us-east-1"
   };
 
@@ -90,6 +113,7 @@ Arguments:
 
 Options:
   --force, -f   Process ALL products (skip existing product check)
+  --max <n>     Stop after processing N products (useful for test runs)
 
 Environment variables (alternative):
   VTEX_ACCOUNT_NAME   Account name
@@ -129,12 +153,21 @@ Options:
   --force, -f              Process ALL products (skip existing product check)
   --demographic <value>    Default demographic for products (woman, man, unisex). Defaults to "woman"
   --rewrite-descriptions   Regenerate AI descriptions for ALL products (even those with existing descriptions)
+  --max <n>                Stop after processing N products (useful for test runs)
+  --since <duration>       Only fetch products updated within the given window (e.g. 70m, 4h, 2d).
+                           Append to GraphQL query as updated_at:>=ISO. Big speedup for hourly cron.
+  --rewrite-heroes         Recompute the AI-picked hero image for ALL products (Bronze Snake only — gated to
+                           the shop opt-in inside ShopifyProvider.shouldPickHero).
+  --dry-run                Run the full pipeline (incl. AI) but skip ALL writes to Neo4j, DynamoDB, and PubNub
 
 Examples:
   node sync-modular.js shopify my-store.myshopify.com
   node sync-modular.js shopify my-store.myshopify.com --force
   node sync-modular.js shopify my-store.myshopify.com --demographic unisex
   node sync-modular.js shopify my-store.myshopify.com --force --rewrite-descriptions
+  node sync-modular.js shopify my-store.myshopify.com --max 10
+  node sync-modular.js shopify my-store.myshopify.com --force --max 2
+  node sync-modular.js shopify my-store.myshopify.com --dry-run --max 5
       `);
       process.exit(1);
     }

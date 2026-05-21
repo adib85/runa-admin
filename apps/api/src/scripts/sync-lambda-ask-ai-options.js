@@ -1,22 +1,45 @@
 #!/usr/bin/env node
 
 /**
- * Lambda Similar Products Processor
- * Fetches products from Neo4j and refreshes "Similar Products" widgets
- * by clearing cache, calling the similar-products Lambda, and updating timestamps.
+ * Lambda Ask AI Options Processor
+ *
+ * Fetches products from Neo4j and refreshes the standalone "Ask AI" chip
+ * suggestions by clearing the dedicated DynamoDB cache item, calling the
+ * ask-ai Lambda, and stamping a timestamp on the product node.
+ *
+ * Pattern mirrors `sync-lambda-similar-products.js` exactly.
+ *
+ * Endpoint (declared in `src/pdpWidgets/api.js:14` as AI_STYLIST_URL):
+ *   GET https://376jtm5kvrmblt45jdduztivku0odqxn.lambda-url.us-east-1.on.aws/
+ *       ?domain=<storeId>&handle=<productHandle>
+ *       [&skipCaching=true]
+ *       [&geminiModel=<name>]
+ *
+ * Response shape:
+ *   { "data": { "userOptions": ["Question 1", "Question 2", ...] } }
+ *
+ * Cache item the Lambda is expected to fill (consistent with other Bronze
+ * Snake cache keys like `_similar_products_`):
+ *   `<storeId>_userOptions_<handle>_<lang>`
  *
  * Usage:
- *   node apps/api/src/scripts/sync-lambda-similar-products.js <storeId> [options]
+ *   node apps/api/src/scripts/sync-lambda-ask-ai-options.js <storeId> [options]
  *
  *   Options:
  *     --batchSize <n>      Number of parallel requests (default: 10)
  *     --maxProducts <n>    Max products to process (default: unlimited)
  *     --startFrom <n>      Starting offset (default: 0)
- *     --delay <ms>         Delay between requests in ms (default: 2000)
+ *     --hours <n>          Only products updated in last N hours (default: 24)
+ *     --all                Process ALL products regardless of updated_at
+ *     --missing            Only products missing ask_ai_options_updated_at
+ *     --reindex            Only products flagged with needs_reindex=true
+ *     --delay <ms>         Delay between requests in ms (default: 100)
+ *     --skip-caching       Pass skipCaching=true to the Lambda
+ *     --gemini-model <m>   Pin a specific Gemini model in the Lambda call
  *
  *   Examples:
- *     node apps/api/src/scripts/sync-lambda-similar.js toffro.vtexcommercestable.com.br
- *     node apps/api/src/scripts/sync-lambda-similar.js mystore.myshopify.com --batchSize 5 --maxProducts 50
+ *     node apps/api/src/scripts/sync-lambda-ask-ai-options.js bronze-snake-1.myshopify.com --missing
+ *     node apps/api/src/scripts/sync-lambda-ask-ai-options.js bronze-snake-1.myshopify.com --batchSize 5 --maxProducts 50
  */
 
 import dotenv from "dotenv";
@@ -32,19 +55,40 @@ import fetch from "node-fetch";
 import AWS from "aws-sdk";
 import { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, AWS_REGION } from "../sync/services/config.js";
 
-const SIMILAR_PRODUCTS_LAMBDA_URL = "https://ztqjtsoqzv5jgmv2v55jnrqokq0klhwg.lambda-url.us-east-1.on.aws/";
+const ASK_AI_LAMBDA_URL = "https://376jtm5kvrmblt45jdduztivku0odqxn.lambda-url.us-east-1.on.aws/";
 
 AWS.config.update({ region: AWS_REGION });
 const dynamodb = new AWS.DynamoDB.DocumentClient({ convertEmptyValues: true });
 const CACHE_TABLE = process.env.DYNAMODB_CACHE_TABLE || "CacheTable";
 
-// ─── DynamoDB: delete similar products cache ─────────────────────────
+// ─── DynamoDB: cache key + helpers ───────────────────────────────────
+//
+// The AI_STYLIST_URL Lambda DOES cache to DynamoDB, but only when:
+//   - `skipCaching` is false (default)
+//   - `userOptions.length === 3` in the response
+// And it uses the `language` query param (default "ro") as the suffix
+// of the cache key. We pass `language=en` from `refreshAskAiOptions`
+// so the Lambda's own write lands at the same key our writer reads
+// from. As an extra safety net (and to cover the `--skip-caching`
+// path where the Lambda skips its own write), this generator also
+// `put`s the chips itself via `writeAskAiCache` after each Lambda
+// call. The two writes are idempotent.
+//
+// Cache shape mirrors the CTL/Similar items so the existing
+// cache-fanout / cleanup-stale tools recognise it:
+//   id      = `<storeId>_userOptions_<handle>_<lang>`
+//   storeId = <storeId>
+//   data    = { userOptions: [string, ...] }
 
-async function deleteSimilarProductsCache(productHandle, storeId, languages = ["en"]) {
+function buildAskAiCacheKey(handle, storeId, language = "en") {
+  return `${storeId.toLowerCase()}_userOptions_${String(handle).toLowerCase()}_${language}`;
+}
+
+async function deleteAskAiCache(productHandle, storeId, languages = ["en"]) {
   try {
     const deletions = languages.map(language => {
-      const cacheId = `${storeId.toLowerCase()}_similar_products_${productHandle.toLowerCase()}_${language}`;
-      console.log(`   Deleting similar products cache: ${cacheId}`);
+      const cacheId = buildAskAiCacheKey(productHandle, storeId, language);
+      console.log(`   Deleting ask-ai cache: ${cacheId}`);
 
       return dynamodb
         .delete({ TableName: CACHE_TABLE, Key: { id: cacheId } })
@@ -57,7 +101,7 @@ async function deleteSimilarProductsCache(productHandle, storeId, languages = ["
     const successful = results.filter(r => r.success).length;
     const failed = results.filter(r => !r.success).length;
 
-    console.log(`   Similar products cache deletion: ${successful} ok, ${failed} failed`);
+    console.log(`   Ask-ai cache deletion: ${successful} ok, ${failed} failed`);
 
     if (failed > 0) {
       console.error(`   Failed deletions:`, results.filter(r => !r.success));
@@ -65,21 +109,45 @@ async function deleteSimilarProductsCache(productHandle, storeId, languages = ["
 
     return { success: failed === 0, total: results.length, successful, failed, results };
   } catch (error) {
-    console.error(`   Error deleting similar products cache:`, error);
+    console.error(`   Error deleting ask-ai cache:`, error);
     throw error;
   }
 }
 
-// ─── Lambda: refresh similar products widget ─────────────────────────
+async function writeAskAiCache(productHandle, storeId, options, language = "en") {
+  const cacheId = buildAskAiCacheKey(productHandle, storeId, language);
+  const item = {
+    id: cacheId,
+    storeId,
+    data: { userOptions: Array.isArray(options) ? options : [] },
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    await dynamodb.put({ TableName: CACHE_TABLE, Item: item }).promise();
+    console.log(`   Wrote ask-ai cache: ${cacheId} (${item.data.userOptions.length} chips)`);
+    return { success: true, cacheId, count: item.data.userOptions.length };
+  } catch (error) {
+    console.error(`   Error writing ask-ai cache:`, error);
+    return { success: false, cacheId, error: error.message };
+  }
+}
 
-async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null, skipImages = false, candidateLimit = null } = {}) {
-  let url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar`;
-  if (geminiModel) url += `&geminiModel=${encodeURIComponent(geminiModel)}`;
-  if (skipImages) url += `&skipImages=true`;
-  if (candidateLimit) url += `&candidateLimit=${candidateLimit}`;
+// ─── Lambda: refresh ask-ai chips ────────────────────────────────────
+
+async function refreshAskAiOptions(productHandle, storeId, { geminiModel = null, skipCaching = false, language = "en" } = {}) {
+  // The Lambda's `language` query param defaults to "ro" if omitted and is
+  // used as the suffix in its DynamoDB cache key
+  // `<storeId>_userOptions_<handle>_<lang>`. Passing `language=en` makes
+  // the Lambda's own cache write land at the same key our metafield
+  // writer reads from. Without this, the Lambda silently caches under
+  // `_ro` and our writer never finds it.
+  const params = new URLSearchParams({ domain: storeId, handle: productHandle, language });
+  if (skipCaching) params.set("skipCaching", "true");
+  if (geminiModel) params.set("geminiModel", geminiModel);
+  const url = `${ASK_AI_LAMBDA_URL}?${params.toString()}`;
 
   try {
-    console.log(`   Refreshing similar products widget...`);
+    console.log(`   Refreshing ask-ai options...`);
 
     const startTime = Date.now();
     const response = await fetch(url, {
@@ -93,12 +161,16 @@ async function refreshSimilarProductsWidget(productHandle, storeId, { geminiMode
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = await response.json();
-    console.log(`   Similar products widget refreshed (${duration}ms)`);
+    const json = await response.json().catch(() => ({}));
+    const options = Array.isArray(json?.data?.userOptions)
+      ? json.data.userOptions.filter(o => typeof o === "string" && o.trim().length > 0)
+      : [];
 
-    return { success: true, duration, url, data };
+    console.log(`   Ask-ai options refreshed (${duration}ms, ${options.length} chips)`);
+
+    return { success: true, duration, url, options };
   } catch (error) {
-    console.error(`   Error refreshing similar products widget: ${error.message}`);
+    console.error(`   Error refreshing ask-ai options: ${error.message}`);
     return { success: false, error: error.message, url };
   }
 }
@@ -109,16 +181,17 @@ function getDriver() {
   return neo4j.driver(NEO4J_URI, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD));
 }
 
-async function updateSimilarProductTimestamp(productId, storeId) {
+async function updateAskAiTimestamp(productId, storeId, optionsCount) {
   const driver = getDriver();
   const session = driver.session();
   try {
     const now = new Date().toISOString();
     const result = await session.run(
       `MATCH (p:Product {id: $productId, storeId: $storeId})
-       SET p.similar_product_updated_at = $updatedAt
-       RETURN p.id as id, p.similar_product_updated_at as similar_product_updated_at`,
-      { productId, storeId, updatedAt: now }
+       SET p.ask_ai_options_updated_at = $updatedAt,
+           p.ask_ai_options_count      = $count
+       RETURN p.id as id, p.ask_ai_options_updated_at as ask_ai_options_updated_at`,
+      { productId, storeId, updatedAt: now, count: neo4j.int(optionsCount || 0) }
     );
 
     if (result.records.length === 0) {
@@ -126,11 +199,11 @@ async function updateSimilarProductTimestamp(productId, storeId) {
       return { success: false, message: "Product not found" };
     }
 
-    console.log(`   similar_product_updated_at timestamp updated in Neo4j`);
+    console.log(`   ask_ai_options_updated_at timestamp updated in Neo4j`);
     return {
       success: true,
       productId,
-      similar_product_updated_at: result.records[0].get("similar_product_updated_at")
+      ask_ai_options_updated_at: result.records[0].get("ask_ai_options_updated_at")
     };
   } catch (error) {
     console.error(`   Error updating timestamp in Neo4j:`, error);
@@ -191,7 +264,7 @@ async function countStoreProducts(storeId, hoursAgo = null, missingOnly = false,
       ? `AND p.updated_at IS NOT NULL AND datetime(p.updated_at) >= datetime() - duration('PT${hoursAgo}H')`
       : "";
     const missingFilter = missingOnly
-      ? `AND p.similar_product_updated_at IS NULL`
+      ? `AND p.ask_ai_options_updated_at IS NULL`
       : "";
     const reindexFilter = reindexOnly
       ? `AND p.needs_reindex = true`
@@ -224,7 +297,7 @@ async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missing
       ? `AND p.updated_at IS NOT NULL AND datetime(p.updated_at) >= datetime() - duration('PT${hoursAgo}H')`
       : "";
     const missingFilter = missingOnly
-      ? `AND p.similar_product_updated_at IS NULL`
+      ? `AND p.ask_ai_options_updated_at IS NULL`
       : "";
     const reindexFilter = reindexOnly
       ? `AND p.needs_reindex = true`
@@ -259,7 +332,7 @@ async function fetchProductsBatch(storeId, skip, limit, hoursAgo = null, missing
 
 // ─── Single product processor ────────────────────────────────────────
 
-async function processSimilarProductsForProduct(product, { geminiModel = null, skipImages = false, candidateLimit = null } = {}) {
+async function processAskAiForProduct(product, { geminiModel = null, skipCaching = false } = {}) {
   console.log(`\n   [${product.id}] ${product.title}`);
   console.log(`   Handle: ${product.handle}`);
   console.log(`   Store/Domain: ${product.storeId}`);
@@ -267,25 +340,33 @@ async function processSimilarProductsForProduct(product, { geminiModel = null, s
   try {
     const startTime = Date.now();
 
-    await deleteSimilarProductsCache(product.handle, product.storeId);
+    await deleteAskAiCache(product.handle, product.storeId);
 
-    const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId, { geminiModel, skipImages, candidateLimit });
+    const result = await refreshAskAiOptions(product.handle, product.storeId, { geminiModel, skipCaching });
 
-    if (similarResult.success) {
-      await updateSimilarProductTimestamp(product.id, product.storeId);
+    if (result.success) {
+      // The Lambda also caches to the same key (we pass `language=en`),
+      // but we re-`put` here as a safety net for the `--skip-caching`
+      // path (where the Lambda skips its own write) and to guarantee
+      // freshness for the next pipeline step.
+      const cacheWrite = await writeAskAiCache(product.handle, product.storeId, result.options || []);
+      if (!cacheWrite.success) {
+        console.error(`   WARN — cache write failed: ${cacheWrite.error}`);
+      }
+      await updateAskAiTimestamp(product.id, product.storeId, result.options?.length || 0);
     }
 
     const duration = Date.now() - startTime;
     console.log(`   Complete (${duration}ms)`);
 
-    // Lambda failures (e.g. HTTP 502) return {success:false} — surface them
-    // as errors so batch stats stay honest and the loop guard in --missing
-    // mode can detect a stuck product instead of looping forever.
-    if (!similarResult.success) {
-      return { status: "error", product, duration, error: similarResult.error || "Lambda call failed", similarProducts: similarResult };
+    // Lambda failures (e.g. HTTP 502) return {success:false} — surface
+    // them as errors so batch stats stay honest and the loop guard in
+    // --missing mode can detect a stuck product.
+    if (!result.success) {
+      return { status: "error", product, duration, error: result.error || "Lambda call failed", askAi: result };
     }
 
-    return { status: "success", product, duration, similarProducts: similarResult };
+    return { status: "success", product, duration, askAi: result };
   } catch (error) {
     console.error(`   Error: ${error.message}`);
     return { status: "error", product, error: error.message };
@@ -294,7 +375,7 @@ async function processSimilarProductsForProduct(product, { geminiModel = null, s
 
 // ─── Main batch processor ────────────────────────────────────────────
 
-async function processSimilarProductsRecent(storeId, options = {}) {
+async function processAskAiRecent(storeId, options = {}) {
   const {
     batchSize = 10,
     maxProducts = null,
@@ -304,12 +385,11 @@ async function processSimilarProductsRecent(storeId, options = {}) {
     reindexOnly = false,
     delayBetweenRequests = 100,
     geminiModel = null,
-    skipImages = false,
-    candidateLimit = null
+    skipCaching = false
   } = options;
 
   console.log("\n========================================");
-  console.log("SIMILAR PRODUCTS PROCESSOR");
+  console.log("ASK-AI OPTIONS PROCESSOR");
   console.log("========================================");
   console.log(`Store ID: ${storeId}`);
   console.log(`Mode: ${reindexOnly ? "REINDEX (needs_reindex=true)" : missingOnly ? "MISSING ONLY" : hoursAgo ? `last ${hoursAgo} hours` : "ALL products"}`);
@@ -329,11 +409,10 @@ async function processSimilarProductsRecent(storeId, options = {}) {
   let totalDuration = 0;
   let skip = startFrom;
 
-  // Loop guard: in --missing mode, products that fail (Lambda 502, etc.)
-  // never get their timestamp stamped, so the next batch fetches them
-  // again → infinite loop. Track which product ids we've seen this run;
-  // if a batch returns nothing new, abort with a clear error listing the
-  // stuck handles so the operator can investigate or skip them manually.
+  // Loop guard: in --missing mode, products that fail (Lambda HTTP error,
+  // etc.) never get their timestamp stamped, so the next batch fetches
+  // them again → infinite loop. Track which product ids we've seen this
+  // run; if a batch returns nothing new, abort with a clear error.
   const seenProductIds = new Set();
 
   const results = { successful: [], errors: [] };
@@ -361,7 +440,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
           console.error(`    These products keep failing without stamping their timestamp:`);
           console.error(`    ${stuckHandles}`);
           console.error(`    Aborting to avoid infinite loop. Investigate the Lambda failure or skip these handles manually:`);
-          console.error(`      MATCH (p:Product {handle: "<handle>", storeId: $s}) SET p.similar_product_updated_at = datetime()`);
+          console.error(`      MATCH (p:Product {handle: "<handle>", storeId: $s}) SET p.ask_ai_options_updated_at = datetime()`);
           break;
         }
         for (const p of products) seenProductIds.add(String(p.id));
@@ -372,7 +451,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
 
       const batchPromises = [];
       for (let i = 0; i < products.length; i++) {
-        const promise = processSimilarProductsForProduct(products[i], { geminiModel, skipImages, candidateLimit });
+        const promise = processAskAiForProduct(products[i], { geminiModel, skipCaching });
         batchPromises.push(promise);
 
         if (i < products.length - 1) {
@@ -396,7 +475,7 @@ async function processSimilarProductsRecent(storeId, options = {}) {
               productTitle: result.product.title,
               handle: result.product.handle,
               duration: result.duration,
-              similarProducts: result.similarProducts
+              optionsCount: result.askAi?.options?.length || 0
             });
           } else if (result.status === "error") {
             errorCount++;
@@ -463,25 +542,26 @@ async function processSimilarProductsRecent(storeId, options = {}) {
 // ─── Exports ─────────────────────────────────────────────────────────
 
 export {
-  processSimilarProductsRecent,
-  processSimilarProductsForProduct,
+  processAskAiRecent,
+  processAskAiForProduct,
   getProductById,
   getProductByHandle,
   fetchProductsBatch,
   countStoreProducts,
-  deleteSimilarProductsCache,
-  refreshSimilarProductsWidget,
-  updateSimilarProductTimestamp
+  deleteAskAiCache,
+  writeAskAiCache,
+  refreshAskAiOptions,
+  updateAskAiTimestamp
 };
 
-export default processSimilarProductsRecent;
+export default processAskAiRecent;
 
 // ─── CLI entry point ─────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 
 if (args.length === 0) {
-  console.error("Usage: node sync-lambda-similar-products.js <storeId> [options]");
+  console.error("Usage: node sync-lambda-ask-ai-options.js <storeId> [options]");
   console.error("  Options:");
   console.error("    --handle <handle>    Process a single product by handle (skips batch mode)");
   console.error("    --batchSize <n>      Number of parallel requests (default: 10)");
@@ -489,11 +569,11 @@ if (args.length === 0) {
   console.error("    --startFrom <n>      Starting offset (default: 0)");
   console.error("    --hours <n>          Only products updated in last N hours (default: 24)");
   console.error("    --all                Process ALL products regardless of updated_at");
-  console.error("    --missing            Only products missing similar_product_updated_at");
+  console.error("    --missing            Only products missing ask_ai_options_updated_at");
   console.error("    --reindex            Only products flagged with needs_reindex=true");
-  console.error("    --delay <ms>         Delay between requests in ms (default: 1000)");
-  console.error("    --skip-images        Do not send product images to the Lambda");
-  console.error("    --candidate-limit <n> Max candidate products for AI selection (default: 30)");
+  console.error("    --delay <ms>         Delay between requests in ms (default: 100)");
+  console.error("    --skip-caching       Pass skipCaching=true to the Lambda");
+  console.error("    --gemini-model <m>   Pin a specific Gemini model in the Lambda call");
   process.exit(1);
 }
 
@@ -523,8 +603,7 @@ const hoursAgo = args.includes("--all") || args.includes("--missing") || reindex
 const missingOnly = args.includes("--missing");
 const delayBetweenRequests = parseInt(cliOpts.delay) || 100;
 const geminiModel = cliOpts["gemini-model"] || null;
-const skipImages = args.includes("--skip-images");
-const candidateLimit = cliOpts["candidate-limit"] ? parseInt(cliOpts["candidate-limit"]) : null;
+const skipCaching = args.includes("--skip-caching");
 const singleHandle = typeof cliOpts.handle === "string" ? cliOpts.handle : null;
 
 (async () => {
@@ -536,12 +615,12 @@ const singleHandle = typeof cliOpts.handle === "string" ? cliOpts.handle : null;
         console.error(`Product not found in Neo4j: handle="${singleHandle}" storeId="${cliStoreId}"`);
         process.exit(1);
       }
-      const result = await processSimilarProductsForProduct(product, { geminiModel, skipImages, candidateLimit });
+      const result = await processAskAiForProduct(product, { geminiModel, skipCaching });
       console.log(`\nDone. Status: ${result.status}${result.duration ? `, duration: ${result.duration}ms` : ""}${result.error ? `, error: ${result.error}` : ""}`);
       process.exit(result.status === "success" ? 0 : 1);
     }
 
-    const result = await processSimilarProductsRecent(cliStoreId, {
+    const result = await processAskAiRecent(cliStoreId, {
       batchSize,
       maxProducts,
       startFrom,
@@ -550,8 +629,7 @@ const singleHandle = typeof cliOpts.handle === "string" ? cliOpts.handle : null;
       reindexOnly,
       delayBetweenRequests,
       geminiModel,
-      skipImages,
-      candidateLimit
+      skipCaching
     });
     console.log(`\nDone. Processed: ${result.processedCount}, Success: ${result.successCount}, Errors: ${result.errorCount}`);
   } catch (error) {

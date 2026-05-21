@@ -117,6 +117,7 @@ export class Neo4jService {
            styleBody: product.styleBody, stylePersonality: product.stylePersonality, styleChromatic: product.styleChromatic,
            is_neutral: product.is_neutral, neutral_whitelist: product.neutral_whitelist, color_vec: product.color_vec,
            image: product.image, images: product.images, vendor: product.vendor, currency: product.currency,
+           heroImage: product.heroImage, heroImageIndex: product.heroImageIndex, heroImageSource: product.heroImageSource, heroImageDecidedAt: product.heroImageDecidedAt,
            category: product.category, handle: product.handle, status: product.status, storeId: product.storeId,
            contentEmbedding: product.contentEmbedding, productEmbedding: product.productEmbedding,
            characteristicsEmbedding: product.characteristicsEmbedding, categoryEmbedding: product.categoryEmbedding,
@@ -254,6 +255,10 @@ export class Neo4jService {
       styleCodeEmbedding: p.styleCodeEmbedding || null,
       image: p.image,
       images,
+      heroImage: p.heroImage || null,
+      heroImageIndex: typeof p.heroImageIndex === "number" ? p.heroImageIndex : null,
+      heroImageSource: p.heroImageSource || null,
+      heroImageDecidedAt: p.heroImageDecidedAt || null,
       // Use product-specific detected demographics if available, otherwise use default
       demographics: p.detectedDemographics || demographicsData,
       currency: p.currency,

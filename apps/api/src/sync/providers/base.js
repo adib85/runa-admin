@@ -29,6 +29,10 @@ export class BaseProvider {
     this.descriptionLanguage = config.descriptionLanguage || "ro";
     this.rewriteDescriptions = config.rewriteDescriptions || false;
     this.geminiModel = config.geminiModel || null;
+    this.maxProducts = config.maxProducts || null;
+    this.dryRun = config.dryRun || false;
+    this.sinceIso = config.sinceIso || null;
+    this.rewriteHeroes = config.rewriteHeroes || false;
     
     // Services
     this.neo4j = neo4jService;
@@ -66,21 +70,26 @@ export class BaseProvider {
   // ==================== SHARED METHODS ====================
 
   async sync() {
-    console.log(`\n=== Starting ${this.providerType} Sync for ${this.shopName} ===\n`);
-    
+    console.log(`\n=== Starting ${this.providerType} Sync for ${this.shopName}${this.dryRun ? " [DRY RUN]" : ""} ===\n`);
+
     const appData = { id: "runa", appName: "Runa" };
     const storeData = { id: this.shopName, storeName: this.shopName };
 
-    // Create application and store
-    await this.neo4j.createApplicationAndStore(storeData, appData);
+    if (!this.dryRun) {
+      await this.neo4j.createApplicationAndStore(storeData, appData);
+    } else {
+      console.log("  [dry-run] skipped neo4j.createApplicationAndStore");
+    }
 
-    // Sync products
     await this.syncProducts();
 
-    // Process context
-    await this.processContext();
+    if (!this.dryRun) {
+      await this.processContext();
+    } else {
+      console.log("\n  [dry-run] skipped processContext (would generate AI suggestions and write to DynamoDB/PubNub)");
+    }
 
-    console.log(`\n=== ${this.providerType} Sync Complete for ${this.shopName} ===\n`);
+    console.log(`\n=== ${this.providerType} Sync Complete for ${this.shopName}${this.dryRun ? " [DRY RUN — nothing was saved]" : ""} ===\n`);
   }
 
   async syncProducts() {
@@ -90,20 +99,20 @@ export class BaseProvider {
     const user = await this.dynamodb.getUserByShop(this.shopName, this.region);
     console.log("user", user);
 
-    if (user) {
+    if (user && !this.dryRun) {
       user.syncInProgress = true;
       user.syncProgress = 0;
       await this.dynamodb.saveUser(user, this.region);
     }
 
-    // Fetch collections
     const collections = await this.fetchCollections();
     console.log("allCategories", collections);
-    if (collections && collections.length > 0) {
+    if (collections && collections.length > 0 && !this.dryRun) {
       await this.neo4j.createOrUpdateCategories(collections);
+    } else if (this.dryRun) {
+      console.log(`  [dry-run] skipped neo4j.createOrUpdateCategories (${collections?.length || 0} categories)`);
     }
 
-    // Fetch and process products
     await this.fetchAndProcessProducts(user);
   }
 
@@ -169,25 +178,30 @@ export class BaseProvider {
     const syncRunStartedAt = savedProgress?.syncRunStartedAt || new Date().toISOString();
 
     while (hasMore) {
-      // Fetch batch of products
-      const { products, nextCursor, hasNextPage } = await this.fetchProducts({ cursor, limit: 20 });
-      hasMore = hasNextPage;
+      // Fetch batch of products (cap to remaining budget when --max is used)
+      const remaining = this.maxProducts ? Math.max(0, this.maxProducts - totalProductsSeen) : Infinity;
+      if (remaining === 0) break;
+      const batchLimit = Math.min(20, remaining);
+      const { products: rawBatch, nextCursor, hasNextPage } = await this.fetchProducts({ cursor, limit: batchLimit });
+      const products = this.maxProducts ? rawBatch.slice(0, remaining) : rawBatch;
+      hasMore = hasNextPage && (!this.maxProducts || (totalProductsSeen + products.length) < this.maxProducts);
       cursor = nextCursor;
 
       totalProductsSeen += products.length;
-      if (!count) count = totalProductsSeen + (hasMore ? 200 : 0);
+      if (!count) count = this.maxProducts || (totalProductsSeen + (hasMore ? 200 : 0));
 
       console.log(`\n=== Batch: ${products.length} products, Total: ${totalProductsSeen} ===`);
 
       if (products.length === 0) continue;
 
-      // Stamp lastSeenAt on ALL fetched products (including ones we'll skip)
       const allProductIds = products.map(p => p.id);
-      await this.neo4j.stampLastSeenAt(this.shopName, allProductIds, syncRunStartedAt);
+      if (!this.dryRun) {
+        await this.neo4j.stampLastSeenAt(this.shopName, allProductIds, syncRunStartedAt);
+      }
 
-      // Filter existing products (unless force mode)
+      // Filter existing products (unless force mode or dry-run)
       let productsToProcess = products;
-      if (!this.forceAll) {
+      if (!this.forceAll && !this.dryRun) {
         const existingIds = await this.neo4j.getExistingProductIds(
           this.shopName,
           products.map(p => p.id)
@@ -195,41 +209,52 @@ export class BaseProvider {
         const existingProducts = products.filter(p => existingIds.has(String(p.id)));
         productsToProcess = products.filter(p => !existingIds.has(String(p.id)));
         console.log(`  Existing: ${existingProducts.length}, New: ${productsToProcess.length}`);
+      } else if (this.dryRun) {
+        console.log(`  [dry-run] processing all ${productsToProcess.length} products (skipped existing-id check)`);
       } else {
         console.log(`  Force mode: processing all ${productsToProcess.length} products`);
       }
 
-      // Process products
       if (productsToProcess.length > 0) {
         const processedProducts = await this.processProducts(productsToProcess, defaultCategories, shopData);
         processedProducts.forEach(p => p.lastSeenAt = syncRunStartedAt);
-        await this.distributeProducts(processedProducts, storeData, appData, demographicsData);
+
+        if (!this.dryRun) {
+          await this.distributeProducts(processedProducts, storeData, appData, demographicsData);
+        } else {
+          for (const p of processedProducts) {
+            console.log(`  [dry-run] would save: ${p.handle || p.id} — "${p.title}" — demographics=[${(p.detectedDemographics || demographicsData).join(", ")}] — category="${p.category}"`);
+          }
+        }
+
         countProcessed += productsToProcess.length;
         if (countProcessed > count) countProcessed = count;
 
         console.log(`  Progress: ${totalProductsSeen}/${count} (${((totalProductsSeen / count) * 100).toFixed(1)}%)`);
-        this.pubnub.publishProgress(this.channelId, countProcessed, count);
-        await this.dynamodb.updateSyncProgress(this.shopName, countProcessed !== count, countProcessed, count, this.region);
+        if (!this.dryRun) {
+          this.pubnub.publishProgress(this.channelId, countProcessed, count);
+          await this.dynamodb.updateSyncProgress(this.shopName, countProcessed !== count, countProcessed, count, this.region);
+        }
       }
 
-      // Save progress after each batch for resume capability
-      this.saveProgress({
-        startedAt: syncStartedAt,
-        syncRunStartedAt,
-        countProcessed,
-        totalProductsSeen,
-        count,
-        providerState: this.getCursorState ? this.getCursorState() : null
-      });
+      if (!this.dryRun) {
+        this.saveProgress({
+          startedAt: syncStartedAt,
+          syncRunStartedAt,
+          countProcessed,
+          totalProductsSeen,
+          count,
+          providerState: this.getCursorState ? this.getCursorState() : null
+        });
+      }
     }
 
-    // Sync complete — clean up progress file
-    this.clearProgress();
-
-    // Finalize
-    this.pubnub.publishProgress(this.channelId, countProcessed, count);
-    await this.dynamodb.updateSyncProgress(this.shopName, false, countProcessed, count, this.region);
-    console.log(`\n✓ Finalized: ${countProcessed} products`);
+    if (!this.dryRun) {
+      this.clearProgress();
+      this.pubnub.publishProgress(this.channelId, countProcessed, count);
+      await this.dynamodb.updateSyncProgress(this.shopName, false, countProcessed, count, this.region);
+    }
+    console.log(`\n✓ ${this.dryRun ? "[dry-run] simulated" : "Finalized"}: ${countProcessed} products`);
   }
 
   // ==================== AI VISION (color detection, beach classification) ====================
@@ -343,6 +368,175 @@ Return exactly one category.`,
     return null;
   }
 
+  /**
+   * Hero-image picker: ask Gemini vision which image best represents the actual
+   * product mentioned in the title. Returns
+   *   { heroImage: <url>, index: <int>, source: "gemini"|"fallback-first"|"only-image"|"no-images", confidence?, reasoning? }
+   *
+   * Falls back to the first image if confidence is low, the API errors, or the
+   * answer is out of bounds. Designed to handle catalogs (like Bronze Snake's)
+   * where image[0] is sometimes a lookbook/lifestyle/complementary-product shot
+   * rather than the product itself.
+   *
+   * Uses `runaConfig.gemini.model` (the strong model), not the lite model —
+   * vision quality matters more than per-call cost here.
+   */
+  async pickHeroImage(product) {
+    const imageObjs = (product.images || []).filter(Boolean);
+    const urls = imageObjs.map(img => img.src || img).filter(Boolean);
+
+    if (urls.length === 0) return { heroImage: null, index: -1, source: "no-images" };
+    if (urls.length === 1) return { heroImage: urls[0], index: 0, source: "only-image" };
+    if (!config.gemini?.apiKey) return { heroImage: urls[0], index: 0, source: "fallback-first" };
+
+    // Cap the number of images we send (cost + token budget). Beyond ~6, more
+    // images give diminishing returns. We always include images 0..5.
+    const MAX_IMAGES_PER_CALL = 6;
+    const candidateUrls = urls.slice(0, MAX_IMAGES_PER_CALL);
+
+    try {
+      const fetch = (await import("node-fetch")).default;
+
+      // Download all candidate images in parallel. Use Shopify's CDN
+      // resize hint (?width=512) when possible so we send smaller payloads
+      // to Gemini.
+      const downloads = await Promise.all(
+        candidateUrls.map(async (url) => {
+          try {
+            const resizedUrl = url.includes("cdn.shopify.com")
+              ? url.replace(/\.(jpg|jpeg|png|webp)/i, "_512x.$1")
+              : url;
+            const r = await fetch(resizedUrl);
+            if (!r.ok) {
+              const r2 = await fetch(url);
+              if (!r2.ok) return null;
+              return {
+                buffer: Buffer.from(await r2.arrayBuffer()).toString("base64"),
+                mime: r2.headers.get("content-type") || "image/jpeg",
+              };
+            }
+            return {
+              buffer: Buffer.from(await r.arrayBuffer()).toString("base64"),
+              mime: r.headers.get("content-type") || "image/jpeg",
+            };
+          } catch { return null; }
+        })
+      );
+
+      const valid = downloads.map((d, i) => ({ d, i })).filter(x => x.d);
+      if (valid.length < 2) return { heroImage: urls[0], index: 0, source: "fallback-first" };
+
+      const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
+      const model = genAI.getGenerativeModel({
+        model: config.gemini.model, // strong model (gemini-3-flash-preview)
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: SchemaType.OBJECT,
+            properties: {
+              best_image_index: { type: SchemaType.INTEGER, description: "0-based index of the chosen image among the inputs in the order they were provided." },
+              confidence: { type: SchemaType.NUMBER, description: "0.0–1.0 — how sure you are this image best represents the actual product. Low if no image clearly shows the product." },
+              reasoning: { type: SchemaType.STRING, description: "One sentence on why this image won." },
+            },
+            required: ["best_image_index", "confidence", "reasoning"],
+          },
+        },
+      });
+
+      const promptText = [
+        `You are picking the THUMBNAIL hero image for a "Complete the Look" / "Similar Products" widget.`,
+        `The image will be displayed at SMALL size (~200x200 px).`,
+        ``,
+        `Product title: "${product.title}"`,
+        product.product_type ? `Product type: ${product.product_type}` : "",
+        product.vendor ? `Vendor: ${product.vendor}` : "",
+        ``,
+        `You will receive ${valid.length} candidate images. Pick the SINGLE best one using this STRICT TWO-STEP FILTER:`,
+        ``,
+        `═══ STEP 1 — REQUIRED: 100% OF THE PRODUCT VISIBLE ═══`,
+        ``,
+        `First, identify which images show the ENTIRE product (per the title) without ANY part of it being cropped, cut off, or hidden.`,
+        ``,
+        `Examples of what "100% of product visible" means:`,
+        `  • Pants / Trousers / Jeans → ENTIRE leg from waistband to ankle hem must be visible.`,
+        `  • Skirts → from waistband to bottom hem must be visible.`,
+        `  • Dresses → from neckline/shoulders to bottom hem must be visible.`,
+        `  • Tops / Tees / Blouses / Knitwear → from neckline to bottom hem; sleeves visible to cuff.`,
+        `  • Jackets / Coats / Bombers / Blazers → from collar to bottom hem; both sleeves visible to cuff.`,
+        `  • Shoes / Heels / Sandals / Boots → entire shoe from toe to heel/ankle to top.`,
+        `  • Bags / Clutches / Totes → entire bag including handle/strap.`,
+        `  • Sunglasses → both lenses + both temples (arms) visible.`,
+        `  • Headwear → entire item visible.`,
+        `  • Swimwear (bikini top/bottom, one-piece) → entire piece visible (top doesn't have to show the bottom of a 2-piece set; a bikini-top product just needs the top fully visible).`,
+        ``,
+        `REJECT any image where the product is partially cropped:`,
+        `  • Pants where ankles are cut off below the frame → REJECT (product not 100% visible).`,
+        `  • Jacket where the bottom hem is below the frame → REJECT.`,
+        `  • Bag where the handle is cut off → REJECT.`,
+        `  • Extreme detail close-ups of just a buckle, zipper, button, label → REJECT (only a fragment of the product is visible).`,
+        ``,
+        `── STEP 1 EXCEPTION ──`,
+        `If NO image shows 100% of the product (every candidate has some cropping), pick the one with the MOST of the product visible and set confidence below 0.6.`,
+        ``,
+        `═══ STEP 2 — AMONG THE STEP-1 SURVIVORS, PICK THE TIGHTEST FRAME ═══`,
+        ``,
+        `From the images that passed Step 1, choose the one where the product takes up the LARGEST proportion of the frame.`,
+        ``,
+        `  • If a waist-down shot has 100% of pants visible AND a full-body shot also has 100% of pants visible, the waist-down shot wins (product fills more of the frame).`,
+        `  • If two shots are nearly equal, prefer the front view over the back view, and the cleaner background.`,
+        `  • For shoes/bags/sunglasses/jewelry: prefer clean catalog-on-plain-background shots over lifestyle shots, as long as both have 100% of the product visible.`,
+        ``,
+        `═══ ALSO REQUIRED ═══`,
+        ``,
+        `  • The image must clearly show the actual product mentioned in the title (not a complementary/lookbook item from a different product).`,
+        `  • Avoid back views unless that's the only option.`,
+        ``,
+        `═══ CONFIDENCE ═══`,
+        ``,
+        `  • Confidence ≥ 0.85: at least one image passed Step 1 (full product visible) AND filled the frame well.`,
+        `  • Confidence 0.6–0.84: multiple OK options; the chosen one is good but not perfect.`,
+        `  • Confidence < 0.6: NO image had 100% of the product visible (we'll fall back to image 0).`,
+        ``,
+        `Return JSON with: best_image_index (int), confidence (0–1), reasoning (one sentence describing what's 100% visible and why this one fills the frame best).`,
+      ].filter(Boolean).join("\n");
+
+      const parts = [
+        promptText,
+        ...valid.map(({ d }) => ({ inlineData: { mimeType: d.mime, data: d.buffer } })),
+      ];
+
+      const result = await geminiWithRetry(() => model.generateContent(parts));
+      const parsed = JSON.parse(result.response.text());
+
+      const localIndex = parsed.best_image_index;
+      const confidence = parsed.confidence ?? 0;
+      const reasoning = parsed.reasoning || "";
+
+      if (typeof localIndex !== "number" || localIndex < 0 || localIndex >= valid.length) {
+        console.log(`  [Hero] Out-of-bounds index ${localIndex} for "${product.title}", fallback to 0`);
+        return { heroImage: urls[0], index: 0, source: "fallback-first" };
+      }
+      if (confidence < 0.7) {
+        console.log(`  [Hero] Low confidence (${confidence.toFixed(2)}) for "${product.title}", fallback to 0`);
+        return { heroImage: urls[0], index: 0, source: "fallback-first", confidence, reasoning };
+      }
+
+      // Map valid local index back to the original urls index (skipping failed downloads).
+      const originalIndex = valid[localIndex].i;
+      console.log(`  [Hero] Picked image[${originalIndex}] for "${product.title}" (conf=${confidence.toFixed(2)}): ${reasoning}`);
+      return {
+        heroImage: urls[originalIndex],
+        index: originalIndex,
+        source: "gemini",
+        confidence,
+        reasoning,
+      };
+    } catch (error) {
+      console.log(`  [Hero] Picker failed for "${product.title}": ${error.message}`);
+      return { heroImage: urls[0], index: 0, source: "fallback-first" };
+    }
+  }
+
   // ==================== PRODUCT PROCESSING ====================
 
   async processProducts(products, defaultCategories, shopData) {
@@ -441,6 +635,19 @@ Return exactly one category.`,
       if (detectedColor) {
         product.detectedColor = detectedColor;
         productProperties.color = detectedColor;
+      }
+
+      // Hero image picker — gated to per-shop opt-in (see shouldPickHero).
+      // Idempotent: skips products that already have a heroImage unless
+      // this.rewriteHeroes is set.
+      if (this.shouldPickHero?.(product)) {
+        const hero = await this.pickHeroImage(product);
+        if (hero?.heroImage) {
+          product.heroImage = hero.heroImage;
+          product.heroImageIndex = hero.index;
+          product.heroImageSource = hero.source;
+          product.heroImageDecidedAt = new Date().toISOString();
+        }
       }
 
       product.options = [

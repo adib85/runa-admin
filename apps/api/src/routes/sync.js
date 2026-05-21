@@ -1,7 +1,14 @@
 import { Router } from "express";
+import { spawn } from "child_process";
+import { fileURLToPath } from "url";
+import path from "path";
 import { dynamodb } from "@runa/core";
 import { authenticate } from "../middleware/auth.js";
 import { asyncHandler, ApiError } from "../middleware/error.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SYNC_MODULAR_SCRIPT = path.resolve(__dirname, "../scripts/sync-modular.js");
 
 const router = Router();
 
@@ -10,6 +17,8 @@ router.use(authenticate);
 
 // In-memory job queue (for development - use Redis/BullMQ in production)
 const jobQueue = new Map();
+// Separate queue for modular sync jobs (subprocesses) — keyed by shop domain
+const modularJobs = new Map();
 
 /**
  * Resolve the "store" the request refers to from the user row. With shop-as-id
@@ -306,5 +315,197 @@ async function startSyncJob(job) {
     throw error;
   }
 }
+
+// ════════════════════════════════════════════════════════════════════
+// MODULAR sync endpoints — run apps/api/src/scripts/sync-modular.js
+// as a child process and track progress. Uses the latest provider logic
+// (e.g. Bronze Snake's storefront-visibility filter, demographic detection,
+// style-filter category enrichment). Independent of /api/sync/start which
+// uses the older @runa/core SyncPipeline.
+// ════════════════════════════════════════════════════════════════════
+
+function safeShop(shop) {
+  return /^[a-z0-9-]+\.(myshopify\.com|vtexcommercestable\.com\.br)$/i.test(shop || "");
+}
+
+/**
+ * POST /api/sync/modular/start
+ * Body: { storeId, since?, force?, max?, rewriteDescriptions?, geminiModel? }
+ * Spawns sync-modular.js in a child process. Idempotent — refuses to start
+ * if a sync is already running for this shop.
+ */
+router.post("/modular/start", asyncHandler(async (req, res) => {
+  const { storeId, since, force, max, rewriteDescriptions, geminiModel } = req.body || {};
+
+  if (!storeId) throw ApiError.badRequest("storeId is required");
+
+  const user = await dynamodb.users.getUserById(req.user.userId);
+  if (!user) throw ApiError.notFound("User not found");
+
+  const store = resolveStore(user, storeId);
+  if (!store) throw ApiError.notFound("Store not found");
+
+  const shop = (user.shop || store.domain || "").toLowerCase();
+  if (!safeShop(shop)) throw ApiError.badRequest(`Invalid or unsupported shop: ${shop}`);
+
+  let accessToken = store.accessToken || user.accessToken;
+  if (!accessToken) throw ApiError.badRequest("No access token configured for this store");
+
+  const provider = (store.platform || user.platform || "shopify").toLowerCase();
+
+  const existing = modularJobs.get(shop);
+  if (existing && existing.status === "running") {
+    return res.json({
+      message: "Modular sync already in progress",
+      jobId: existing.id,
+      status: existing.status,
+      progress: existing.progress,
+      total: existing.total,
+      log: existing.log.slice(-30),
+    });
+  }
+
+  const jobId = `mod_${shop.replace(/[^a-z0-9]/gi, "_")}_${Date.now()}`;
+  const startedAt = new Date().toISOString();
+
+  // Build CLI args for sync-modular.js
+  const args = [SYNC_MODULAR_SCRIPT, provider, shop, accessToken];
+  if (force) args.push("--force");
+  if (rewriteDescriptions) args.push("--rewrite-descriptions");
+  if (max && Number.isFinite(+max)) args.push("--max", String(+max));
+  if (since && /^\d+[smhd]$/.test(since)) args.push("--since", since);
+  if (geminiModel) args.push("--gemini-model", geminiModel);
+
+  const job = {
+    id: jobId,
+    shop,
+    storeId,
+    status: "running",
+    progress: 0,
+    total: 0,
+    startedAt,
+    completedAt: null,
+    error: null,
+    log: [],
+    args: args.slice(1).filter(a => a !== accessToken),  // hide token in args echo
+  };
+  modularJobs.set(shop, job);
+
+  console.log(`[sync/modular] spawning: node ${args.join(" ").replace(accessToken, "***")}`);
+  const child = spawn(process.execPath, args, {
+    cwd: path.resolve(__dirname, "../../../.."),
+    env: { ...process.env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  job.pid = child.pid;
+
+  // Stream stdout/stderr — keep last 200 lines, parse known progress markers.
+  const handleLine = (line) => {
+    job.log.push(line);
+    if (job.log.length > 200) job.log.splice(0, job.log.length - 200);
+
+    // Progress: "  Progress: 240/3401 (7.1%)" or "✓ Finalized: N products"
+    const progressM = line.match(/Progress:\s*(\d+)\s*\/\s*(\d+)/);
+    if (progressM) {
+      job.progress = parseInt(progressM[1], 10);
+      job.total = parseInt(progressM[2], 10);
+    }
+    const newM = line.match(/Existing:\s*(\d+),\s*New:\s*(\d+)/);
+    if (newM) job.lastBatch = { existing: +newM[1], new: +newM[2] };
+  };
+
+  let stdoutBuf = "";
+  child.stdout.on("data", (chunk) => {
+    stdoutBuf += chunk.toString();
+    const parts = stdoutBuf.split("\n");
+    stdoutBuf = parts.pop();
+    parts.forEach(handleLine);
+  });
+  child.stderr.on("data", (chunk) => {
+    chunk.toString().split("\n").filter(Boolean).forEach(l => job.log.push("[stderr] " + l));
+  });
+
+  child.on("close", (code) => {
+    if (stdoutBuf) handleLine(stdoutBuf);
+    job.status = code === 0 ? "completed" : "failed";
+    job.exitCode = code;
+    job.completedAt = new Date().toISOString();
+    if (code !== 0) job.error = `Exited with code ${code}`;
+    console.log(`[sync/modular] ${job.id} ${job.status} (exit ${code})`);
+  });
+
+  child.on("error", (err) => {
+    job.status = "failed";
+    job.error = err.message;
+    job.completedAt = new Date().toISOString();
+  });
+
+  res.json({
+    message: "Modular sync started",
+    jobId,
+    status: "running",
+    channelId: `${shop}_scan`,
+    args: job.args,
+  });
+}));
+
+/**
+ * GET /api/sync/modular/status/:storeId
+ * Returns current job state for a shop (idle if no run in memory).
+ */
+router.get("/modular/status/:storeId", asyncHandler(async (req, res) => {
+  const { storeId } = req.params;
+  const user = await dynamodb.users.getUserById(req.user.userId);
+  const store = resolveStore(user, storeId);
+  if (!store) throw ApiError.notFound("Store not found");
+
+  const shop = (user.shop || store.domain || "").toLowerCase();
+  const job = modularJobs.get(shop);
+
+  if (!job) {
+    return res.json({ status: "idle", lastSync: store.lastSync || null });
+  }
+
+  res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    total: job.total,
+    lastBatch: job.lastBatch || null,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    exitCode: job.exitCode ?? null,
+    error: job.error,
+    pid: job.pid,
+    args: job.args,
+    recentLog: job.log.slice(-30),
+  });
+}));
+
+/**
+ * POST /api/sync/modular/cancel/:storeId
+ * Sends SIGTERM to the running modular sync subprocess (if any).
+ */
+router.post("/modular/cancel/:storeId", asyncHandler(async (req, res) => {
+  const { storeId } = req.params;
+  const user = await dynamodb.users.getUserById(req.user.userId);
+  const store = resolveStore(user, storeId);
+  if (!store) throw ApiError.notFound("Store not found");
+
+  const shop = (user.shop || store.domain || "").toLowerCase();
+  const job = modularJobs.get(shop);
+  if (!job || job.status !== "running" || !job.pid) {
+    return res.json({ message: "No running modular sync to cancel" });
+  }
+
+  try {
+    process.kill(job.pid, "SIGTERM");
+    job.status = "cancelled";
+    job.completedAt = new Date().toISOString();
+    res.json({ message: "Cancellation signal sent", jobId: job.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}));
 
 export default router;

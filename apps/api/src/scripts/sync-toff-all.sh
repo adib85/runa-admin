@@ -18,24 +18,28 @@ echo "  Toff Full Sync — $(date)" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 1/5] Syncing products from VTEX to Neo4j..." | tee -a "$LOG_FILE"
+echo "[Step 1/6] Syncing products from VTEX to Neo4j..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-modular.js vtex toffro vtexappkey-toffro-QSQMBT BUWVNSSFHCJHTEXKFXSZXAYEHFCFPOMUCPXCENUMKXVWATHDHQUQKVKDGGNFUTVLNVBDNJAHPIZHLFZKRXNUQNCQQNTJRXMGSNQTKYXDLVNFQICWBDGXTIRPTNAUZWPW 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 2/5] Pushing descriptions from Neo4j to VTEX..." | tee -a "$LOG_FILE"
+echo "[Step 2/6] Pushing descriptions from Neo4j to VTEX..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-toff-descriptions.js 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 3/5] Pushing SEO (Title + MetaTagDescription) from Neo4j to VTEX..." | tee -a "$LOG_FILE"
+echo "[Step 3/6] Pushing SEO (Title + MetaTagDescription) from Neo4j to VTEX..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-toff-seo.js 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 4/5] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
+echo "[Step 4/6] Generating Complete The Look widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-complete-the-look.js toffro.vtexcommercestable.com.br --missing 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
-echo "[Step 5/5] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
+echo "[Step 5/6] Generating Similar Products widgets..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-lambda-similar-products.js toffro.vtexcommercestable.com.br --missing 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 6/6] Refreshing prices in DynamoDB CacheTable..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-toff-prices.js toffro vtexappkey-toffro-QSQMBT BUWVNSSFHCJHTEXKFXSZXAYEHFCFPOMUCPXCENUMKXVWATHDHQUQKVKDGGNFUTVLNVBDNJAHPIZHLFZKRXNUQNCQQNTJRXMGSNQTKYXDLVNFQICWBDGXTIRPTNAUZWPW 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
