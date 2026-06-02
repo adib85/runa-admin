@@ -615,6 +615,7 @@ export default function Demo() {
   const [collectionStats, setCollectionStats] = useState([]);
   const [stylingMsg, setStylingMsg] = useState(0);
   const [anchorMsg, setAnchorMsg] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(0);
   const eventSourceRef = useRef(null);
 
   const addMessage = useCallback((text, type = 'info') => {
@@ -733,6 +734,20 @@ export default function Demo() {
     }, 4000);
     return () => clearInterval(interval);
   }, [previewImages]);
+
+  // Rough ETA countdown during the styling phase (no server-provided ETA, so
+  // this is an estimate). Steps down in 5s buckets — "about 30 seconds", then
+  // "about 25 seconds", etc — and holds with an "almost ready" message if the
+  // build runs longer than expected.
+  const STYLING_ETA_SECONDS = 30;
+  useEffect(() => {
+    if (phase !== 'loading' || previewImages.length === 0) return;
+    setSecondsLeft(STYLING_ETA_SECONDS);
+    const interval = setInterval(() => {
+      setSecondsLeft(prev => (prev > 0 ? prev - 5 : prev));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [phase, previewImages]);
 
   // Set page title
   useEffect(() => {
@@ -917,10 +932,16 @@ export default function Demo() {
 
           {phase === 'error' ? null : previewImages.length > 0 ? (
             <div className="mt-6 max-w-lg mx-auto animate-fade-in">
-              <p className="text-neutral-400 text-sm mb-5 flex items-center justify-center gap-2.5">
+              <p className="text-neutral-400 text-sm mb-1.5 flex items-center justify-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-pulse" />
                 {stylingMessages[stylingMsg]}
               </p>
+              <p className="text-neutral-300 text-sm font-medium mb-2.5 text-center tabular-nums">
+                {secondsLeft >= 5 ? `${secondsLeft} seconds remaining` : 'almost ready…'}
+              </p>
+              <div className="mb-5 mx-auto w-40 h-1 rounded-full bg-white/10 overflow-hidden">
+                <div className="h-full bg-purple-500 rounded-full animate-loading-bar" />
+              </div>
               <div className="grid grid-cols-6 gap-2">
                 {previewImages.slice(0, -1).map((img, i) => (
                   <div

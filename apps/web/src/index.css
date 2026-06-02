@@ -232,3 +232,13 @@
 .animate-slide-up {
   animation: slideUp 0.3s ease-out;
 }
+
+/* Slim loading bar that fills across the estimated styling time */
+@keyframes loadingBar {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
+
+.animate-loading-bar {
+  animation: loadingBar 30s linear forwards;
+}
