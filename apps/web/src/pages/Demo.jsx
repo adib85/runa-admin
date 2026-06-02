@@ -616,6 +616,7 @@ export default function Demo() {
   const [stylingMsg, setStylingMsg] = useState(0);
   const [anchorMsg, setAnchorMsg] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [gridPage, setGridPage] = useState(0);
   const eventSourceRef = useRef(null);
 
   const addMessage = useCallback((text, type = 'info') => {
@@ -727,10 +728,17 @@ export default function Demo() {
     'Building complementary sets...',
   ];
 
+  // One "analysis beat" drives both the status message and the product grid:
+  // every 4s the message advances AND the grid pulls in a fresh batch of
+  // products, so the copy and the visuals move together and it reads as Runa
+  // scanning the catalog in real time.
   useEffect(() => {
     if (previewImages.length === 0) return;
+    setStylingMsg(0);
+    setGridPage(0);
     const interval = setInterval(() => {
       setStylingMsg(prev => (prev + 1) % stylingMessages.length);
+      setGridPage(prev => prev + 1);
     }, 4000);
     return () => clearInterval(interval);
   }, [previewImages]);
@@ -751,6 +759,17 @@ export default function Demo() {
     }, COUNTDOWN_STEP_MS);
     return () => clearInterval(interval);
   }, [phase, previewImages]);
+
+  // The grid shows TILE_COUNT products at a time, windowed into the larger pool
+  // the backend sends; gridPage advances on the analysis beat above, so each
+  // step brings a fresh batch. Wraps if the pool is smaller than the wait.
+  const TILE_COUNT = 23;
+  const visibleTiles = previewImages.length
+    ? Array.from(
+        { length: Math.min(TILE_COUNT, previewImages.length) },
+        (_, i) => previewImages[(gridPage * TILE_COUNT + i) % previewImages.length]
+      )
+    : [];
 
   // Set page title
   useEffect(() => {
@@ -946,18 +965,19 @@ export default function Demo() {
                 <div className="h-full bg-purple-500 rounded-full animate-loading-bar" />
               </div>
               <div className="grid grid-cols-6 gap-2">
-                {previewImages.slice(0, -1).map((img, i) => (
+                {visibleTiles.map((img, i) => (
                   <div
-                    key={i}
+                    key={`${gridPage}-${i}`}
                     className="aspect-square bg-white rounded overflow-hidden animate-fade-in"
-                    style={{ animationDelay: `${i * 50}ms` }}
+                    style={{ animationDelay: `${i * 40}ms` }}
                   >
                     <img src={img} alt="" className="w-full h-full object-cover" />
                   </div>
                 ))}
-                {productCount > previewImages.length - 1 && (
-                  <div className="aspect-square bg-white/5 rounded flex items-center justify-center animate-fade-in">
-                    <span className="text-neutral-400 text-sm font-medium">+{productCount - previewImages.length + 1}</span>
+                {productCount > visibleTiles.length && (
+                  <div className="aspect-square bg-white/5 rounded flex flex-col items-center justify-center gap-0.5 px-1 text-center animate-fade-in">
+                    <span className="text-neutral-300 text-sm font-semibold tabular-nums">+{productCount - visibleTiles.length}</span>
+                    <span className="text-neutral-500 text-[10px] leading-tight">analyzing…</span>
                   </div>
                 )}
               </div>

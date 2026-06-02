@@ -1381,7 +1381,11 @@ router.get("/analyze", async (req, res) => {
             collectionTitles[c.handle] = c.title;
           }
 
-          // Build preview images (round-robin from all collections)
+          // Build a large round-robin pool of product images (interleaved
+          // across collections for variety). The frontend rotates the visible
+          // grid through this pool while the outfit build runs, so it looks
+          // like Runa is scanning the whole catalog in real time.
+          const PREVIEW_POOL = 300;
           const byCollection = {};
           for (const p of allProducts) {
             if (!p.image) continue;
@@ -1391,10 +1395,13 @@ router.get("/analyze", async (req, res) => {
           const allCollectionImages = Object.values(byCollection);
           const previewRows = [];
           let idx = 0;
-          while (previewRows.length < 24 && idx < 10) {
+          let added = true;
+          while (previewRows.length < PREVIEW_POOL && added) {
+            added = false;
             for (const col of allCollectionImages) {
-              if (idx < col.length && previewRows.length < 24) {
+              if (idx < col.length && previewRows.length < PREVIEW_POOL) {
                 previewRows.push(col[idx]);
+                added = true;
               }
             }
             idx++;
