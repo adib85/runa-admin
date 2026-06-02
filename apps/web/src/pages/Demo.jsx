@@ -728,17 +728,13 @@ export default function Demo() {
     'Building complementary sets...',
   ];
 
-  // One "analysis beat" drives both the status message and the product grid:
-  // every 4s the message advances AND the grid pulls in a fresh batch of
-  // products, so the copy and the visuals move together and it reads as Runa
-  // scanning the catalog in real time.
+  // Status message rotates every 4s to keep the copy lively while the product
+  // grid (below) changes more slowly, so the screen never feels frozen.
   useEffect(() => {
     if (previewImages.length === 0) return;
     setStylingMsg(0);
-    setGridPage(0);
     const interval = setInterval(() => {
       setStylingMsg(prev => (prev + 1) % stylingMessages.length);
-      setGridPage(prev => prev + 1);
     }, 4000);
     return () => clearInterval(interval);
   }, [previewImages]);
@@ -760,9 +756,19 @@ export default function Demo() {
     return () => clearInterval(interval);
   }, [phase, previewImages]);
 
+  // The product grid advances every 10s — slower than the message — so visitors
+  // have time to actually look at each batch of products before it refreshes.
+  const GRID_ROTATE_MS = 10000;
+  useEffect(() => {
+    if (previewImages.length === 0) return;
+    setGridPage(0);
+    const interval = setInterval(() => setGridPage(p => p + 1), GRID_ROTATE_MS);
+    return () => clearInterval(interval);
+  }, [previewImages]);
+
   // The grid shows TILE_COUNT products at a time, windowed into the larger pool
-  // the backend sends; gridPage advances on the analysis beat above, so each
-  // step brings a fresh batch. Wraps if the pool is smaller than the wait.
+  // the backend sends; gridPage advances on the 10s timer above, so each step
+  // brings a fresh batch. Wraps if the pool is smaller than the wait.
   const TILE_COUNT = 23;
   const visibleTiles = previewImages.length
     ? Array.from(
