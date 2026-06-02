@@ -1,6 +1,26 @@
 #!/bin/bash
 set -e
 
+# ──────────────────────────────────────────────────────────────────────
+# INCREMENTAL by design: every step runs with --missing, so it only
+# touches products that haven't been processed yet (no *_updated_at in
+# Neo4j for the generate steps, no *_metafield_synced_at for the publish
+# steps). It will NOT regenerate caches or rewrite metafields for products
+# already done. That makes the nightly run fast and self-healing for new
+# arrivals — but it means manual cache edits won't propagate from here.
+#
+# To rewrite EXISTING products (e.g. after overriding userOptions in the
+# cache), run the relevant step manually with --force and WITHOUT --missing:
+#   node apps/api/src/scripts/sync-bronzesnake-ask-ai-metafields.js   "$SHOP_DOMAIN" --force --concurrency 5
+#   node apps/api/src/scripts/sync-bronzesnake-ctl-metafields.js      "$SHOP_DOMAIN" --force --concurrency 5
+#   node apps/api/src/scripts/sync-bronzesnake-similar-metafields.js  "$SHOP_DOMAIN" --force --concurrency 5
+#
+# Language: the whole pipeline reads/writes the `_en` cache key. The Ask-AI
+# and CTL Lambdas default to `ro`, so the live storefront can create a
+# separate `_ro` bucket this pipeline never updates — that drift is a
+# storefront/theme issue, not fixable from here.
+# ──────────────────────────────────────────────────────────────────────
+
 # Conda activation — only on EC2 where the env exists. Skipped silently
 # on local machines (Mac, dev box) which use the system Node directly.
 if [ -f /home/ec2-user/miniconda3/etc/profile.d/conda.sh ]; then
@@ -35,6 +55,15 @@ echo "[Step 1/8] Syncing ALL products from Shopify to Neo4j (full refresh)..." |
 # failed or an update arrived just outside the window. A full sync of
 # ~3.5k products takes ~5-10 min and is fully idempotent.
 node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 1.5/8] Completing colourway groups in Neo4j (Bronze Snake only — no Shopify writes)..." | tee -a "$LOG_FILE"
+# Step 1 stores each product's OWN (often partial/asymmetric) custom.related_colourways
+# metafield as the node property p.related_colourways. This step unions those into connected
+# groups and writes the COMPLETE sibling list + bidirectional edges back to every variant, so
+# each colour lists all the others. Reads & writes ONLY Neo4j — never Shopify. Scoped to this
+# shop, so the other shops' syncs are unaffected. Self-healing: re-runs cleanly every night.
+node apps/api/src/scripts/close-colourway-groups.js --shop "$SHOP_DOMAIN" --apply 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "[Step 2/8] Generating Complete The Look widgets (missing only)..." | tee -a "$LOG_FILE"

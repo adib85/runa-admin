@@ -298,9 +298,17 @@ async function processProductWithLambda(product, options = {}) {
     }
 
     const data = await response.json();
-    console.log(`   Success (${duration}ms)`);
+    const outfitsCount = data?.data?.outfits?.length || 0;
+    console.log(`   Success (${duration}ms, ${outfitsCount} outfits)`);
 
-    await updateCompleteTheLookTimestamp(product.id, product.storeId);
+    // Only stamp when the Lambda actually returned ≥1 outfit. Stamping on
+    // empty results pins the product to a frozen empty cache and makes
+    // --missing mode skip it forever.
+    if (outfitsCount > 0) {
+      await updateCompleteTheLookTimestamp(product.id, product.storeId);
+    } else {
+      console.log(`   No outfits returned — skipping timestamp stamp (will retry next --missing run)`);
+    }
 
     return { status: "success", product, data, duration, url };
   } catch (error) {

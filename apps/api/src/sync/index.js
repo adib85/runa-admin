@@ -19,6 +19,8 @@ import { ShopifyProvider } from "./providers/shopify.js";
 import { WooCommerceProvider } from "./providers/woocommerce.js";
 import { VrexProvider } from "./providers/vrex.js";
 import { VtexProvider } from "./providers/vtex.js";
+import { BringoProvider } from "./providers/bringo.js";
+import { QuicklyProvider } from "./providers/quicklly.js";
 
 export class SyncOrchestrator {
   constructor(config) {
@@ -38,6 +40,10 @@ export class SyncOrchestrator {
         return new VrexProvider(config);
       case 'vtex':
         return new VtexProvider(config);
+      case 'bringo':
+        return new BringoProvider(config);
+      case 'quicklly':
+        return new QuicklyProvider(config);
       default:
         throw new Error(`Unknown provider type: ${providerType}`);
     }

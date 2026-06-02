@@ -8,8 +8,9 @@ import { ShopifyProvider } from "./shopify.js";
 import { WooCommerceProvider } from "./woocommerce.js";
 import { VrexProvider } from "./vrex.js";
 import { VtexProvider } from "./vtex.js";
+import { BringoProvider } from "./bringo.js";
 
-export { BaseProvider, ShopifyProvider, WooCommerceProvider, VrexProvider, VtexProvider };
+export { BaseProvider, ShopifyProvider, WooCommerceProvider, VrexProvider, VtexProvider, BringoProvider };
 
 /**
  * Get provider class by type
@@ -19,7 +20,8 @@ export function getProviderClass(providerType) {
     shopify: ShopifyProvider,
     woocommerce: WooCommerceProvider,
     vrex: VrexProvider,
-    vtex: VtexProvider
+    vtex: VtexProvider,
+    bringo: BringoProvider
   };
   
   const Provider = providers[providerType.toLowerCase()];

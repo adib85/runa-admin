@@ -353,7 +353,15 @@ async function processAskAiForProduct(product, { geminiModel = null, skipCaching
       if (!cacheWrite.success) {
         console.error(`   WARN — cache write failed: ${cacheWrite.error}`);
       }
-      await updateAskAiTimestamp(product.id, product.storeId, result.options?.length || 0);
+      // Only stamp when the Lambda actually returned ≥1 chip. Stamping on
+      // empty results pins the product to a frozen empty cache and makes
+      // --missing mode skip it forever.
+      const optionsCount = result.options?.length || 0;
+      if (optionsCount > 0) {
+        await updateAskAiTimestamp(product.id, product.storeId, optionsCount);
+      } else {
+        console.log(`   No options returned — skipping timestamp stamp (will retry next --missing run)`);
+      }
     }
 
     const duration = Date.now() - startTime;

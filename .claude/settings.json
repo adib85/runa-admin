@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(env)",
+      "Bash(node apps/api/src/scripts/_test-detect-canonical-color.js)",
+      "Bash(node apps/api/src/scripts/backfill-bronzesnake-canonical-color.js --gemini)",
+      "Bash(node apps/api/src/scripts/backfill-bronzesnake-canonical-color.js --apply --gemini)",
+      "Bash(node apps/api/src/scripts/_verify-canonical-color.js)",
+      "Bash(node apps/api/src/scripts/_normalize-canonical-color-casing.js)",
+      "Bash(node apps/api/src/scripts/backfill-bronzesnake-canonical-color.js --apply)",
+      "Bash(node apps/api/src/scripts/audit-bronzesnake-user-options-quality.mjs --handle hallie-shirt-chocolate --show-ok)",
+      "Bash(node apps/api/src/scripts/audit-bronzesnake-user-options-quality.mjs --only-bad)",
+      "Bash(ps -eo pid,etime,command)",
+      "Bash(kill 80028 79067)",
+      "Bash(node apps/api/src/scripts/audit-bronzesnake-user-options-quality.mjs --only-bad --limit 500)",
+      "Bash(grep -oE \"flagged terms: [^$]*\" /tmp/bronze-audit-full.txt)",
+      "Bash(node apps/api/src/scripts/test-bronzesnake-user-options-fresh-100.mjs)"
+    ]
+  }
+}

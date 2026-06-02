@@ -9,6 +9,22 @@ export function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Namespace a raw provider id with its store id.
+ *
+ * IMPORTANT: Neo4j MERGEs Product/Variant nodes GLOBALLY by `id` (not scoped by store).
+ * So an id that is only unique WITHIN a source (web scrapers, multi-account VTEX, any feed
+ * with small sequential ids) WILL overwrite a different store's node if they share the id.
+ * Always run such ids through this helper before writing.
+ *
+ *   product.id = storePrefixedId(storeId, rawId)   // e.g. "carrefour_hipermarket-359"
+ *
+ * (Shopify GIDs are already globally unique, so prefixing is optional there but harmless.)
+ */
+export function storePrefixedId(storeId, rawId) {
+  return `${storeId}-${rawId}`;
+}
+
 export async function retryOnDeadlock(operation, maxRetries = 5) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

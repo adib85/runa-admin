@@ -19,6 +19,32 @@
  *   - vtex
  *   - woocommerce (coming soon)
  *   - vrex (coming soon)
+ *   - bringo (web-scraper for bringo.ro stores, e.g. carrefour_hipermarket)
+ */
+
+/**
+ * ⚠️  PRODUCT ID NAMESPACING — READ BEFORE ADDING / EXTENDING A PROVIDER
+ * ───────────────────────────────────────────────────────────────────────────
+ * Neo4j MERGEs Product (and Variant) nodes GLOBALLY by `id` — they are NOT scoped
+ * by store. If a provider emits ids that are only unique WITHIN its source (web
+ * scrapers, multi-account VTEX, BigCommerce, any feed with small sequential ids),
+ * two different stores can share an id and one sync will OVERWRITE the other store's
+ * node (title, price, embeddings, storeId — everything).
+ *
+ * This bit us once: a Bringo run with RAW ids overwrote fashion products 20812/24869
+ * (toffro) and 359 (dalb-concept) in the shared index.
+ *
+ * RULE: namespace such ids per store BEFORE emitting them from the provider:
+ *     import { storePrefixedId } from "../utils/index.js";
+ *     product.id      = storePrefixedId(storeId, rawId);     // "carrefour_hipermarket-359"
+ *     variant.id      = `${storePrefixedId(storeId, rawId)}-default`;
+ *   (Shopify GIDs are already globally unique, so prefixing is optional there.)
+ *
+ * Backstop: services/neo4j.js → saveProducts() detects an incoming id owned by another
+ * store and logs a loud warning; set SYNC_STRICT_STORE_ISOLATION=true to make it SKIP
+ * those products instead of overwriting. That guard is a safety net, NOT a substitute
+ * for namespacing ids correctly in the provider.
+ * ───────────────────────────────────────────────────────────────────────────
  */
 
 import dotenv from "dotenv";
@@ -135,6 +161,44 @@ Examples:
       appToken,
       channelId: `${accountName}_scan`
     };
+  } else if (provider === 'bringo') {
+    // Bringo is a keyless scraper — no access token. shopName = the Bringo store slug,
+    // which doubles as the Neo4j store id (e.g. "carrefour_hipermarket").
+    const storeSlug = filteredArgs[1] || 'carrefour_hipermarket';
+    const foodFirst = !args.includes('--all-categories'); // default: food-only; --all-categories indexes everything
+
+    config = {
+      ...config,
+      shopName: storeSlug,
+      storeSlug,
+      foodFirst,
+      channelId: `${storeSlug}_scan`
+    };
+    console.log(`  [Bringo] store=${storeSlug} foodFirst=${foodFirst}`);
+  } else if (provider === 'quicklly') {
+    // Quicklly is a keyless scraper for a US Indian-grocery marketplace. shopName
+    // = `quicklly_<merchant-slug>` (per-merchant Bringo-style sync).
+    const merchantSlug = filteredArgs[1];
+    if (!merchantSlug) {
+      console.error(`
+Usage: node sync-modular.js quicklly <merchant-slug> [--force] [--max N] [--dry-run]
+
+Examples:
+  node sync-modular.js quicklly taj-mahal-fresh-market
+  node sync-modular.js quicklly indian-mega-mart --max 20 --dry-run
+  node sync-modular.js quicklly desi-india-bazaar --force
+  node sync-modular.js quicklly bangladesh-fish-market-and-halal-meat --dry-run --max 5
+      `);
+      process.exit(1);
+    }
+    config = {
+      ...config,
+      shopName: `quicklly_${merchantSlug}`,
+      storeSlug: `quicklly_${merchantSlug}`,
+      merchantSlug,
+      channelId: `quicklly_${merchantSlug}_scan`,
+    };
+    console.log(`  [Quicklly] merchant=${merchantSlug}`);
   } else {
     // Default: Shopify and other providers
     const shopName = filteredArgs[1] || process.env.SHOP_DOMAIN;

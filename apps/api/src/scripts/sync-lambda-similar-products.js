@@ -72,8 +72,11 @@ async function deleteSimilarProductsCache(productHandle, storeId, languages = ["
 
 // ─── Lambda: refresh similar products widget ─────────────────────────
 
-async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null, skipImages = false, candidateLimit = null } = {}) {
-  let url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar`;
+async function refreshSimilarProductsWidget(productHandle, storeId, { geminiModel = null, skipImages = false, candidateLimit = null, language = "en" } = {}) {
+  // Send language explicitly so the Lambda's cache key suffix matches the
+  // `_en` key the metafield writer reads. The Lambda defaults to "en" today,
+  // but pinning it here keeps the pipeline correct if that default ever changes.
+  let url = `${SIMILAR_PRODUCTS_LAMBDA_URL}?domain=${storeId}&productHandle=${productHandle}&mode=similar&language=${encodeURIComponent(language)}`;
   if (geminiModel) url += `&geminiModel=${encodeURIComponent(geminiModel)}`;
   if (skipImages) url += `&skipImages=true`;
   if (candidateLimit) url += `&candidateLimit=${candidateLimit}`;
@@ -271,8 +274,14 @@ async function processSimilarProductsForProduct(product, { geminiModel = null, s
 
     const similarResult = await refreshSimilarProductsWidget(product.handle, product.storeId, { geminiModel, skipImages, candidateLimit });
 
-    if (similarResult.success) {
+    // Only stamp the timestamp when the Lambda actually returned ≥1 similar
+    // product. Stamping on empty results pins the product to a frozen empty
+    // cache and makes --missing mode skip it forever.
+    const similarCount = similarResult?.data?.data?.products?.length || 0;
+    if (similarResult.success && similarCount > 0) {
       await updateSimilarProductTimestamp(product.id, product.storeId);
+    } else if (similarResult.success) {
+      console.log(`   No similar products returned — skipping timestamp stamp (will retry next --missing run)`);
     }
 
     const duration = Date.now() - startTime;

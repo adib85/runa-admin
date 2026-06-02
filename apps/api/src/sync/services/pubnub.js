@@ -11,22 +11,30 @@ class PubNubService {
     this.client = new Pubnub(PUBNUB_CONFIG);
   }
 
+  // All publishes are fire-and-forget. PubNub v7 publish() returns a promise; an
+  // unhandled rejection (e.g. DNS/network failure when the machine sleeps) would
+  // otherwise crash the whole sync process — so swallow + log instead.
+  _safePublish(payload, label) {
+    try {
+      const p = this.client.publish(payload);
+      if (p && typeof p.catch === "function") {
+        p.catch(e => console.log(`  [pubnub] ${label} failed (ignored):`, e?.message || e));
+      }
+    } catch (e) {
+      console.log(`  [pubnub] ${label} threw (ignored):`, e?.message || e);
+    }
+  }
+
   publishProgress(channelId, processed, total) {
-    this.client.publish({
-      channel: channelId,
-      message: { total, processed }
-    });
+    this._safePublish({ channel: channelId, message: { total, processed } }, "publishProgress");
   }
 
   publishContextStatus(channelId, status) {
-    this.client.publish({
-      channel: channelId,
-      message: { contextFetching: status }
-    });
+    this._safePublish({ channel: channelId, message: { contextFetching: status } }, "publishContextStatus");
   }
 
   publish(channelId, message) {
-    this.client.publish({ channel: channelId, message });
+    this._safePublish({ channel: channelId, message }, "publish");
   }
 }
 

@@ -589,14 +589,7 @@ Return exactly one category.`,
         : Promise.resolve(() => { product.descriptionSource = "original"; });
 
       const productContent = `${product.title} ${product.body_html || ""}`;
-      const propertiesPromise = (async () => {
-        try {
-          const propsJson = await this.openai.getProductProperties(productContent, defaultCategories, websiteCategories);
-          return JSON.parse(propsJson);
-        } catch (e) {
-          return { product: "unknown", characteristics: "unknown", color: "unknown", demographic: "woman", category: "Clothing" };
-        }
-      })();
+      const propertiesPromise = this.extractProductProperties(productContent, product, defaultCategories, websiteCategories);
 
       const [, productProperties] = await Promise.all([descriptionPromise, propertiesPromise]);
 
@@ -605,7 +598,8 @@ Return exactly one category.`,
       product.properties = productProperties;
 
       // ── Phase 1.5: Generate SEO (Title + MetaTagDescription) — Romanian only (TOFF) ──
-      if (this.descriptionLanguage === "ro") {
+      // Providers can opt out (this.skipSeo) when the TOFF-branded SEO doesn't apply (e.g. Bringo grocery).
+      if (this.descriptionLanguage === "ro" && !this.skipSeo) {
         try {
           const seoInput = {
             title: product.title,
@@ -647,6 +641,37 @@ Return exactly one category.`,
           product.heroImageIndex = hero.index;
           product.heroImageSource = hero.source;
           product.heroImageDecidedAt = new Date().toISOString();
+        }
+      }
+
+      // Canonical color (storefront color-filter bucket) — gated to per-shop
+      // opt-in (see shouldDetectCanonicalColor). Only fires when the Shopify
+      // metafield `customAttributes.colour` is missing; Gemini buckets the
+      // product into one of the 33 canonical colors using image + title.
+      if (this.shouldDetectCanonicalColor?.(product)) {
+        try {
+          const color = await this.detectCanonicalColorForProduct(product);
+          if (color) {
+            product.canonicalColor = color;
+            console.log(`  [Sync] ✓ canonicalColor (gemini): "${product.title}" → ${color}`);
+          }
+        } catch (e) {
+          console.log(`  [Sync] ✗ canonicalColor detection failed for "${product.title}": ${e.message}`);
+        }
+      }
+
+      // Product-level color + colorEmbedding. The provider decides the source
+      // value (e.g. Bronze Snake uses the real Shopify "Color" option, NOT the
+      // canonical bucket). Stored as "color: <value>" to match the embedding
+      // the recommendation query builds: generateEmbedding(`color: ${color}`).
+      const productColorValue = this.resolveProductColorValue?.(product);
+      if (productColorValue) {
+        const colorText = `color: ${String(productColorValue).toLowerCase().trim()}`;
+        const colorEmbedding = await this.openai.generateEmbedding(colorText);
+        if (colorEmbedding) {
+          product.color = colorText;
+          product.colorEmbedding = colorEmbedding;
+          console.log(`  [Sync] ✓ product color: "${product.title}" → ${colorText}`);
         }
       }
 
@@ -828,6 +853,18 @@ Return exactly one category.`,
   // Override in provider subclass for shop-specific style classification
   async classifyStyle(product) {
     return null;
+  }
+
+  // Extract searchable attributes { product, characteristics, color, material, demographic, category }.
+  // Default = OpenAI gpt-4o-mini classifier (fashion-tuned). Providers may override to derive these
+  // without an LLM (e.g. grocery, from scraped fields) or with a domain-specific prompt.
+  async extractProductProperties(content, product, defaultCategories, websiteCategories) {
+    try {
+      const propsJson = await this.openai.getProductProperties(content, defaultCategories, websiteCategories);
+      return JSON.parse(propsJson);
+    } catch (e) {
+      return { product: "unknown", characteristics: "unknown", color: "unknown", demographic: "woman", category: "Clothing" };
+    }
   }
 
 

@@ -5,6 +5,7 @@
  */
 
 import { GraphQLClient, gql } from "graphql-request";
+import { normalizeCanonicalColor } from "../services/detect-canonical-color.js";
 import Shopify from "shopify-api-node";
 import fetch from "node-fetch";
 import { stripHtml } from "string-strip-html";
@@ -39,6 +40,10 @@ const BS_HANDLE_TYPO_FIX = {
   "men-accessories": "mens-accessories",
 };
 
+// Shopify option names that carry the product's color (used to read the real
+// product color from a variant's selectedOptions).
+const COLOR_OPTION_NAMES = new Set(["color", "colour", "culoare"]);
+
 function isBronzeSnakeAdminHandle(h) {
   return BS_ADMIN_HANDLES.has(h)
     || /(^|-)just-landed$/.test(h)
@@ -69,6 +74,8 @@ const GET_PRODUCTS_QUERY = gql`
           collections(first: 10) { edges { node { id title handle } } }
           metafields(first: 10) { edges { node { key value namespace } } }
           styleFilters: metafield(namespace: "custom", key: "style_filters_new") { value type }
+          canonicalColorMeta: metafield(namespace: "customAttributes", key: "colour") { value }
+          relatedColourwaysMeta: metafield(namespace: "custom", key: "related_colourways") { value }
         }
       }
     }
@@ -195,6 +202,26 @@ export class ShopifyProvider extends BaseProvider {
       const totalStock = variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0);
       if (totalStock <= 0) this.stats.zeroInventory++;
 
+      // The real product color = the "Color"/"Colour" option value (e.g.
+      // "Deep Ocean"). Bronze Snake products are single-color (color is at
+      // product level, only size varies), so the first variant's color option
+      // is the product color. Single-variant items (e.g. fragrances) have no
+      // Color option and fall back to the colour metafield (see resolveProductColorValue).
+      let shopifyColorOption = null;
+      for (const e of (node.variants?.edges || [])) {
+        const opt = (e.node.selectedOptions || []).find(o => COLOR_OPTION_NAMES.has((o.name || "").toLowerCase()));
+        if (opt?.value) { shopifyColorOption = opt.value; break; }
+      }
+
+      // Product-level numeric price = MIN of variant prices. Single number
+      // (no currency carry-through, no min/max range) so downstream queries
+      // can filter/sort with `p.price <= 150`. null when no variant has a
+      // numeric price (or no variants).
+      const numericPrices = variants
+        .map(v => parseFloat(v.price))
+        .filter(n => Number.isFinite(n));
+      const price = numericPrices.length ? Math.min(...numericPrices) : null;
+
       const product = {
         id,
         title: node.title,
@@ -207,6 +234,7 @@ export class ShopifyProvider extends BaseProvider {
         tags: node.tags?.join(", ") || "",
         tagsAsCategories: false,
         published_at: node.publishedAt,
+        price,
         images,
         variants,
         options: this.extractOptions(node.variants?.edges || []),
@@ -219,7 +247,13 @@ export class ShopifyProvider extends BaseProvider {
           key: e.node.key,
           value: e.node.value,
           namespace: e.node.namespace
-        })) || []
+        })) || [],
+        canonicalColor: normalizeCanonicalColor(node.canonicalColorMeta?.value),
+        shopifyColorOption,
+        rawColorMeta: node.canonicalColorMeta?.value || null,
+        // Same-style/different-color siblings from the `custom.related_colourways`
+        // metafield (list.product_reference, self-inclusive). Bare ids, self removed.
+        relatedColourways: this.parseRelatedColourways(node.relatedColourwaysMeta?.value, id)
       };
 
       const demographics = this.detectDemographic(product, node.tags || []);
@@ -506,6 +540,64 @@ export class ShopifyProvider extends BaseProvider {
     if (imgCount < 2) return false;
     if (product.heroImage && !this.rewriteHeroes) return false;
     return true;
+  }
+
+  // Decides whether to ask Gemini to pick a canonical color for this product.
+  // Bronze Snake-only: their storefront color filter is powered by the
+  // `customAttributes.colour` metafield (33 buckets). We read it directly in
+  // the GraphQL query above; this method only fires when that metafield is
+  // missing, so Gemini can fill the gap from the product image + title.
+  shouldDetectCanonicalColor(product) {
+    if (this.shopName !== "bronze-snake-1.myshopify.com") return false;
+    if (product.canonicalColor) return false;
+    if (!(product.images || []).length) return false;
+    return true;
+  }
+
+  // Resolves the value used for the product-level `color` / `colorEmbedding`
+  // fields in Neo4j (the recommendation/search color-similarity signal).
+  // Bronze Snake-only: returns the REAL product color (Shopify "Color" option
+  // value, e.g. "Deep Ocean") rather than the canonical storefront bucket
+  // (e.g. "Blue"). Single-variant products (fragrances) have no Color option,
+  // so fall back to the raw customAttributes.colour metafield value.
+  // Returns null for other shops (no change to their color handling).
+  resolveProductColorValue(product) {
+    if (this.shopName !== "bronze-snake-1.myshopify.com") return null;
+    return product.shopifyColorOption || product.rawColorMeta || null;
+  }
+
+  // Parses the `custom.related_colourways` metafield (a JSON array of
+  // `gid://shopify/Product/<id>` references, which includes the product
+  // itself) into a deduped list of bare sibling ids with self removed.
+  // Returns [] for missing/invalid values. Stores without the metafield
+  // (non-Bronze-Snake) get [] and no colourway edges.
+  parseRelatedColourways(value, selfId) {
+    if (!value) return [];
+    let arr;
+    try { arr = JSON.parse(value); } catch { return []; }
+    if (!Array.isArray(arr)) return [];
+    const self = String(selfId);
+    const seen = new Set();
+    const out = [];
+    for (const gid of arr) {
+      const idStr = String(gid).replace("gid://shopify/Product/", "").trim();
+      if (!idStr || idStr === self || seen.has(idStr)) continue;
+      seen.add(idStr);
+      out.push(idStr);
+    }
+    return out;
+  }
+
+  // Asks Gemini to bucket the product into one of the 33 canonical colors.
+  // Imported lazily to keep the helper out of the providers' import graph
+  // (it only runs for the small slice of BS products missing the metafield).
+  async detectCanonicalColorForProduct(product) {
+    const { detectCanonicalColor } = await import("../services/detect-canonical-color.js");
+    const imageUrl = product.heroImage
+      || (typeof product.images?.[0] === "string" ? product.images[0] : product.images?.[0]?.src)
+      || product.image;
+    const r = await detectCanonicalColor({ title: product.title, imageUrl });
+    return r.color || null;
   }
 
   // ==================== PER-SHOP PRODUCT QUERY FILTER ====================

@@ -40,6 +40,8 @@ coverage/
 # Cache
 .eslintcache
 .cache/
+apps/api/.quicklly-cache/
+apps/api/.bringo-category-tree-*.json
 
 # Sync progress files
 .sync-progress-*.json
