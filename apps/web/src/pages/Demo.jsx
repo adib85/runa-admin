@@ -735,17 +735,20 @@ export default function Demo() {
     return () => clearInterval(interval);
   }, [previewImages]);
 
-  // Rough ETA countdown during the styling phase (no server-provided ETA, so
-  // this is an estimate). Steps down in 5s buckets — "about 30 seconds", then
-  // "about 25 seconds", etc — and holds with an "almost ready" message if the
-  // build runs longer than expected.
-  const STYLING_ETA_SECONDS = 30;
+  // ETA countdown during the styling phase. Shows a friendly "approx. 30s" but
+  // each step holds 10 real seconds, so the visible 30s countdown spans ~60s —
+  // matching the server's typical fresh-build time while keeping the displayed
+  // number low and reassuring. The "approx." label keeps it honest, and it
+  // holds on "almost ready" if the build overruns. The step span
+  // ((START / 5) * STEP_MS = 60s) is kept in sync with .animate-loading-bar.
+  const COUNTDOWN_START_SECONDS = 30;
+  const COUNTDOWN_STEP_MS = 10000;
   useEffect(() => {
     if (phase !== 'loading' || previewImages.length === 0) return;
-    setSecondsLeft(STYLING_ETA_SECONDS);
+    setSecondsLeft(COUNTDOWN_START_SECONDS);
     const interval = setInterval(() => {
       setSecondsLeft(prev => (prev > 0 ? prev - 5 : prev));
-    }, 5000);
+    }, COUNTDOWN_STEP_MS);
     return () => clearInterval(interval);
   }, [phase, previewImages]);
 
@@ -937,7 +940,7 @@ export default function Demo() {
                 {stylingMessages[stylingMsg]}
               </p>
               <p className="text-neutral-300 text-sm font-medium mb-2.5 text-center tabular-nums">
-                {secondsLeft >= 5 ? `${secondsLeft} seconds remaining` : 'almost ready…'}
+                {secondsLeft >= 5 ? `approx. ${secondsLeft} seconds remaining` : 'almost ready…'}
               </p>
               <div className="mb-5 mx-auto w-40 h-1 rounded-full bg-white/10 overflow-hidden">
                 <div className="h-full bg-purple-500 rounded-full animate-loading-bar" />

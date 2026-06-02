@@ -240,5 +240,5 @@
 }
 
 .animate-loading-bar {
-  animation: loadingBar 30s linear forwards;
+  animation: loadingBar 60s linear forwards;
 }
