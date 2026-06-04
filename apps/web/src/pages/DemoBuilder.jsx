@@ -152,6 +152,20 @@ export default function DemoBuilder() {
     );
   }
 
+  // Reorder a complementary item within its bundle.
+  function moveItem(bi, ii, dir) {
+    setBundles((bs) =>
+      bs.map((b, i) => {
+        if (i !== bi) return b;
+        const target = ii + dir;
+        if (target < 0 || target >= b.items.length) return b;
+        const items = [...b.items];
+        [items[ii], items[target]] = [items[target], items[ii]];
+        return { ...b, items };
+      }),
+    );
+  }
+
   function addBundle() {
     setBundles((bs) => [...bs, emptyBundle()]);
   }
@@ -537,13 +551,31 @@ export default function DemoBuilder() {
                         onAutofill={(url) => autofill((f) => fillItem(bi, ii, f), url)}
                       />
                     </div>
-                    <button
-                      onClick={() => removeItem(bi, ii)}
-                      className="mt-1 text-neutral-300 hover:text-red-600 transition-colors text-lg leading-none"
-                      title="Remove item"
-                    >
-                      ×
-                    </button>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <button
+                        onClick={() => moveItem(bi, ii, -1)}
+                        disabled={ii === 0}
+                        title="Move up"
+                        className="text-neutral-400 hover:text-neutral-800 disabled:opacity-30 disabled:hover:text-neutral-400 leading-none"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => moveItem(bi, ii, 1)}
+                        disabled={ii === bundle.items.length - 1}
+                        title="Move down"
+                        className="text-neutral-400 hover:text-neutral-800 disabled:opacity-30 disabled:hover:text-neutral-400 leading-none"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        onClick={() => removeItem(bi, ii)}
+                        className="text-neutral-300 hover:text-red-600 transition-colors text-lg leading-none"
+                        title="Remove item"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
