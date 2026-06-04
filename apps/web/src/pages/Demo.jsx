@@ -273,12 +273,12 @@ function ResultsView({ data, setResult }) {
             {/* Anchor product */}
             <div className="flex flex-col sm:flex-row gap-6">
               <div className="sm:w-1/2">
-                <div className="bg-neutral-100 rounded-lg overflow-hidden aspect-[3/4]">
+                <div className="bg-white rounded-lg overflow-hidden aspect-[3/4] flex items-center justify-center p-4">
                   {outfit.anchor?.image && (
                     <img
                       src={outfit.anchor.image}
                       alt={outfit.anchor.title}
-                      className="w-full h-full object-cover"
+                      className="max-w-full max-h-full object-contain"
                     />
                   )}
                 </div>
@@ -334,12 +334,12 @@ function ResultsView({ data, setResult }) {
               {/* Mobile layout: title + horizontal scroll */}
               <div className="lg:hidden">
                 <div className="flex items-center gap-5 mb-6">
-                  <div className="w-16 h-16 flex-shrink-0 bg-neutral-50 rounded-md flex items-center justify-center overflow-hidden">
+                  <div className="w-16 h-16 flex-shrink-0 bg-white rounded-md flex items-center justify-center overflow-hidden p-1">
                     {outfit.anchor?.image && (
                       <img
                         src={outfit.anchor.image}
                         alt={outfit.anchor.title}
-                        className="w-full h-full object-cover"
+                        className="max-w-full max-h-full object-contain"
                       />
                     )}
                   </div>
@@ -389,14 +389,14 @@ function ResultsView({ data, setResult }) {
                 >
                   <div className="flex items-center gap-4">
                     {alt.anchor?.image && (
-                      <img src={alt.anchor.image} alt={alt.anchor.title} className="w-20 h-24 object-cover rounded-lg bg-neutral-50" />
+                      <img src={alt.anchor.image} alt={alt.anchor.title} className="w-20 h-24 object-contain rounded-lg bg-white border border-neutral-100 p-1" />
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-neutral-900 truncate">{alt.anchor?.title}</p>
                       <p className="text-xs text-neutral-500 mt-1">{formatPrice(alt.anchor?.price, store.currency)}</p>
                       <div className="flex gap-1.5 mt-2">
                         {alt.items?.slice(0, 4).map((item, j) => (
-                          item.image && <img key={j} src={item.image} alt="" className="w-8 h-8 rounded object-cover bg-neutral-100" />
+                          item.image && <img key={j} src={item.image} alt="" className="w-8 h-8 rounded object-contain bg-white border border-neutral-100" />
                         ))}
                       </div>
                     </div>
@@ -916,7 +916,7 @@ export default function Demo() {
           <div className="border border-white/10 bg-white/5 rounded-2xl p-5 max-w-sm w-full animate-slide-up">
             <div className="flex items-start gap-4">
               {anchor.image && (
-                <img src={anchor.image} alt={anchor.title} className="w-20 h-28 object-cover rounded-lg bg-white" />
+                <img src={anchor.image} alt={anchor.title} className="w-20 h-28 object-contain rounded-lg bg-white p-1" />
               )}
               <div className="flex-1 pt-1">
                 <p className="text-purple-400 text-xs font-bold uppercase tracking-wider mb-1">Star Product</p>
