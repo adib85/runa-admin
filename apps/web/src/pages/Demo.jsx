@@ -174,8 +174,11 @@ const DEFAULT_COPY = {
   subhead: 'AI-built outfits from your catalog. Live on your PDPs in 48 hours.',
   tagline: 'Styling',
 };
-function resolveCopy(copy) {
-  return { ...DEFAULT_COPY, ...(copy || {}) };
+// Manual (Builder) demos default the loading verb to a neutral "Analyzing"
+// instead of the fashion-specific "Styling" when none is provided.
+function resolveCopy(copy, isManual) {
+  const defaults = isManual ? { ...DEFAULT_COPY, tagline: 'Analyzing' } : DEFAULT_COPY;
+  return { ...defaults, ...(copy || {}) };
 }
 
 // Rotating loading lines. AI demos keep the styling-flavoured set; manual
@@ -206,7 +209,7 @@ const GENERIC_LOADING_MESSAGES = [
 
 function ResultsView({ data, setResult }) {
   const { store, outfit, alternativeOutfits = [], debug } = data;
-  const C = resolveCopy(data.copy);
+  const C = resolveCopy(data.copy, data.isManual);
 
   return (
     <div className="min-h-screen bg-white">
@@ -656,6 +659,9 @@ export default function Demo() {
   const [collectionStats, setCollectionStats] = useState([]);
   const [liveCopy, setLiveCopy] = useState(null);
   const [liveManual, setLiveManual] = useState(false);
+  // True once we know whether this is a manual demo (via prefetch or first SSE
+  // event), so the loading screen never flashes the wrong verb on first paint.
+  const [verbResolved, setVerbResolved] = useState(false);
   const [stylingMsg, setStylingMsg] = useState(0);
   const [anchorMsg, setAnchorMsg] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -676,12 +682,27 @@ export default function Demo() {
     setPreviewImages([]);
     setLiveCopy(null);
     setLiveManual(false);
+    setVerbResolved(false);
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
     const encoded = encodeURIComponent(domain);
+
+    // Prefetch the curated meta with a fast plain fetch so the loading verb is
+    // correct on first paint, well before the slower SSE handshake delivers it.
+    const bareDomain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '').split('/')[0];
+    fetch(`${API_URL}/demo/builder/${encodeURIComponent(bareDomain)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.payload?.isManual) {
+          setLiveManual(true);
+          if (d.payload.copy) setLiveCopy(d.payload.copy);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setVerbResolved(true));
     let params = '';
     if (skipCaching) params += '&skipCaching=true';
     if (debugMode) params += '&debug=true';
@@ -693,6 +714,7 @@ export default function Demo() {
       const data = JSON.parse(e.data);
       if (data.copy) setLiveCopy(data.copy);
       if (data.isManual) setLiveManual(true);
+      setVerbResolved(true);
       const stepIdx = getStepIndex(data.step);
 
       if (stepIdx >= 0) {
@@ -750,8 +772,8 @@ export default function Demo() {
   }, [addMessage]);
 
   // Resolve per-demo copy (manual demos send it; AI demos use defaults).
-  const C = resolveCopy(result?.copy || liveCopy);
   const isManualDemo = result?.isManual || liveManual;
+  const C = resolveCopy(result?.copy || liveCopy, isManualDemo);
 
   // Anchor-reveal lines. Manual (Builder) demos avoid fashion wording.
   const anchorMessages = isManualDemo
@@ -996,7 +1018,7 @@ export default function Demo() {
               <p className="text-neutral-400 text-sm">
                 {phase === 'error'
                   ? 'Analysis failed'
-                  : <>{C.tagline} <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span></>
+                  : <>{verbResolved ? `${C.tagline} ` : ''}<span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span></>
                 }
               </p>
             </div>

@@ -18,9 +18,10 @@ const COPY_DEFAULTS = {
   badge: 'Demo Preview',
   headline: "Here's how Runa would style",
   subhead: 'AI-built outfits from your catalog. Live on your PDPs in 48 hours.',
-  tagline: 'Styling',
 };
-const emptyCopy = () => ({ badge: '', headline: '', subhead: '', tagline: '' });
+// The loading verb is intentionally not editable here — manual demos use the
+// neutral "Curating" default (see Demo.jsx resolveCopy).
+const emptyCopy = () => ({ badge: '', headline: '', subhead: '' });
 
 const emptyProduct = () => ({ title: '', brand: '', price: '', image: '' });
 const emptyBundle = () => ({
@@ -51,7 +52,7 @@ function payloadToForm(payload) {
     items: (o.items || []).map(productToForm),
   }));
   const savedCopy = payload?.copy || {};
-  const copy = { ...emptyCopy(), badge: savedCopy.badge || '', headline: savedCopy.headline || '', subhead: savedCopy.subhead || '', tagline: savedCopy.tagline || '' };
+  const copy = { ...emptyCopy(), badge: savedCopy.badge || '', headline: savedCopy.headline || '', subhead: savedCopy.subhead || '' };
   return { store, copy, bundles: bundles.length ? bundles : [emptyBundle()] };
 }
 
@@ -113,7 +114,6 @@ export default function DemoBuilder() {
         badge: c.badge || dc.badge || '',
         headline: c.headline || dc.headline || '',
         subhead: c.subhead || dc.subhead || '',
-        tagline: c.tagline || dc.tagline || '',
       }));
     } catch (e) {
       setStoreFetchErr(e.message);
@@ -435,43 +435,57 @@ export default function DemoBuilder() {
             <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">
               Demo messages <span className="font-normal normal-case text-neutral-400">— optional, leave blank to use defaults</span>
             </p>
-            <p className="text-xs text-neutral-400 mb-3">
-              These are the lines a visitor sees on the live demo (badge, headline, sub-text and the
-              loading verb). The website name is always shown after the headline automatically.
+            <p className="text-xs text-neutral-400 mb-4">
+              The lines a visitor sees on the live demo. The website name is shown after the headline automatically.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Headline">
-                <input
-                  value={copy.headline}
-                  onChange={(e) => setCopy((c) => ({ ...c, headline: e.target.value }))}
-                  placeholder={COPY_DEFAULTS.headline}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Badge">
-                <input
-                  value={copy.badge}
-                  onChange={(e) => setCopy((c) => ({ ...c, badge: e.target.value }))}
-                  placeholder={COPY_DEFAULTS.badge}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Sub-text">
-                <input
-                  value={copy.subhead}
-                  onChange={(e) => setCopy((c) => ({ ...c, subhead: e.target.value }))}
-                  placeholder={COPY_DEFAULTS.subhead}
-                  className={inputCls}
-                />
-              </Field>
-              <Field label="Loading verb (e.g. “Styling”, “Building”)">
-                <input
-                  value={copy.tagline}
-                  onChange={(e) => setCopy((c) => ({ ...c, tagline: e.target.value }))}
-                  placeholder={COPY_DEFAULTS.tagline}
-                  className={inputCls}
-                />
-              </Field>
+            <div className="grid lg:grid-cols-2 gap-5 items-start">
+              {/* Inputs */}
+              <div className="space-y-4">
+                <Field label="Headline">
+                  <input
+                    value={copy.headline}
+                    onChange={(e) => setCopy((c) => ({ ...c, headline: e.target.value }))}
+                    placeholder={COPY_DEFAULTS.headline}
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Sub-text">
+                  <textarea
+                    value={copy.subhead}
+                    onChange={(e) => setCopy((c) => ({ ...c, subhead: e.target.value }))}
+                    rows={2}
+                    placeholder={COPY_DEFAULTS.subhead}
+                    className={`${inputCls} resize-y leading-relaxed`}
+                  />
+                </Field>
+                <Field label="Badge">
+                  <input
+                    value={copy.badge}
+                    onChange={(e) => setCopy((c) => ({ ...c, badge: e.target.value }))}
+                    placeholder={COPY_DEFAULTS.badge}
+                    className={`${inputCls} sm:max-w-[16rem]`}
+                  />
+                </Field>
+              </div>
+
+              {/* Live preview — mirrors the real demo banner */}
+              <div>
+                <p className="text-[11px] font-medium text-neutral-400 mb-1.5">Live preview</p>
+                <div className="rounded-xl bg-neutral-950 px-6 py-9 text-center flex flex-col items-center justify-center min-h-[190px]">
+                  <span className="inline-block px-3 py-1 rounded-full bg-white/10 text-neutral-300 text-[10px] font-semibold uppercase tracking-wider mb-4">
+                    {copy.badge || COPY_DEFAULTS.badge}
+                  </span>
+                  <p className="text-lg font-bold text-white leading-snug">
+                    {copy.headline || COPY_DEFAULTS.headline}
+                  </p>
+                  <p className="text-xl font-bold text-purple-400 mb-2.5 leading-tight">
+                    {store.name || 'Your Store'}
+                  </p>
+                  <p className="text-neutral-300 text-xs leading-relaxed max-w-xs">
+                    {copy.subhead || COPY_DEFAULTS.subhead}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
