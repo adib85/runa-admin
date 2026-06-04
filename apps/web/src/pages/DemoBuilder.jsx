@@ -20,14 +20,7 @@ const COPY_DEFAULTS = {
   subhead: 'AI-built outfits from your catalog. Live on your PDPs in 48 hours.',
   tagline: 'Styling',
 };
-// loadingMessages is held as a newline-separated string in the form, one
-// rotating line per row; it's split into an array on save.
-const emptyCopy = () => ({ badge: '', headline: '', subhead: '', tagline: '', loadingMessages: '' });
-
-const LOADING_MESSAGES_PLACEHOLDER = `Analyzing your catalog...
-Detecting product categories...
-Finding products that go together...
-Building recommended bundles...`;
+const emptyCopy = () => ({ badge: '', headline: '', subhead: '', tagline: '' });
 
 const emptyProduct = () => ({ title: '', brand: '', price: '', image: '' });
 const emptyBundle = () => ({
@@ -58,13 +51,7 @@ function payloadToForm(payload) {
     items: (o.items || []).map(productToForm),
   }));
   const savedCopy = payload?.copy || {};
-  const copy = {
-    ...emptyCopy(),
-    ...savedCopy,
-    loadingMessages: Array.isArray(savedCopy.loadingMessages)
-      ? savedCopy.loadingMessages.join('\n')
-      : '',
-  };
+  const copy = { ...emptyCopy(), badge: savedCopy.badge || '', headline: savedCopy.headline || '', subhead: savedCopy.subhead || '', tagline: savedCopy.tagline || '' };
   return { store, copy, bundles: bundles.length ? bundles : [emptyBundle()] };
 }
 
@@ -127,7 +114,6 @@ export default function DemoBuilder() {
         headline: c.headline || dc.headline || '',
         subhead: c.subhead || dc.subhead || '',
         tagline: c.tagline || dc.tagline || '',
-        loadingMessages: c.loadingMessages,
       }));
     } catch (e) {
       setStoreFetchErr(e.message);
@@ -272,17 +258,10 @@ export default function DemoBuilder() {
     setResult(null);
     setError('');
     try {
-      const copyPayload = {
-        ...copy,
-        loadingMessages: (copy.loadingMessages || '')
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      };
       const res = await fetch('/api/demo/seed-builder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store, copy: copyPayload, bundles, dryRun }),
+        body: JSON.stringify({ store, copy, bundles, dryRun }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Request failed');
@@ -493,21 +472,6 @@ export default function DemoBuilder() {
                   className={inputCls}
                 />
               </Field>
-            </div>
-            <div className="mt-4">
-              <Field label="Loading messages — one per line (the rotating lines on the loading screen)">
-                <textarea
-                  value={copy.loadingMessages}
-                  onChange={(e) => setCopy((c) => ({ ...c, loadingMessages: e.target.value }))}
-                  rows={4}
-                  placeholder={LOADING_MESSAGES_PLACEHOLDER}
-                  spellCheck={false}
-                  className={`${inputCls} font-mono leading-relaxed resize-y`}
-                />
-              </Field>
-              <p className="text-xs text-neutral-400 mt-1">
-                Leave blank to use the generic set (works for any store — clothing, food, etc.).
-              </p>
             </div>
           </div>
         </div>
