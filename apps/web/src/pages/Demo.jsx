@@ -273,7 +273,7 @@ function ResultsView({ data, setResult }) {
             {/* Anchor product */}
             <div className="flex flex-col sm:flex-row gap-6">
               <div className="sm:w-1/2">
-                <div className="bg-white rounded-lg overflow-hidden aspect-[3/4] flex items-center justify-center p-4">
+                <div className={`bg-white rounded-lg overflow-hidden flex items-center justify-center p-4 border border-neutral-100 ${data.isManual ? 'aspect-square' : 'aspect-[3/4]'}`}>
                   {outfit.anchor?.image && (
                     <img
                       src={outfit.anchor.image}
