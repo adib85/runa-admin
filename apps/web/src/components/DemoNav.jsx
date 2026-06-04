@@ -5,6 +5,7 @@ const links = [
   { path: '/demo-searches', label: 'Searches' },
   { path: '/demo-prompts', label: 'Prompts' },
   { path: '/demo-manual', label: 'Manual' },
+  { path: '/demo-builder', label: 'Builder' },
 ];
 
 export default function DemoNav() {

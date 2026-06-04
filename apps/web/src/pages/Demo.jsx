@@ -19,10 +19,13 @@ function getStepIndex(stepKey) {
 
 // ─── Step Indicator ──────────────────────────────────────────────────
 
-function StepIndicator({ currentStep, completedSteps }) {
+function StepIndicator({ currentStep, completedSteps, isManual }) {
   return (
     <div className="flex items-center justify-center gap-0 mb-8">
       {STEPS.map((step, i) => {
+        // "Style" is fashion-specific — show a neutral "Build" for manual
+        // (Builder) demos so it fits any store (grocery, electronics, etc.).
+        const label = isManual && step.key === 'style' ? 'Build' : step.label;
         const isCompleted = completedSteps.has(step.key);
         const isCurrent = currentStep === step.key;
         const isActive = isCompleted || isCurrent;
@@ -51,7 +54,7 @@ function StepIndicator({ currentStep, completedSteps }) {
               <span className={`text-xs font-medium transition-colors duration-300 ${
                 isActive ? 'text-white' : 'text-neutral-500'
               }`}>
-                {step.label}
+                {label}
               </span>
             </div>
           </div>
@@ -162,10 +165,48 @@ function PlatformSupportLine({ theme = 'dark' }) {
   );
 }
 
+// ─── Demo copy (customizable per demo via the Builder) ───────────────
+// Defaults match the original hardcoded marketing copy. Manual demos can
+// override any subset; AI-built demos carry no copy and keep the defaults.
+const DEFAULT_COPY = {
+  badge: 'Demo Preview',
+  headline: "Here's how Runa would style",
+  subhead: 'AI-built outfits from your catalog. Live on your PDPs in 48 hours.',
+  tagline: 'Styling',
+};
+function resolveCopy(copy) {
+  return { ...DEFAULT_COPY, ...(copy || {}) };
+}
+
+// Rotating loading lines. AI demos keep the styling-flavoured set; manual
+// (Builder) demos fall back to a generic, business-neutral set when they
+// don't provide their own custom messages.
+const STYLING_LOADING_MESSAGES = [
+  'Analyzing color palettes...',
+  'Detecting style patterns...',
+  'Mapping product categories...',
+  'Finding compatible pieces...',
+  'Selecting anchor products...',
+  'Evaluating outfit combinations...',
+  'Matching styles across categories...',
+  'Scoring color coordination...',
+  'Building complementary sets...',
+];
+const GENERIC_LOADING_MESSAGES = [
+  'Scanning your catalog...',
+  'Reading product details...',
+  'Grouping related products...',
+  'Finding products that go together...',
+  'Building product recommendations...',
+  'Assembling bundles...',
+  'Finalizing your demo...',
+];
+
 // ─── Results View ────────────────────────────────────────────────────
 
 function ResultsView({ data, setResult }) {
   const { store, outfit, alternativeOutfits = [], debug } = data;
+  const C = resolveCopy(data.copy);
 
   return (
     <div className="min-h-screen bg-white">
@@ -183,23 +224,23 @@ function ResultsView({ data, setResult }) {
         </div>
         <div className="flex items-center gap-2 text-sm text-neutral-400">
           <span className="text-purple-400">✦</span>
-          Styling <span className="font-semibold text-white">{store.name}</span>
+          {C.tagline} <span className="font-semibold text-white">{store.name}</span>
         </div>
       </div>
 
       {/* Demo Preview Banner */}
       <div className="bg-neutral-950 pt-8 sm:pt-14 pb-8 sm:pb-12 text-center px-6">
         <span className="inline-block px-3 py-1 rounded-full bg-white/10 text-neutral-300 text-[10px] sm:text-xs font-semibold uppercase tracking-wider mb-4 sm:mb-6">
-          Demo Preview
+          {C.badge}
         </span>
         <h1 className="text-xl sm:text-4xl font-bold text-white mb-1 sm:mb-2">
-          Here's how Runa would style
+          {C.headline}
         </h1>
         <h2 className="text-2xl sm:text-4xl font-bold text-purple-400 mb-3 sm:mb-5">
           {store.name}
         </h2>
         <p className="text-neutral-300 max-w-md sm:max-w-2xl mx-auto text-sm sm:text-lg leading-relaxed sm:whitespace-nowrap">
-          AI-built outfits from your catalog. Live on your PDPs in 48 hours.
+          {C.subhead}
         </p>
       </div>
 
@@ -274,7 +315,7 @@ function ResultsView({ data, setResult }) {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-base font-bold text-neutral-900 uppercase tracking-wide">
-                    Complete the Look
+                    {outfit.bundle_title || 'Complete the Look'}
                   </h3>
                   <div className="mt-3 mb-5 border-t border-neutral-200" />
                   <div className={`grid gap-5 ${
@@ -301,7 +342,7 @@ function ResultsView({ data, setResult }) {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-neutral-900 uppercase tracking-wide leading-tight">
-                      Complete the Look
+                      {outfit.bundle_title || 'Complete the Look'}
                     </h3>
                     <p className="text-xs text-neutral-400 mt-0.5">
                       {(() => {
@@ -613,6 +654,8 @@ export default function Demo() {
   const [previewImages, setPreviewImages] = useState([]);
   const [productCount, setProductCount] = useState(0);
   const [collectionStats, setCollectionStats] = useState([]);
+  const [liveCopy, setLiveCopy] = useState(null);
+  const [liveManual, setLiveManual] = useState(false);
   const [stylingMsg, setStylingMsg] = useState(0);
   const [anchorMsg, setAnchorMsg] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -631,6 +674,8 @@ export default function Demo() {
     setResult(null);
     setErrorMsg('');
     setPreviewImages([]);
+    setLiveCopy(null);
+    setLiveManual(false);
 
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -646,6 +691,8 @@ export default function Demo() {
 
     es.addEventListener('status', (e) => {
       const data = JSON.parse(e.data);
+      if (data.copy) setLiveCopy(data.copy);
+      if (data.isManual) setLiveManual(true);
       const stepIdx = getStepIndex(data.step);
 
       if (stepIdx >= 0) {
@@ -702,10 +749,14 @@ export default function Demo() {
     };
   }, [addMessage]);
 
-  const anchorMessages = [
-    'Found the perfect anchor',
-    'Creating your outfit look...',
-  ];
+  // Resolve per-demo copy (manual demos send it; AI demos use defaults).
+  const C = resolveCopy(result?.copy || liveCopy);
+  const isManualDemo = result?.isManual || liveManual;
+
+  // Anchor-reveal lines. Manual (Builder) demos avoid fashion wording.
+  const anchorMessages = isManualDemo
+    ? ['Found the hero product', 'Building your bundle...']
+    : ['Found the perfect anchor', 'Creating your outfit look...'];
 
   useEffect(() => {
     if (phase !== 'anchor') return;
@@ -715,18 +766,13 @@ export default function Demo() {
     return () => clearInterval(interval);
   }, [phase]);
 
-  const stylingMessages = [
-    `Classifying ${productCount || ''} products...`,
-    'Analyzing color palettes...',
-    'Detecting style patterns...',
-    'Mapping product categories...',
-    'Finding compatible pieces...',
-    'Selecting anchor products...',
-    'Evaluating outfit combinations...',
-    'Matching styles across categories...',
-    'Scoring color coordination...',
-    'Building complementary sets...',
-  ];
+  // Custom messages win. Otherwise manual (Builder) demos use the generic
+  // set and AI demos keep the styling set (with the live product count).
+  const stylingMessages = (C.loadingMessages && C.loadingMessages.length)
+    ? C.loadingMessages
+    : isManualDemo
+      ? GENERIC_LOADING_MESSAGES
+      : [`Classifying ${productCount || ''} products...`, ...STYLING_LOADING_MESSAGES];
 
   // Status message rotates every 4s to keep the copy lively while the product
   // grid (below) changes more slowly, so the screen never feels frozen.
@@ -832,12 +878,12 @@ export default function Demo() {
           <p className="text-white font-medium text-xl tracking-tight text-center">Runa</p>
           <div className="flex items-center justify-center gap-2 mt-1.5">
             <p className="text-neutral-400 text-sm">
-              Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
+              {C.tagline} <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span>
             </p>
           </div>
         </div>
 
-        <StepIndicator currentStep="style" completedSteps={completedSteps} />
+        <StepIndicator currentStep="style" completedSteps={completedSteps} isManual={isManualDemo} />
 
         <p className="text-neutral-400 text-sm mb-6 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" />
@@ -950,13 +996,13 @@ export default function Demo() {
               <p className="text-neutral-400 text-sm">
                 {phase === 'error'
                   ? 'Analysis failed'
-                  : <>Styling <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span></>
+                  : <>{C.tagline} <span className="text-white font-medium">{inputUrl.replace(/^https?:\/\//, '').replace(/\/+$/, '')}</span></>
                 }
               </p>
             </div>
           </div>
 
-          {phase !== 'error' && <StepIndicator currentStep={currentStep} completedSteps={completedSteps} />}
+          {phase !== 'error' && <StepIndicator currentStep={currentStep} completedSteps={completedSteps} isManual={isManualDemo} />}
 
           {phase === 'error' ? null : previewImages.length > 0 ? (
             <div className="mt-6 max-w-lg mx-auto animate-fade-in">

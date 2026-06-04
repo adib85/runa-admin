@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "@runa/config";
 import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { dynamoClient } from "@runa/core/database/dynamodb";
-import { seedDemoCache } from "../services/demoSeed.js";
+import { seedDemoCache, seedManualCache, autofillProductFromUrl, autofillStoreFromUrl } from "../services/demoSeed.js";
 
 const router = express.Router();
 
@@ -709,7 +709,9 @@ async function replayCuratedDemoFlow(res, cached) {
   const productCount = cached.productCount || previewSubset.length;
   const collectionCount = cached.collectionCount || allOutfits.length;
 
-  sendSSE(res, "status", { step: "validate", message: `Connecting to ${store.domain}...` });
+  // Send any per-demo copy overrides in the very first event so the loading
+  // screen (which renders before the final payload) can use them too.
+  sendSSE(res, "status", { step: "validate", message: `Connecting to ${store.domain}...`, copy: cached.copy, isManual: cached.isManual });
   await sleep(700);
   sendSSE(res, "status", { step: "validate", message: `Connected to ${store.name}` });
   await sleep(400);
@@ -1230,6 +1232,97 @@ router.post("/seed", async (req, res) => {
   }
 });
 
+// ─── Manual Builder: list + fetch for editing ────────────────────────
+
+// List every demo built via /demo-builder (payload tagged `isManual`).
+router.get("/builder-list", async (req, res) => {
+  try {
+    const docClient = dynamoClient.getDocClient();
+    const results = [];
+    let lastKey;
+    do {
+      const response = await docClient.send(new QueryCommand({
+        TableName: config.dynamodb.tables.cache,
+        IndexName: "storeId-index",
+        KeyConditionExpression: "storeId = :sid",
+        ExpressionAttributeValues: { ":sid": DEMO_STORE_ID },
+        ...(lastKey ? { ExclusiveStartKey: lastKey } : {}),
+      }));
+      results.push(...(response.Items || []));
+      lastKey = response.LastEvaluatedKey;
+    } while (lastKey);
+
+    const demos = results
+      .filter((r) => r.result?.isManual)
+      .map((r) => ({
+        domain: r.domain,
+        name: r.result?.store?.name || r.storeName || r.domain,
+        currency: r.result?.store?.currency || "USD",
+        bundleCount: 1 + (r.result?.alternativeOutfits?.length || 0),
+        updatedAt: r.updatedAt || r.createdAt || 0,
+      }))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+    res.json({ demos });
+  } catch (err) {
+    console.error("Builder list error:", err);
+    res.status(500).json({ error: "Failed to list demos" });
+  }
+});
+
+// Fetch one manual demo's saved payload so the builder can hydrate the form.
+router.get("/builder/:domain", async (req, res) => {
+  try {
+    const payload = await getCachedResult(req.params.domain);
+    if (!payload) return res.status(404).json({ error: "Demo not found" });
+    res.json({ payload });
+  } catch (err) {
+    console.error("Builder fetch error:", err);
+    res.status(500).json({ error: "Failed to load demo" });
+  }
+});
+
+// Scrape a website homepage and pre-fill site details + demo copy via Gemini.
+router.post("/builder-store-autofill", async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    const data = await autofillStoreFromUrl(url);
+    res.json(data);
+  } catch (err) {
+    console.error("Builder store autofill error:", err.message);
+    res.status(400).json({ error: err.message || "Failed to autofill website details" });
+  }
+});
+
+// Scrape a product URL and extract fields via Gemini to auto-fill the form.
+router.post("/builder-autofill", async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    const data = await autofillProductFromUrl(url);
+    res.json(data);
+  } catch (err) {
+    console.error("Builder autofill error:", err.message);
+    res.status(400).json({ error: err.message || "Failed to autofill from URL" });
+  }
+});
+
+// ─── Manual Builder Seed (fully form-based) ──────────────────────────
+
+router.post("/seed-builder", async (req, res) => {
+  try {
+    const { store, bundles, copy, dryRun } = req.body || {};
+    const steps = [];
+    const result = await seedManualCache(
+      { store, bundles, copy },
+      { dryRun: !!dryRun, onStep: (msg) => steps.push(msg) },
+    );
+    res.json({ ...result, steps });
+  } catch (err) {
+    console.error("Demo builder seed error:", err);
+    res.status(400).json({ error: err.message || "Failed to build demo cache" });
+  }
+});
+
 // ─── Main SSE Endpoint ──────────────────────────────────────────────
 
 router.get("/analyze", async (req, res) => {
@@ -1279,6 +1372,28 @@ router.get("/analyze", async (req, res) => {
       return res.end();
     } catch (err) {
       console.error("Fashion Days demo error:", err);
+      sendSSE(res, "error", { message: "Failed to load curated demo. Please try again." });
+      return res.end();
+    }
+  }
+
+  // ─── Manual Builder bypass ─────────────────────────────────────────
+  // Demos hand-built via /demo-builder carry `isManual` and aren't
+  // necessarily Shopify stores (any website name/domain is allowed). Serve
+  // the curated cache directly and replay the same loading sequence,
+  // skipping Shopify validation entirely. Gated on `isManual` so normal
+  // Shopify caches are untouched and still flow through the live pipeline
+  // (which re-validates the store and can refresh outfits).
+  if (req.query.skipCaching !== "true") {
+    try {
+      const manualCached = await getCachedResult(domain);
+      if (manualCached?.isManual && !manualCached.needsCuration) {
+        await replayCuratedDemoFlow(res, manualCached);
+        logDemoSearch(req, domain, manualCached.store?.name || domain, true, clientIp).catch(() => {});
+        return res.end();
+      }
+    } catch (err) {
+      console.error("Manual demo error:", err);
       sendSSE(res, "error", { message: "Failed to load curated demo. Please try again." });
       return res.end();
     }
