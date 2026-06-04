@@ -438,54 +438,32 @@ export default function DemoBuilder() {
             <p className="text-xs text-neutral-400 mb-4">
               The lines a visitor sees on the live demo. The website name is shown after the headline automatically.
             </p>
-            <div className="grid lg:grid-cols-2 gap-5 items-start">
-              {/* Inputs */}
-              <div className="space-y-4">
-                <Field label="Headline">
-                  <input
-                    value={copy.headline}
-                    onChange={(e) => setCopy((c) => ({ ...c, headline: e.target.value }))}
-                    placeholder={COPY_DEFAULTS.headline}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="Sub-text">
-                  <textarea
-                    value={copy.subhead}
-                    onChange={(e) => setCopy((c) => ({ ...c, subhead: e.target.value }))}
-                    rows={2}
-                    placeholder={COPY_DEFAULTS.subhead}
-                    className={`${inputCls} resize-y leading-relaxed`}
-                  />
-                </Field>
-                <Field label="Badge">
-                  <input
-                    value={copy.badge}
-                    onChange={(e) => setCopy((c) => ({ ...c, badge: e.target.value }))}
-                    placeholder={COPY_DEFAULTS.badge}
-                    className={`${inputCls} sm:max-w-[16rem]`}
-                  />
-                </Field>
-              </div>
-
-              {/* Live preview — mirrors the real demo banner */}
-              <div>
-                <p className="text-[11px] font-medium text-neutral-400 mb-1.5">Live preview</p>
-                <div className="rounded-xl bg-neutral-950 px-6 py-9 text-center flex flex-col items-center justify-center min-h-[190px]">
-                  <span className="inline-block px-3 py-1 rounded-full bg-white/10 text-neutral-300 text-[10px] font-semibold uppercase tracking-wider mb-4">
-                    {copy.badge || COPY_DEFAULTS.badge}
-                  </span>
-                  <p className="text-lg font-bold text-white leading-snug">
-                    {copy.headline || COPY_DEFAULTS.headline}
-                  </p>
-                  <p className="text-xl font-bold text-purple-400 mb-2.5 leading-tight">
-                    {store.name || 'Your Store'}
-                  </p>
-                  <p className="text-neutral-300 text-xs leading-relaxed max-w-xs">
-                    {copy.subhead || COPY_DEFAULTS.subhead}
-                  </p>
-                </div>
-              </div>
+            <div className="space-y-4">
+              <Field label="Headline">
+                <input
+                  value={copy.headline}
+                  onChange={(e) => setCopy((c) => ({ ...c, headline: e.target.value }))}
+                  placeholder={COPY_DEFAULTS.headline}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Sub-text">
+                <textarea
+                  value={copy.subhead}
+                  onChange={(e) => setCopy((c) => ({ ...c, subhead: e.target.value }))}
+                  rows={2}
+                  placeholder={COPY_DEFAULTS.subhead}
+                  className={`${inputCls} resize-y leading-relaxed`}
+                />
+              </Field>
+              <Field label="Badge">
+                <input
+                  value={copy.badge}
+                  onChange={(e) => setCopy((c) => ({ ...c, badge: e.target.value }))}
+                  placeholder={COPY_DEFAULTS.badge}
+                  className={`${inputCls} sm:max-w-[16rem]`}
+                />
+              </Field>
             </div>
           </div>
         </div>
