@@ -575,8 +575,17 @@ export class QuicklyProvider extends BaseProvider {
     while ((lm = cardHandleRe.exec(html)) !== null) {
       slugByPid.set(lm[2], lm[1].trim());
     }
+    // The VISIBLE title span carries the full name + pack size (e.g. "Garam Masala( 100Gm"),
+    // unlike the truncated `data-name` attribute. Map pid → clsTitle so normalizeProduct can use it.
+    const clsByPid = new Map();
+    let cm;
+    const clsRe = /(?:grocery-store\/|buy-)[^"]*\/(\d+)"[\s\S]{0,80}?<span class="clsTitle">([^<]+)<\/span>/gi;
+    while ((cm = clsRe.exec(html)) !== null) {
+      if (!clsByPid.has(cm[1])) clsByPid.set(cm[1], cm[2].replace(/\s+/g, " ").trim());
+    }
     for (const card of out) {
       card.handle = slugByPid.get(card.pid) || "";
+      card.fullTitle = clsByPid.get(card.pid) || "";   // richer than data-name (has the pack size)
     }
     return out;
   }
@@ -647,6 +656,23 @@ export class QuicklyProvider extends BaseProvider {
     return high ? `${low}-${high} ${unit}` : `${low} ${unit}`;
   }
 
+  // The clsTitle is "<name> <pack>" and Quicklly truncates names at the first "(". For the DISPLAY
+  // title we drop the trailing pack token (kept separately in pack_size) and repair the dangling
+  // "(" — balanced parentheses (e.g. "(Pouch)", "(3-4lb)") are left intact.
+  cleanDisplayTitle(raw) {
+    let t = String(raw || "").replace(/\s+/g, " ").trim();
+    const ms = [...t.matchAll(new RegExp(PACK_RE.source, "gi"))];
+    if (ms.length) {
+      const last = ms[ms.length - 1];
+      if (last.index + last[0].length >= t.length - 2) t = t.slice(0, last.index).trim();
+    }
+    if ((t.split("(").length - 1) > (t.split(")").length - 1)) {
+      t = t.replace(/\(\s*$/, "").trim();
+      if ((t.split("(").length - 1) > (t.split(")").length - 1)) t = t.replace(/\(/g, "").trim();
+    }
+    return t.replace(/\s+/g, " ").trim();
+  }
+
   // After removing brand + pack_size, what's left is the product noun: "moong dal",
   // "curry powder", etc. Lowercased, whitespace-normalized. If stripping leaves
   // a garbled fragment (empty parens, dangling dashes, just punctuation), fall
@@ -710,10 +736,14 @@ export class QuicklyProvider extends BaseProvider {
     const { subcat, subcatName, catid, subcaid } = ctx;
     // Defensive title normalization: collapse whitespace, trim. Catches edge cases
     // like "Beef with bone  (3-4Lb)" (double space) before any downstream processing.
-    const title = (card.name || "").replace(/\s+/g, " ").trim();
+    // Prefer the visible clsTitle (full name + pack size) over the truncated data-name attribute;
+    // fall back to data-name when no clsTitle was captured. Pack comes from the raw title (which
+    // still has it); the display title drops the pack and repairs Quicklly's dangling "(".
+    const rawTitle = (card.fullTitle || card.name || "").replace(/\s+/g, " ").trim();
+    const packSize = this.extractPackSize(rawTitle);
+    const title = this.cleanDisplayTitle(rawTitle);
     const titleNormalized = this.normalizeTitle(title).toLowerCase();
     const brand = this.extractBrand(title);
-    const packSize = this.extractPackSize(title);
     const productType = this.extractProductType(title, brand, packSize);
     const aliases = this.aliasesFor(title, subcat);
     const price = parseFloat(card.price) || null;

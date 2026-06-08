@@ -607,7 +607,9 @@ function ResultsView({ data, setResult }) {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm text-white font-semibold leading-tight truncate">
-              Get your store styled by AI in 2 minutes
+              {data.isManual
+                ? 'Get AI product recommendations on your store'
+                : 'Get your store styled by AI in 2 minutes'}
             </p>
             <p className="hidden sm:block text-xs text-neutral-400 mt-1 truncate">
               Works with Shopify, Shopify Plus, VTEX, WooCommerce & custom platforms
