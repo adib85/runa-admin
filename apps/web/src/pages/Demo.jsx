@@ -849,7 +849,7 @@ export default function Demo() {
 
   // Set page title
   useEffect(() => {
-    document.title = 'Runa AI Stylist — Demo';
+    document.title = 'Runa AI — Demo';
     return () => { document.title = 'Runa AI Stylist — Demo'; };
   }, []);
 
