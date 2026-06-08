@@ -608,7 +608,7 @@ function ResultsView({ data, setResult }) {
           <div className="min-w-0 flex-1">
             <p className="text-sm text-white font-semibold leading-tight truncate">
               {data.isManual
-                ? 'Get AI product recommendations on your store'
+                ? 'Get AI recommendations in 2 minutes'
                 : 'Get your store styled by AI in 2 minutes'}
             </p>
             <p className="hidden sm:block text-xs text-neutral-400 mt-1 truncate">
