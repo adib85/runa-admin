@@ -16,8 +16,15 @@ async function fetchWithTimeout(url, timeoutMs = 12000) {
       signal: controller.signal,
       headers: {
         "User-Agent": BROWSER_UA,
-        Accept: "application/json,text/html,*/*",
+        Accept: "text/html,application/xhtml+xml,application/json,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"macOS"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
       },
     });
   } finally {
@@ -497,6 +504,40 @@ function htmlToVisibleText(html) {
   return s.replace(/\s+/g, " ").trim();
 }
 
+// Fetch a page's content for LLM extraction. Tries a direct browser-like
+// request first; if the site blocks it (403/429/503) or is unreachable, falls
+// back to the free Jina AI Reader proxy (r.jina.ai), which renders the page
+// server-side and returns clean markdown — getting past most anti-bot walls
+// (DataDome/Akamai) that reject raw scrapers. Returns { kind, content }.
+async function fetchPageContent(url) {
+  let res = null;
+  try {
+    res = await fetchWithTimeout(url, 15000);
+  } catch {
+    res = null;
+  }
+  if (res && res.ok) {
+    return { kind: "html", content: await res.text() };
+  }
+
+  // Direct fetch failed or was blocked — try Jina Reader as a fallback.
+  try {
+    const jr = await fetchWithTimeout(`https://r.jina.ai/${url}`, 30000);
+    if (jr.ok) {
+      const md = await jr.text();
+      if (md && md.length > 200) return { kind: "markdown", content: md };
+    }
+  } catch {
+    /* fall through to the error below */
+  }
+
+  if (!res) throw new Error("Could not reach that URL (timeout or network error)");
+  if ([403, 429, 503].includes(res.status)) {
+    throw new Error(`This site blocks automated fetching (HTTP ${res.status}) — fill the fields in manually.`);
+  }
+  throw new Error(`Could not fetch the page (HTTP ${res.status})`);
+}
+
 /**
  * Scrape a product URL and extract structured fields via Gemini Flash 3.
  * @param {string} rawUrl
@@ -509,18 +550,18 @@ export async function autofillProductFromUrl(rawUrl) {
     throw new Error("Enter a full http(s):// product URL");
   }
 
-  let res;
-  try {
-    res = await fetchWithTimeout(url, 15000);
-  } catch {
-    throw new Error("Could not reach that URL (timeout or network error)");
+  const page = await fetchPageContent(url);
+  let metaLines = [];
+  let jsonLd = "";
+  let text = "";
+  if (page.kind === "html") {
+    metaLines = extractRelevantMeta(page.content).slice(0, 60);
+    jsonLd = extractJsonLdBlocks(page.content).join("\n").slice(0, 6000);
+    text = htmlToVisibleText(page.content).slice(0, 8000);
+  } else {
+    // Jina markdown — already clean; keep more of it (no meta/json-ld present).
+    text = page.content.slice(0, 12000);
   }
-  if (!res.ok) throw new Error(`Could not fetch the page (HTTP ${res.status})`);
-  const html = await res.text();
-
-  const metaLines = extractRelevantMeta(html).slice(0, 60);
-  const jsonLd = extractJsonLdBlocks(html).join("\n").slice(0, 6000);
-  const text = htmlToVisibleText(html).slice(0, 8000);
 
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
   const model = genAI.getGenerativeModel({
@@ -538,7 +579,7 @@ Rules:
 - "brand": the brand / manufacturer if shown, otherwise "".
 - "price": the CURRENT selling price as a plain number string with a dot decimal (e.g. "129.99") — no currency symbol, no thousands separators. If there is a discount, use the current/discounted price, not the crossed-out original.
 - "currency": ISO 4217 code if determinable (e.g. "USD","EUR","GBP","RON"), else "".
-- "image": absolute URL of the MAIN product image (prefer og:image), else "".
+- "image": absolute URL of the MAIN product image (prefer og:image; otherwise the main product/gallery image). Ignore logos, banners, promo graphics, payment/social icons and thumbnails of other products.
 If a field is unknown, use "".
 
 META TAGS:
@@ -594,18 +635,17 @@ export async function autofillStoreFromUrl(rawUrl) {
     throw new Error("Enter a full http(s):// website URL");
   }
 
-  let res;
-  try {
-    res = await fetchWithTimeout(url, 15000);
-  } catch {
-    throw new Error("Could not reach that URL (timeout or network error)");
+  const page = await fetchPageContent(url);
+  let metaLines = [];
+  let jsonLd = "";
+  let text = "";
+  if (page.kind === "html") {
+    metaLines = extractRelevantMeta(page.content).slice(0, 60);
+    jsonLd = extractJsonLdBlocks(page.content).join("\n").slice(0, 4000);
+    text = htmlToVisibleText(page.content).slice(0, 8000);
+  } else {
+    text = page.content.slice(0, 12000);
   }
-  if (!res.ok) throw new Error(`Could not fetch the page (HTTP ${res.status})`);
-  const html = await res.text();
-
-  const metaLines = extractRelevantMeta(html).slice(0, 60);
-  const jsonLd = extractJsonLdBlocks(html).join("\n").slice(0, 4000);
-  const text = htmlToVisibleText(html).slice(0, 8000);
 
   const genAI = new GoogleGenerativeAI(config.gemini.apiKey);
   const model = genAI.getGenerativeModel({
