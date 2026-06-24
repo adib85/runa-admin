@@ -275,6 +275,18 @@ export class Neo4jService {
            colorEmbedding: COALESCE(product.colorEmbedding, CASE WHEN size(product.variants) > 0 THEN product.variants[0].colorEmbedding ELSE null END),
            canonicalColor: product.canonicalColor,
            sizes: product.sizes,
+           sizeTokens: product.sizeTokens,
+           availableSizes: product.availableSizes,
+           availableSizeTokens: product.availableSizeTokens,
+           styleFilters: product.styleFilters,
+           sizeChartJson: product.sizeChartJson,
+           published_date: COALESCE(product.published_date, p.published_date),
+           price_old: product.price_old,
+           onSale: product.onSale,
+           inStock: product.inStock,
+           materialDominant: COALESCE(product.materialDominant, p.materialDominant),
+           materials: COALESCE(product.materials, p.materials),
+           materialComposition: COALESCE(product.materialComposition, p.materialComposition),
            en_title: product.en_title, en_price: product.en_price, en_price_currency: product.en_price_currency,
            en_url: product.en_url, en_product_type: product.en_product_type, en_description: product.en_description, en_json: product.en_json,
            sku: product.sku,
@@ -517,6 +529,19 @@ export class Neo4jService {
       searchAttributesText: p.searchAttributesText || "",
       searchAttributesEmbedding: p.searchAttributesEmbedding || null,
       sizes: p.sizes || [],
+      sizeTokens: p.sizeTokens || [],
+      availableSizes: p.availableSizes || [],
+      availableSizeTokens: p.availableSizeTokens || [],
+      styleFilters: p.styleFilters || [],
+      sizeChartJson: p.sizeChartJson || null,
+      published_date: p.published_at || null,
+      price_old: typeof p.price_old === "number" && Number.isFinite(p.price_old) ? p.price_old : null,
+      onSale: p.onSale === true,
+      // Fresh in-stock flag (default true when the provider doesn't compute one).
+      inStock: p.inStock !== undefined ? (p.inStock === true) : true,
+      materialDominant: p.materialDominant || null,
+      materials: p.materials?.length ? p.materials : null,
+      materialComposition: p.materialComposition || null,
       detectedColor: p.detectedColor || null,
       color: p.color || null,
       colorEmbedding: p.colorEmbedding || null,
@@ -559,6 +584,39 @@ export class Neo4jService {
          WHERE p.storeId = $storeId
          SET p.lastSeenAt = $timestamp`,
         { productIds: productIds.map(id => String(id)), storeId, timestamp }
+      );
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
+  /**
+   * Stamp presence (lastSeenAt) AND a fresh in-stock flag on every product seen during a
+   * sync — existing and new alike — in one cheap pass, without reprocessing. `items` is
+   * [{ id, inStock }]. p.inStock is refreshed every run from the provider's real inventory
+   * so it never goes stale under incremental (--missing) syncs. Consumed by the chat /
+   * Complete-the-Look / Similar candidate filters via coalesce(p.inStock, true).
+   * Newly-created products get p.inStock from the save path (_saveBatch) instead, since
+   * they don't exist yet when this stamping pass runs.
+   */
+  async stampSeen(storeId, items, timestamp) {
+    if (!items || items.length === 0) return;
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      await session.run(
+        `UNWIND $items AS item
+         MATCH (p:Product {id: item.id})
+         WHERE p.storeId = $storeId
+         SET p.lastSeenAt = $timestamp, p.inStock = item.inStock,
+             p.availableSizes = item.availableSizes, p.availableSizeTokens = item.availableSizeTokens`,
+        { items: items.map(i => ({
+            id: String(i.id),
+            inStock: i.inStock === true,
+            availableSizes: i.availableSizes || [],
+            availableSizeTokens: i.availableSizeTokens || [],
+          })), storeId, timestamp }
       );
     } finally {
       await session.close();

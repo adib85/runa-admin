@@ -13,6 +13,7 @@ import { config as runaConfig } from "@runa/config";
 import { BaseProvider } from "./base.js";
 import { s3Service, openaiService } from "../services/index.js";
 import { convertHtmlToMarkdown, extractRelevantFields, delay } from "../utils/index.js";
+import { normalizeStyleFilters, buildSizeChartJson, extractMaterials } from "../utils/style-filters.js";
 
 // ─── Bronze Snake collection-handle taxonomy ─────────────────────────────────
 // Shared between `detectBronzeSnakeDemographic` and `determineBronzeSnakeCategory`
@@ -66,7 +67,7 @@ const GET_PRODUCTS_QUERY = gql`
           variants(first: 100) {
             edges {
               node {
-                id title price compareAtPrice sku inventoryQuantity
+                id title price compareAtPrice sku inventoryQuantity inventoryPolicy
                 selectedOptions { name value }
               }
             }
@@ -76,6 +77,17 @@ const GET_PRODUCTS_QUERY = gql`
           styleFilters: metafield(namespace: "custom", key: "style_filters_new") { value type }
           canonicalColorMeta: metafield(namespace: "customAttributes", key: "colour") { value }
           relatedColourwaysMeta: metafield(namespace: "custom", key: "related_colourways") { value }
+          sizeBustMeta: metafield(namespace: "custom", key: "size_bust") { value }
+          sizeWaistMeta: metafield(namespace: "custom", key: "size_waist") { value }
+          sizeHipMeta: metafield(namespace: "custom", key: "size_hip") { value }
+          sizeLengthMeta: metafield(namespace: "custom", key: "size_length") { value }
+          sizeTopLengthMeta: metafield(namespace: "custom", key: "size_top_length") { value }
+          sizePantLengthMeta: metafield(namespace: "custom", key: "size_pant_length") { value }
+          sizeSkirtLengthMeta: metafield(namespace: "custom", key: "size_skirt_length") { value }
+          sizeShortLengthMeta: metafield(namespace: "custom", key: "size_short_length") { value }
+          sizeSleeveLengthMeta: metafield(namespace: "custom", key: "size_sleeve_length") { value }
+          sizeInseamMeta: metafield(namespace: "custom", key: "size_inseam") { value }
+          sizePitToPitMeta: metafield(namespace: "custom", key: "size_pit_to_pit") { value }
         }
       }
     }
@@ -114,6 +126,23 @@ export class ShopifyProvider extends BaseProvider {
     return "Shopify";
   }
 
+  // Real-inventory "in stock" signal (overrides BaseProvider's always-true default).
+  // A product is in stock if ANY variant is sellable: positive tracked inventory, set to
+  // "continue selling when out of stock" (inventoryPolicy CONTINUE → still purchasable),
+  // or untracked inventory (inventory_quantity null). Mirrors the out-of-stock report so we
+  // never flag a backorderable / untracked product as sold out. Written to p.inStock on
+  // every product each sync (see BaseProvider.fetchAndProcessProducts) and consumed by the
+  // chat / Complete-the-Look / Similar candidate filters via coalesce(p.inStock, true).
+  computeInStock(product) {
+    const variants = product.variants || [];
+    if (variants.length === 0) return true; // no variant data → don't hide
+    return variants.some(v =>
+      (typeof v.inventory_quantity === "number" && v.inventory_quantity > 0) ||
+      v.inventory_policy === "CONTINUE" ||
+      v.inventory_quantity == null
+    );
+  }
+
   async fetchProducts(options = {}) {
     const { cursor, limit = 50 } = options;
     
@@ -125,14 +154,14 @@ export class ShopifyProvider extends BaseProvider {
       batchSize = 2;
     }
 
-    // Lazy-load the set of products actually visible on the storefront.
-    // For Bronze Snake we restrict the sync to /collections/all (~3,377)
-    // instead of every "published" product (~3,445) so we never index
-    // sold-out / hidden / draft items.
-    if (this.shopName === "bronze-snake-1.myshopify.com" && this.storefrontHandleSet === undefined) {
-      this.storefrontHandleSet = await this.fetchStorefrontVisibleHandles();
-    }
-
+    // Bronze Snake visibility is decided ENTIRELY by the Admin API query filter
+    // (status:active AND published_status:published — see getProductQueryFilter), which
+    // returns every product published to the Online Store. Verified: that set is a
+    // superset containing 100% of storefront /collections/all (0 misses). The old
+    // /collections/all storefront scrape was REMOVED — it was a flaky public-CDN feed
+    // that silently truncated on throttling, dropping valid in-stock products from the
+    // index (and, via the nightly cleanup, risked DELETING them). Out-of-stock is handled
+    // by p.inStock; dupe/admin/numbered handles by isBronzeSnakeAdminHandle below.
     let queryStr = this.productQueryFilter || "status:active";
     if (this.sinceIso) {
       queryStr += ` AND updated_at:>=${this.sinceIso}`;
@@ -166,9 +195,12 @@ export class ShopifyProvider extends BaseProvider {
     return response.products.edges.map(edge => {
       const node = edge.node;
 
-      // Bronze Snake: only index products visible on the storefront's
-      // /collections/all (skip FINAL SALE / hidden / out-of-stock items).
-      if (this.storefrontHandleSet && !this.storefrontHandleSet.has(node.handle)) {
+      // Bronze Snake: skip admin/utility/numbered/color-suffix DUPLICATE handles
+      // (e.g. "…-coming-soon", "…-sale", "…-back-in-stock", "…-1", color-variant dupes).
+      // This filtering used to happen while building the storefront handle set; now that
+      // the storefront scrape is gone, we apply it directly here. Everything else that is
+      // status:active AND published_status:published gets indexed; p.inStock handles OOS.
+      if (this.shopName === "bronze-snake-1.myshopify.com" && isBronzeSnakeAdminHandle(node.handle)) {
         return null;
       }
 
@@ -189,6 +221,7 @@ export class ShopifyProvider extends BaseProvider {
           compare_at_price: v.compareAtPrice,
           sku: v.sku,
           inventory_quantity: v.inventoryQuantity,
+          inventory_policy: v.inventoryPolicy,
           ...options
         };
       }) || [];
@@ -222,6 +255,12 @@ export class ShopifyProvider extends BaseProvider {
         .filter(n => Number.isFinite(n));
       const price = numericPrices.length ? Math.min(...numericPrices) : null;
 
+      // Sale state: lowest compare-at among variants; on sale when it beats the price.
+      const numericCompareAt = variants
+        .map(v => parseFloat(v.compare_at_price))
+        .filter(n => Number.isFinite(n) && n > 0);
+      const priceOld = numericCompareAt.length ? Math.min(...numericCompareAt) : null;
+
       const product = {
         id,
         title: node.title,
@@ -235,6 +274,33 @@ export class ShopifyProvider extends BaseProvider {
         tagsAsCategories: false,
         published_at: node.publishedAt,
         price,
+        price_old: priceOld,
+        onSale: priceOld != null && price != null && priceOld > price,
+        // Material from the ORIGINAL merchant description (deterministic regex;
+        // the backfill's optional Gemini pass handles products this returns null for).
+        ...(m => m
+          ? { materialDominant: m.dominant, materials: m.materials, materialComposition: m.composition }
+          : { materialDominant: null, materials: null, materialComposition: null }
+        )(extractMaterials(node.descriptionHtml)),
+        // Normalized storefront "Style" filter slugs (custom.style_filters_new).
+        // Stored on EVERY product as a plain property for chat hard-filtering —
+        // independent of the gated category-edge mechanism below.
+        styleFilters: normalizeStyleFilters(node.styleFilters?.value),
+        // PDP size table (custom.size_* metafields) as a JSON string; values
+        // positionally aligned with the product's size list / sizeTokens.
+        sizeChartJson: buildSizeChartJson({
+          bust: node.sizeBustMeta?.value,
+          waist: node.sizeWaistMeta?.value,
+          hip: node.sizeHipMeta?.value,
+          length: node.sizeLengthMeta?.value,
+          top_length: node.sizeTopLengthMeta?.value,
+          pant_length: node.sizePantLengthMeta?.value,
+          skirt_length: node.sizeSkirtLengthMeta?.value,
+          short_length: node.sizeShortLengthMeta?.value,
+          sleeve_length: node.sizeSleeveLengthMeta?.value,
+          inseam: node.sizeInseamMeta?.value,
+          pit_to_pit: node.sizePitToPitMeta?.value,
+        }),
         images,
         variants,
         options: this.extractOptions(node.variants?.edges || []),
@@ -430,12 +496,13 @@ export class ShopifyProvider extends BaseProvider {
     return [...slugSet];
   }
 
-  // Fetch every product handle visible on the storefront's /collections/all
-  // (paginated public storefront API, no auth needed). Used as a strict
-  // visibility filter for Bronze Snake so we don't index FINAL SALE /
-  // out-of-stock / hidden products that pass `published_status:published`
-  // but are excluded from the customer-facing /collections/all smart
-  // collection.
+  // DEPRECATED / UNUSED (kept for reference). Fetched product handles from the public
+  // storefront /collections/all feed and used them as a visibility gate. Removed because
+  // that feed is a flaky public-CDN endpoint that throttles and silently truncates
+  // (no retry, `if (!r.ok) break`), so a partial fetch dropped valid in-stock products
+  // from the index. Replaced by the Admin API filter `status:active AND
+  // published_status:published` (a verified superset of /collections/all) + the
+  // isBronzeSnakeAdminHandle dupe filter. No longer called by fetchProducts.
   async fetchStorefrontVisibleHandles() {
     const handles = new Set();
     const domain = this.shopName.replace(/\.myshopify\.com$/, "");

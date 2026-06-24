@@ -41,6 +41,18 @@ SHOP_DOMAIN="${SHOP_DOMAIN:-bronze-snake-1.myshopify.com}"
 LOG_FILE="${LOG_FILE:-$REPO_DIR/logs/sync-bronzesnake-$(date +%Y-%m-%d_%H%M).log}"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# Serialize against the 15-min incremental sync via a SHARED lock. Without this, an
+# incremental cycle could fire between this run's Step 1 and the Step 1.8 cleanup, stamp a
+# few products with a newer lastSeenAt, and shift the cleanup's max(lastSeenAt) reference —
+# making every product this run just stamped look "stale" (the 10% guard would then abort
+# cleanup). Blocking flock: wait for any in-flight incremental to finish, then hold the lock
+# for the whole nightly so incrementals fired during it skip (their non-blocking flock fails).
+LOCK_FILE="${LOCK_FILE:-/tmp/sync-bronzesnake-incremental.lock}"
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK_FILE"
+  flock 9
+fi
+
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 echo "  Bronze Snake Full Sync — $(date)" | tee -a "$LOG_FILE"
 echo "  Shop: $SHOP_DOMAIN" | tee -a "$LOG_FILE"
@@ -64,6 +76,56 @@ echo "[Step 1.5/8] Completing colourway groups in Neo4j (Bronze Snake only — n
 # each colour lists all the others. Reads & writes ONLY Neo4j — never Shopify. Scoped to this
 # shop, so the other shops' syncs are unaffected. Self-healing: re-runs cleanly every night.
 node apps/api/src/scripts/close-colourway-groups.js --shop "$SHOP_DOMAIN" --apply 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+echo "[Step 1.6/8] Flagging SALE / Coming Soon from collection membership (Bronze Snake only — no Shopify writes)..." | tee -a "$LOG_FILE"
+# Step 1 recomputes p.onSale from compare_at_price every run. Bronze Snake's sale
+# is the curated womenssale/menssale collections (marked-down price, NO compare-at),
+# so that yields ~0. This step reads SALE-collection membership from Shopify and
+# sets p.onSale (+ p.comingSoon) accordingly — both directions, so items that left
+# the sale are cleared. Reads Shopify (collection lists) and writes ONLY Neo4j.
+# Must run AFTER Step 1 so it isn't overwritten. Self-healing: re-runs every night.
+node apps/api/src/scripts/backfill-bronzesnake-sale.js --apply 2>&1 | tee -a "$LOG_FILE"
+
+echo ""
+# The title/style taxonomy only has heels/sandals/shoes, so boots aren't searchable as a category.
+# This pass reads each footwear product's IMAGE + title + description and tags the boots — catching
+# mislabels the title misses (e.g. "Corbin Heel" is actually a knee-high boot). Reads product images
+# (public CDN) + writes ONLY Neo4j (the `boots` category). Must run AFTER Step 1.
+#
+# COST CONTROL: this is the only Gemini-vision pass in the nightly. Running it FULL every night
+# re-classifies every shoe — pure waste, since a boot stays a boot. So we run --missing (only NEW,
+# never-classified footwear → cheap) on most days, and a FULL re-check once a week (Sunday) to
+# self-heal any drift / past misclassification. date +%u: 1=Mon … 7=Sun.
+if [ "$(date +%u)" = "7" ]; then
+  FOOTWEAR_MODE="(weekly FULL re-check)"; FOOTWEAR_FLAGS="--apply"
+else
+  FOOTWEAR_MODE="(--missing: new footwear only)"; FOOTWEAR_FLAGS="--apply --missing"
+fi
+echo "[Step 1.7/8] Classifying footwear → 'boots' $FOOTWEAR_MODE..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/backfill-bronzesnake-footwear.js $FOOTWEAR_FLAGS 2>&1 | tee -a "$LOG_FILE"
+
+# ──────────────────────────────────────────────────────────────────────
+# Prune products that genuinely LEFT the catalogue (no longer in /collections/all,
+# so not p.lastSeenAt-stamped this run). NOTE: out-of-stock products are NOT pruned
+# here — Bronze Snake keeps sold-out items in /collections/all, so they're still
+# stamped and KEPT in the index (they need to keep their own Complete-the-Look /
+# Similar widgets, incl. coming-soon products). OOS products are instead excluded
+# from chat + widget *candidates* by the p.inStock flag (written fresh every sync
+# from real inventory) via `coalesce(p.inStock, true) = true` in the serverless
+# handlers. So this step only removes truly-removed products.
+#
+# --grace-days 0: remove as soon as a product leaves /collections/all (prompt, so a
+# removed product with a stale inStock=true can't linger as a candidate). Hard delete
+# (DETACH DELETE) + orphan-variant cleanup, scoped to this store. Never touches
+# Shopify or the widget caches. Guards: aborts if the last sync didn't complete within
+# 4h, and if it would delete >10% of the catalogue (catches a partial sync). `|| true`
+# keeps a safety-abort from failing the whole nightly run.
+# Preview:  node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" --grace-days 0 --dry-run
+# ──────────────────────────────────────────────────────────────────────
+echo ""
+echo "[Step 1.8/8] Pruning removed products from Neo4j (kept: out-of-stock; filtered via inStock)..." | tee -a "$LOG_FILE"
+node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" --grace-days 0 2>&1 | tee -a "$LOG_FILE" || true
 
 echo ""
 echo "[Step 2/8] Generating Complete The Look widgets (missing only)..." | tee -a "$LOG_FILE"
@@ -92,15 +154,6 @@ node apps/api/src/scripts/sync-bronzesnake-ask-ai-metafields.js "$SHOP_DOMAIN" -
 echo ""
 echo "[Step 8/8] Writing runa.hero_image metafield (missing only)..." | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-bronzesnake-hero-image-metafields.js "$SHOP_DOMAIN" --missing --concurrency 5 2>&1 | tee -a "$LOG_FILE"
-
-# ──────────────────────────────────────────────────────────────────────
-# Optional cleanup: removes products from Neo4j that are no longer
-# visible on bronzesnake.com/collections/all. Disabled by default —
-# enable manually when you want to prune. Never touches Shopify.
-# ──────────────────────────────────────────────────────────────────────
-# echo ""
-# echo "[Optional] Pruning Neo4j products no longer visible on storefront..." | tee -a "$LOG_FILE"
-# node apps/api/src/scripts/cleanup-bronzesnake-invisible.js 2>&1 | tee -a "$LOG_FILE"
 
 echo ""
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"

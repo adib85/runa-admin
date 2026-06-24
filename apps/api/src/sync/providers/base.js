@@ -16,6 +16,7 @@ import { config } from "@runa/config";
 import { neo4jService, openaiService, pubnubService, dynamodbService } from "../services/index.js";
 import { shopifyCategories } from "../utils/categories.js";
 import { delay, retryOnDeadlock, geminiWithRetry, mapWithConcurrency } from "../utils/index.js";
+import { parseSizeTokens } from "../utils/style-filters.js";
 import { generateAIDescription, rewriteDescriptionFromImage, generateSEO, isDimensionsOnly, isBagProduct } from "../services/ai-product-description.js";
 
 export class BaseProvider {
@@ -65,6 +66,28 @@ export class BaseProvider {
   // Provider type identifier
   get providerType() {
     throw new Error("providerType must be implemented by provider");
+  }
+
+  // "In stock" signal written to p.inStock on every product each sync. DEFAULT: true
+  // (providers that don't track inventory must not hide anything — the downstream
+  // chat/widget filters use coalesce(p.inStock, true), so true is a no-op). Providers
+  // with real inventory (e.g. Shopify) override this. Returning true here means other
+  // shops are completely unaffected by the in-stock filtering.
+  computeInStock(product) {
+    return true;
+  }
+
+  // In-stock size labels for a product, using the same per-variant availability test as
+  // the Shopify computeInStock override. Computed for EVERY product each sync (via stampSeen)
+  // so it stays fresh as inventory changes — exactly like p.inStock — not just for new products.
+  // Uses variant.title (the size label that p.sizes is built from) so the format matches.
+  computeAvailableSizes(product) {
+    return [...new Set(
+      (product.variants || []).filter(v =>
+        (typeof v.inventory_quantity === "number" && v.inventory_quantity > 0) ||
+        v.inventory_policy === "CONTINUE" || v.inventory_quantity == null
+      ).map(v => v.title).filter(s => s && s !== "unknown")
+    )];
   }
 
   // ==================== SHARED METHODS ====================
@@ -181,7 +204,11 @@ export class BaseProvider {
       // Fetch batch of products (cap to remaining budget when --max is used)
       const remaining = this.maxProducts ? Math.max(0, this.maxProducts - totalProductsSeen) : Infinity;
       if (remaining === 0) break;
-      const batchLimit = Math.min(20, remaining);
+      // Fetch batch size defaults to 20 (unchanged for all providers). Opt-in larger
+      // batches via SYNC_FETCH_BATCH amortize per-batch overhead (existing-id query,
+      // write sleep, progress publish) for big bulk backfills (e.g. Quicklly).
+      const fetchBatch = parseInt(process.env.SYNC_FETCH_BATCH, 10) || 20;
+      const batchLimit = Math.min(fetchBatch, remaining);
       const { products: rawBatch, nextCursor, hasNextPage } = await this.fetchProducts({ cursor, limit: batchLimit });
       const products = this.maxProducts ? rawBatch.slice(0, remaining) : rawBatch;
       hasMore = hasNextPage && (!this.maxProducts || (totalProductsSeen + products.length) < this.maxProducts);
@@ -194,9 +221,20 @@ export class BaseProvider {
 
       if (products.length === 0) continue;
 
-      const allProductIds = products.map(p => p.id);
+      // Stamp presence (lastSeenAt) AND a fresh in-stock flag on every product seen this
+      // run — existing and new alike — in one cheap pass, without reprocessing. This is
+      // what keeps p.inStock current even though existing products are skipped below.
+      const seenItems = products.map(p => {
+        const availableSizes = this.computeAvailableSizes(p);
+        return {
+          id: String(p.id),
+          inStock: this.computeInStock(p),
+          availableSizes,
+          availableSizeTokens: parseSizeTokens(availableSizes),
+        };
+      });
       if (!this.dryRun) {
-        await this.neo4j.stampLastSeenAt(this.shopName, allProductIds, syncRunStartedAt);
+        await this.neo4j.stampSeen(this.shopName, seenItems, syncRunStartedAt);
       }
 
       // Filter existing products (unless force mode or dry-run)
@@ -217,7 +255,7 @@ export class BaseProvider {
 
       if (productsToProcess.length > 0) {
         const processedProducts = await this.processProducts(productsToProcess, defaultCategories, shopData);
-        processedProducts.forEach(p => p.lastSeenAt = syncRunStartedAt);
+        processedProducts.forEach(p => { p.lastSeenAt = syncRunStartedAt; p.inStock = this.computeInStock(p); });
 
         if (!this.dryRun) {
           await this.distributeProducts(processedProducts, storeData, appData, demographicsData);
@@ -690,6 +728,11 @@ Return exactly one category.`,
       product.sizes = [...new Set(
         (product.variants || []).map(v => v.option2).filter(s => s && s !== "unknown")
       )];
+      product.sizeTokens = parseSizeTokens(product.sizes);
+      // in-stock sizes only — derived from the inventory_quantity already on each variant.
+      // Also refreshed for existing products every sync via stampSeen (keeps it current).
+      product.availableSizes = this.computeAvailableSizes(product);
+      product.availableSizeTokens = parseSizeTokens(product.availableSizes);
 
       const category = this.determineCategory(product, productProperties, websiteCategories);
       product.category = category;
@@ -887,9 +930,14 @@ Return exactly one category.`,
           }
         })
       );
-      await delay(200 + Math.floor(Math.random() * 200));
+      // Inter-batch politeness sleep — protects Neo4j from write bursts. Kept ON by
+      // default for all providers; SYNC_FAST_INDEX=true skips it for bulk backfills
+      // against our own DB (no external rate limit in this path).
+      if (process.env.SYNC_FAST_INDEX !== "true") {
+        await delay(200 + Math.floor(Math.random() * 200));
+      }
     }
-    
+
     console.log("All products processed with controlled concurrency");
   }
 
