@@ -92,7 +92,7 @@ run_pass() {
     fi
     (
       mlog="$RUN_DIR/${name}-${slug}.log"
-      if node apps/api/src/scripts/sync-modular.js quicklly "$slug" "${extra[@]}" > "$mlog" 2>&1; then
+      if node apps/api/src/scripts/sync-modular.js quicklly "$slug" "${extra[@]+"${extra[@]}"}" > "$mlog" 2>&1; then
         echo "$slug" >> "$donefile"
         echo "[$(date +%H:%M:%S)] ✓ $name $slug" | tee -a "$MAIN_LOG"
       else
