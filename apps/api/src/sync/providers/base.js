@@ -32,6 +32,7 @@ export class BaseProvider {
     this.geminiModel = config.geminiModel || null;
     this.maxProducts = config.maxProducts || null;
     this.dryRun = config.dryRun || false;
+    this.scrapeOnly = config.scrapeOnly || false;
     this.sinceIso = config.sinceIso || null;
     this.rewriteHeroes = config.rewriteHeroes || false;
     
@@ -231,6 +232,12 @@ export class BaseProvider {
           inStock: this.computeInStock(p),
           availableSizes,
           availableSizeTokens: parseSizeTokens(availableSizes),
+          // Refresh PRICE on EXISTING products too — without re-embedding. Price is the
+          // only daily-volatile field (stock is handled by inStock above). Null when the
+          // provider has no flat price at this stage (e.g. Shopify carries it on variants);
+          // stampSeen COALESCEs, so null leaves the existing value untouched. Static fields
+          // (image, title, category) are refreshed by the periodic full --force re-sync.
+          price: (typeof p.price === "number" && Number.isFinite(p.price)) ? p.price : null,
         };
       });
       if (!this.dryRun) {

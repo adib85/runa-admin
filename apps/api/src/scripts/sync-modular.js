@@ -78,6 +78,7 @@ async function main() {
   const forceAll = args.includes('--force') || args.includes('-f');
   const rewriteDescriptions = args.includes('--rewrite-descriptions');
   const dryRun = args.includes('--dry-run');
+  const scrapeOnly = args.includes('--scrape-only');
   const rewriteHeroes = args.includes('--rewrite-heroes');
 
   const demoIdx = args.indexOf('--demographic');
@@ -117,6 +118,7 @@ async function main() {
     geminiModel,
     maxProducts,
     dryRun,
+    scrapeOnly,
     sinceIso,
     region: "us-east-1"
   };

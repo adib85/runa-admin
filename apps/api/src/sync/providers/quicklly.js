@@ -59,6 +59,17 @@ const QUICKLLY_ORIGIN = "https://www.quicklly.com";
 const SITEMAP_INDEX = `${QUICKLLY_ORIGIN}/sitemap.xml`;
 const EXTRA_SITEMAPS = [`${QUICKLLY_ORIGIN}/sitemap_prod.xml`]; // not in the index, referenced separately
 const PRODUCTS_API = `${QUICKLLY_ORIGIN}/ajax-subcat-all-products.php`;
+
+// Nationwide / ships-everywhere merchants. Their sitemap location list is NOT their
+// real footprint (they ship across the US), so we flag their products `nationwide=true`
+// → the chat treats them as candidates for ALL user locations, not just the handful of
+// cities in the sitemap. Override via env QUICKLLY_NATIONWIDE_MERCHANTS (comma-separated).
+// Keep in sync with the NATIONWIDE set in scripts/list-quicklly-merchants.mjs.
+const NATIONWIDE_MERCHANTS = new Set(
+  (process.env.QUICKLLY_NATIONWIDE_MERCHANTS ||
+    "sold-by-quicklly,sold-by-quicklly-edison,quicklly-indian-grocery-nationwide")
+    .split(",").map(s => s.trim()).filter(Boolean)
+);
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
@@ -297,6 +308,9 @@ export class QuicklyProvider extends BaseProvider {
     this.merchantSlug = config.merchantSlug || config.shopName?.replace(/^quicklly_/, "") || "fresh-farms";
     this.shopName = `quicklly_${this.merchantSlug}`;
     this.storeSlug = this.shopName;
+
+    // Ships-everywhere merchant? Its products become candidates for ALL locations.
+    this.isNationwide = NATIONWIDE_MERCHANTS.has(this.merchantSlug);
 
     // Scraping politeness (Quicklly is on Cloudflare).
     this.scrapeConcurrency = config.scrapeConcurrency ||
@@ -812,6 +826,7 @@ export class QuicklyProvider extends BaseProvider {
       merchant_slug: this.merchantSlug,
       merchant_name: this.merchantSlug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
       merchant_storeid: this.merchantStoreId,
+      nationwide: this.isNationwide,
 
       variants: [
         {
@@ -1029,6 +1044,19 @@ export class QuicklyProvider extends BaseProvider {
   async sync() {
     console.log(`\n=== Starting ${this.providerType} Sync for ${this.shopName} ===`);
     console.log(`  [Quicklly] Merchant: ${this.merchantSlug}\n`);
+
+    // SCRAPE-ONLY (Phase 1 of the decoupled flow): hit Quicklly gently and persist
+    // everything to .quicklly-cache, then STOP — no OpenAI embeddings, no Neo4j writes.
+    // discover() does sitemap walk + per-subcat id discovery + product API fetch +
+    // normalize, all of which write through cachedGet/fetchSubcatProducts to disk.
+    // The follow-up `sync-modular.js quicklly <slug>` (Phase 2) then reads that warm
+    // cache (0 Quicklly calls) and runs the fast embed+write pipeline.
+    if (this.scrapeOnly) {
+      console.log(`  [Quicklly] SCRAPE-ONLY: warming cache (no embeddings, no DB writes)\n`);
+      await this.discover();
+      this.logFinalStats();
+      return;
+    }
 
     // Lazy-load merchant context (sitemap walk + subcat list + delivery locations)
     // so we have the location list ready.

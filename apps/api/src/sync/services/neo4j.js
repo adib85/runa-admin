@@ -297,6 +297,7 @@ export class Neo4jService {
            merchant_slug: product.merchant_slug,
            merchant_storeid: product.merchant_storeid,
            merchant_name: product.merchant_name,
+           nationwide: product.nationwide,
            subcategory_slug: product.subcategory_slug,
            subcategory_name: product.subcategory_name,
            department_slug: product.department_slug,
@@ -552,6 +553,10 @@ export class Neo4jService {
       merchant_slug: p.merchant_slug ?? null,
       merchant_storeid: p.merchant_storeid != null ? String(p.merchant_storeid) : null,
       merchant_name: p.merchant_name ?? null,
+      // Ships-everywhere flag. When true, chat treats the product as a candidate for
+      // ALL user locations (not gated by the store's DELIVERS_TO footprint). Default
+      // false → location-gated as usual. Only set by marketplace providers.
+      nationwide: p.nationwide === true,
       subcategory_slug: p.subcategory_slug ?? null,
       subcategory_name: p.subcategory_name ?? null,
       department_slug: p.department_slug ?? null,
@@ -610,12 +615,14 @@ export class Neo4jService {
          MATCH (p:Product {id: item.id})
          WHERE p.storeId = $storeId
          SET p.lastSeenAt = $timestamp, p.inStock = item.inStock,
-             p.availableSizes = item.availableSizes, p.availableSizeTokens = item.availableSizeTokens`,
+             p.availableSizes = item.availableSizes, p.availableSizeTokens = item.availableSizeTokens,
+             p.price = COALESCE(item.price, p.price)`,
         { items: items.map(i => ({
             id: String(i.id),
             inStock: i.inStock === true,
             availableSizes: i.availableSizes || [],
             availableSizeTokens: i.availableSizeTokens || [],
+            price: (typeof i.price === "number" && Number.isFinite(i.price)) ? i.price : null,
           })), storeId, timestamp }
       );
     } finally {
