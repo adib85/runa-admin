@@ -62,6 +62,23 @@ MAIN_LOG="$RUN_DIR/_main.log"
 
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$MAIN_LOG"; }
 
+# ── Refresh modes (for recurring cron) ──
+# The disk cache is permanent (a plain re-run reads stale prices). FRESH busts it so a
+# scheduled refresh actually re-fetches, and resets the .done files so every store is
+# re-processed (not skipped as "already done").
+#   FRESH=products → clear api-responses only (re-fetch prices/stock; keep discovery cache) → DAILY
+#   FRESH=all      → clear the entire cache (also re-discover) → MONTHLY (pair with FORCE=1)
+CACHE_DIR="$REPO_ROOT/.quicklly-cache"
+if [ "${FRESH:-}" = "products" ]; then
+  rm -rf "$CACHE_DIR/api-responses"/* 2>/dev/null
+  rm -f "$SCRAPED_DONE" "$WRITTEN_DONE"; touch "$SCRAPED_DONE" "$WRITTEN_DONE"
+  log "FRESH=products → cleared api-responses cache + reset .done (daily refresh)"
+elif [ "${FRESH:-}" = "all" ]; then
+  rm -rf "$CACHE_DIR"/* 2>/dev/null
+  rm -f "$SCRAPED_DONE" "$WRITTEN_DONE"; touch "$SCRAPED_DONE" "$WRITTEN_DONE"
+  log "FRESH=all → cleared entire cache + reset .done (monthly full refresh)"
+fi
+
 # ── Merchant list (explicit override, else enumerate from sitemaps) ──
 if [ -n "${MERCHANTS:-}" ]; then
   read -ra MERCHANT_LIST <<< "$MERCHANTS"
