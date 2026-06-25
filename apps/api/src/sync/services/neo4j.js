@@ -298,6 +298,7 @@ export class Neo4jService {
            merchant_storeid: product.merchant_storeid,
            merchant_name: product.merchant_name,
            nationwide: product.nationwide,
+           priority: product.priority,
            subcategory_slug: product.subcategory_slug,
            subcategory_name: product.subcategory_name,
            department_slug: product.department_slug,
@@ -557,6 +558,10 @@ export class Neo4jService {
       // ALL user locations (not gated by the store's DELIVERS_TO footprint). Default
       // false → location-gated as usual. Only set by marketplace providers.
       nationwide: p.nationwide === true,
+      // First-party / prioritized store flag. When true, chat gives the product a
+      // ranking boost (still location-gated). Default false. Only set by marketplace
+      // providers (e.g. Quicklly's own "Sold By Quicklly" / "Quicklly Bazaar" stores).
+      priority: p.priority === true,
       subcategory_slug: p.subcategory_slug ?? null,
       subcategory_name: p.subcategory_name ?? null,
       department_slug: p.department_slug ?? null,

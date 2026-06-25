@@ -60,16 +60,30 @@ const SITEMAP_INDEX = `${QUICKLLY_ORIGIN}/sitemap.xml`;
 const EXTRA_SITEMAPS = [`${QUICKLLY_ORIGIN}/sitemap_prod.xml`]; // not in the index, referenced separately
 const PRODUCTS_API = `${QUICKLLY_ORIGIN}/ajax-subcat-all-products.php`;
 
-// Nationwide / ships-everywhere merchants. Their sitemap location list is NOT their
-// real footprint (they ship across the US), so we flag their products `nationwide=true`
-// → the chat treats them as candidates for ALL user locations, not just the handful of
-// cities in the sitemap. Override via env QUICKLLY_NATIONWIDE_MERCHANTS (comma-separated).
-// Keep in sync with the NATIONWIDE set in scripts/list-quicklly-merchants.mjs.
+// Nationwide / ships-everywhere merchants → products flagged `nationwide=true` become
+// chat candidates for ALL locations. EMPTY by default for now: the only genuinely
+// nationwide catalog is `quicklly-indian-grocery-nationwide` (storeid 345 — pantry/dry
+// goods that ship US-wide), which uses a different URL structure and is intentionally
+// NOT indexed yet. The "Sold By Quicklly <city>" / "Quicklly Bazaar <city>" stores are
+// LOCAL (same-day regional delivery), NOT nationwide. Re-enable via env when 345 lands.
 const NATIONWIDE_MERCHANTS = new Set(
-  (process.env.QUICKLLY_NATIONWIDE_MERCHANTS ||
-    "sold-by-quicklly,sold-by-quicklly-edison,quicklly-indian-grocery-nationwide")
+  (process.env.QUICKLLY_NATIONWIDE_MERCHANTS || "")
     .split(",").map(s => s.trim()).filter(Boolean)
 );
+
+// Quicklly FIRST-PARTY stores — Quicklly operates these directly (vs third-party
+// marketplace merchants). The owners asked to PRIORITIZE Quicklly's own products, so we
+// flag them `priority=true` for a chat ranking boost — location-gated as usual (a store
+// only ranks where it delivers). Matched by slug PREFIX so future "Sold By Quicklly
+// <city>" / "Quicklly Bazaar <city>" stores auto-apply. Extra slugs via env.
+const PRIORITY_MERCHANT_RE = /^(sold-by-quicklly|quicklly-bazaar)/;
+const PRIORITY_MERCHANTS = new Set(
+  (process.env.QUICKLLY_PRIORITY_MERCHANTS || "")
+    .split(",").map(s => s.trim()).filter(Boolean)
+);
+function isPriorityMerchant(slug) {
+  return PRIORITY_MERCHANT_RE.test(slug) || PRIORITY_MERCHANTS.has(slug);
+}
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
@@ -311,6 +325,8 @@ export class QuicklyProvider extends BaseProvider {
 
     // Ships-everywhere merchant? Its products become candidates for ALL locations.
     this.isNationwide = NATIONWIDE_MERCHANTS.has(this.merchantSlug);
+    // First-party Quicklly store → its products get a ranking boost in chat.
+    this.isPriority = isPriorityMerchant(this.merchantSlug);
 
     // Scraping politeness (Quicklly is on Cloudflare).
     this.scrapeConcurrency = config.scrapeConcurrency ||
@@ -827,6 +843,7 @@ export class QuicklyProvider extends BaseProvider {
       merchant_name: this.merchantSlug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
       merchant_storeid: this.merchantStoreId,
       nationwide: this.isNationwide,
+      priority: this.isPriority,
 
       variants: [
         {
