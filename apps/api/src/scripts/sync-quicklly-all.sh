@@ -85,6 +85,10 @@ if [ -n "${MERCHANTS:-}" ]; then
 else
   log "Enumerating merchants from sitemaps…"
   mapfile -t MERCHANT_LIST < <(node apps/api/src/scripts/list-quicklly-merchants.mjs --slugs 2>>"$MAIN_LOG")
+  # The nationwide first-party catalog (storeid 345) has no sitemap subcats, so the
+  # enumerator skips it — append it explicitly so daily/monthly keep it fresh.
+  printf '%s\n' "${MERCHANT_LIST[@]}" | grep -qx "quicklly-indian-grocery-nationwide" \
+    || MERCHANT_LIST+=("quicklly-indian-grocery-nationwide")
 fi
 TOTAL=${#MERCHANT_LIST[@]}
 if [ "$TOTAL" -eq 0 ]; then log "No merchants found — aborting."; exit 1; fi
