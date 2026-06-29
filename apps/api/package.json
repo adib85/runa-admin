@@ -38,6 +38,7 @@
     "string-strip-html": "^13.4.0",
     "turndown": "^7.1.2",
     "turndown-plugin-gfm": "^1.0.2",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "zipcodes": "^8.0.0"
   }
 }
