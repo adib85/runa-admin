@@ -59,17 +59,37 @@ const QUICKLLY_ORIGIN = "https://www.quicklly.com";
 const SITEMAP_INDEX = `${QUICKLLY_ORIGIN}/sitemap.xml`;
 const EXTRA_SITEMAPS = [`${QUICKLLY_ORIGIN}/sitemap_prod.xml`]; // not in the index, referenced separately
 const PRODUCTS_API = `${QUICKLLY_ORIGIN}/ajax-subcat-all-products.php`;
+const NEWSUBCATMENU_API = `${QUICKLLY_ORIGIN}/ajax-newsubcatmenu.php`;
 
 // Nationwide / ships-everywhere merchants → products flagged `nationwide=true` become
-// chat candidates for ALL locations. EMPTY by default for now: the only genuinely
-// nationwide catalog is `quicklly-indian-grocery-nationwide` (storeid 345 — pantry/dry
-// goods that ship US-wide), which uses a different URL structure and is intentionally
-// NOT indexed yet. The "Sold By Quicklly <city>" / "Quicklly Bazaar <city>" stores are
-// LOCAL (same-day regional delivery), NOT nationwide. Re-enable via env when 345 lands.
+// chat candidates for ALL locations. The genuine nationwide catalog is the store below
+// (handled by its own discovery path); this env set is for any others.
 const NATIONWIDE_MERCHANTS = new Set(
   (process.env.QUICKLLY_NATIONWIDE_MERCHANTS || "")
     .split(",").map(s => s.trim()).filter(Boolean)
 );
+
+// ── Quicklly's own NATIONWIDE first-party catalog (storeid 345) ──────────────────
+// "Order Indian Groceries Online in US" — pantry/dry goods that ship US-wide. It uses a
+// DIFFERENT shape than regular merchants: subcats come from the per-department ajax menu
+// (ajax-newsubcatmenu.php), product/subcat pages live at /indian-grocery-online/buy-<sub>-online,
+// and EVERY request needs a zip session (else the server's AutoZipSet() PHP-errors). Indexed
+// via discoverNationwide(). subcaids are GLOBAL, so the products API (storeid=345 + catid +
+// subcaid) returns this store's items. Flagged nationwide=true + priority=true.
+const NATIONWIDE_STORE_SLUG = "quicklly-indian-grocery-nationwide";
+const NATIONWIDE_STORE_ID = "345";
+const NATIONWIDE_DEPARTMENTS = [
+  { catid: "4001", catname: "Grocery" },
+  { catid: "4062", catname: "Foods & Beverages" },
+  { catid: "4288", catname: "Organic" },
+  { catid: "4068", catname: "Personal Care" },
+  { catid: "4061", catname: "Household" },
+];
+// Any serviceable zip works (it ships everywhere); this just satisfies AutoZipSet() so the
+// pages render. Override via env QUICKLLY_NATIONWIDE_ZIP.
+const NATIONWIDE_ZIP = process.env.QUICKLLY_NATIONWIDE_ZIP || "08502";
+const NATIONWIDE_ZIP_COOKIE =
+  `pincode=${NATIONWIDE_ZIP}; postalcode=${NATIONWIDE_ZIP}; latitude=40.46; longitude=-74.66; city=Belle%20Mead; state=New%20Jersey; country=us`;
 
 // Quicklly FIRST-PARTY stores — Quicklly operates these directly (vs third-party
 // marketplace merchants). The owners asked to PRIORITIZE Quicklly's own products, so we
@@ -328,6 +348,15 @@ export class QuicklyProvider extends BaseProvider {
     // First-party Quicklly store → its products get a ranking boost in chat.
     this.isPriority = isPriorityMerchant(this.merchantSlug);
 
+    // The nationwide first-party catalog (storeid 345) uses a special discovery path and
+    // needs a zip session on every request. It is both nationwide AND first-party.
+    this.isNationwideStore = this.merchantSlug === NATIONWIDE_STORE_SLUG;
+    if (this.isNationwideStore) {
+      this.isNationwide = true;
+      this.isPriority = true;
+      this.cookieHeader = NATIONWIDE_ZIP_COOKIE;
+    }
+
     // Scraping politeness (Quicklly is on Cloudflare).
     this.scrapeConcurrency = config.scrapeConcurrency ||
       (parseInt(process.env.QUICKLLY_SCRAPE_CONCURRENCY, 10) || 4);
@@ -382,6 +411,9 @@ export class QuicklyProvider extends BaseProvider {
             "User-Agent": USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
+            // Zip session for the nationwide store (storeid 345) — without it the server's
+            // AutoZipSet() PHP-errors on its department/subcat pages.
+            ...(this.cookieHeader ? { "Cookie": this.cookieHeader } : {}),
             ...(init.headers || {}),
           },
           redirect: "follow",
@@ -487,9 +519,11 @@ export class QuicklyProvider extends BaseProvider {
         }
       }
     }
-    if (subcats.size === 0) {
+    if (subcats.size === 0 && !this.isNationwideStore) {
       throw new Error(`[Quicklly] merchant '${this.merchantSlug}' not found in sitemaps`);
     }
+    // Nationwide store: sitemap has its delivery cities but no /indian-grocery/.../<subcat>
+    // URLs (subcats come from the department ajax menu instead) — that's expected.
     const firstLoc = [...locations][0];
     this.merchantContext = {
       subcats: [...subcats].sort(),
@@ -882,6 +916,7 @@ export class QuicklyProvider extends BaseProvider {
   // ═══════════════════════════════════════════════════════════════════════════════
 
   async discover() {
+    if (this.isNationwideStore) return this.discoverNationwide();
     await this.loadMerchantContext();
     const subcaidByCat = await this.discoverIds();
 
@@ -934,6 +969,72 @@ export class QuicklyProvider extends BaseProvider {
       await fs.promises.writeFile(process.env.QUICKLLY_DUMP_JSON, JSON.stringify(dump, null, 2));
       console.log(`  [Quicklly] Dumped ${dump.length} normalized products to ${process.env.QUICKLLY_DUMP_JSON}`);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DISCOVER (NATIONWIDE STORE 345) — special path for Quicklly's own US-wide catalog.
+  // Subcats come from the per-department ajax menu (not the sitemap); each subcat's
+  // subcaid is read from its /indian-grocery-online/buy-<slug>-online page; products via
+  // the shared products API with storeid=345. Every request carries the zip-session
+  // cookie (set in the constructor). Pantry/dry goods, flagged nationwide + priority.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  async discoverNationwide() {
+    this.merchantStoreId = NATIONWIDE_STORE_ID;
+    console.log(`  [Quicklly] NATIONWIDE store ${NATIONWIDE_STORE_ID}: discovering subcats across ${NATIONWIDE_DEPARTMENTS.length} departments…`);
+
+    // 1) department menus → subcat slugs (dedup; first dept wins for catid)
+    const subcatByCat = new Map(); // slug → { catid }
+    for (const dept of NATIONWIDE_DEPARTMENTS) {
+      const body = `storeid=${NATIONWIDE_STORE_ID}&catid=${dept.catid}&slug=${NATIONWIDE_STORE_SLUG}` +
+        `&catname=${encodeURIComponent(dept.catname)}`;
+      const cache = path.join(this.pagesDir, `nationwide-menu-${dept.catid}.html`);
+      let html;
+      try { html = await fs.promises.readFile(cache, "utf8"); }
+      catch {
+        html = await this.httpPost(NEWSUBCATMENU_API, body);
+        await fs.promises.mkdir(path.dirname(cache), { recursive: true });
+        await fs.promises.writeFile(cache, html);
+        this.stats.pagesFetched++;
+        if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
+      }
+      for (const m of html.matchAll(/buy-([a-z0-9-]+)-online/g)) {
+        if (!subcatByCat.has(m[1])) subcatByCat.set(m[1], { catid: dept.catid });
+      }
+    }
+    console.log(`  [Quicklly] NATIONWIDE: ${subcatByCat.size} subcats discovered`);
+
+    // 2) per subcat → subcaid (from its buy-<slug>-online page) → products
+    const subcatList = [...subcatByCat.entries()];
+    const allCards = await mapWithConcurrency(subcatList, this.scrapeConcurrency, async ([slug, info]) => {
+      const url = `${QUICKLLY_ORIGIN}/indian-grocery-online/buy-${slug}-online`;
+      const cache = path.join(this.pagesDir, `nationwide-${slug}.html`);
+      let page;
+      try { page = await this.cachedGet(url, cache); this.stats.pagesFetched++; }
+      catch (e) { console.log(`  [Quicklly] NATIONWIDE: ${slug} page failed: ${e.message}`); return { slug, info, cards: [] }; }
+      const sm = page.match(/subcaid\s*=\s*"(\d+)"/);
+      if (!sm) return { slug, info, cards: [] };
+      const subcaid = sm[1];
+      const cm = page.match(/catid\s*=\s*"(\d+)"/);
+      const catid = cm ? cm[1] : info.catid;
+      const cards = await this.fetchSubcatProducts(`nationwide-${slug}`, subcaid, catid);
+      if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
+      return { slug, info: { catid, subcaid }, cards };
+    });
+
+    // 3) normalize + dedup by pid
+    const seen = new Set();
+    const normalized = [];
+    for (const { slug, info, cards } of allCards) {
+      const subcatName = slug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      for (const card of cards) {
+        if (seen.has(card.pid)) continue;
+        seen.add(card.pid);
+        normalized.push(this.normalizeProduct(card, { subcat: slug, subcatName, subcaid: info.subcaid, catid: info.catid }));
+      }
+    }
+    this.normalizedProducts = normalized;
+    this.stats.products = normalized.length;
+    console.log(`  [Quicklly] NATIONWIDE: ${normalized.length} unique products (${this.stats.apiCalls} API calls, ${this.stats.pagesFetched} pages)`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
