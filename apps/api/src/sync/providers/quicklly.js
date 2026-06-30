@@ -1221,6 +1221,16 @@ export class QuicklyProvider extends BaseProvider {
       }
     }
 
+    // Persist Quicklly's numeric store id (data-sid) on the :Store node — the chat exposes it
+    // as the cart line-item store_id. Discovered as merchantStoreId during the product crawl.
+    if (!this.dryRun && this.merchantStoreId) {
+      try {
+        await this.neo4j.setStoreNumericId(this.shopName, this.merchantStoreId);
+      } catch (e) {
+        console.error(`  [Quicklly] setStoreNumericId failed (non-fatal):`, e.message);
+      }
+    }
+
     this.logFinalStats();
   }
 

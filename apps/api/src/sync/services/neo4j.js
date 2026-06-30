@@ -159,6 +159,27 @@ export class Neo4jService {
     }
   }
 
+  // Persist a marketplace's numeric seller/store id on the :Store node (e.g. Quicklly's
+  // data-sid "112338"). The chat reads this as the cart line-item store_id; falls back to
+  // p.merchant_storeid on products if absent, but keeping it on the Store node is cleaner.
+  async setStoreNumericId(storeId, numericStoreId) {
+    if (!storeId || !numericStoreId) return;
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      await session.run(
+        `MATCH (s:Store {id: $storeId}) SET s.store_id = $numericStoreId`,
+        { storeId, numericStoreId: String(numericStoreId) }
+      );
+      console.log(`  [neo4j] setStoreNumericId: ${storeId} -> store_id=${numericStoreId}`);
+    } catch (e) {
+      console.error("  [neo4j] setStoreNumericId failed:", e.message);
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
   async getExistingProductIds(storeId, productIds) {
     const driver = this.getDriver();
     const session = driver.session();
