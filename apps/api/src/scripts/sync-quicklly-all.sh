@@ -141,3 +141,14 @@ fi
 log "═══════════════════════════════════════════════════════════"
 log "Quicklly sync finished. Scraped: $(wc -l <"$SCRAPED_DONE")  Written: $(wc -l <"$WRITTEN_DONE")  (of $TOTAL)"
 log "═══════════════════════════════════════════════════════════"
+
+# ── Health check ──
+# The Aug 2026 outage exited 0 while writing nothing, so "the script finished" is not
+# evidence the catalog is alive. Ask the database instead. Non-fatal here (the run is
+# already over) — it alerts on its own and its exit code lands in the log.
+log "── Health check ──"
+if node apps/api/src/scripts/quicklly-health-check.mjs >> "$MAIN_LOG" 2>&1; then
+  log "Health check PASSED"
+else
+  log "Health check FAILED — see $MAIN_LOG (alert sent if a channel is configured)"
+fi
