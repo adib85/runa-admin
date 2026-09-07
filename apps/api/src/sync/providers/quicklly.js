@@ -1126,6 +1126,10 @@ export class QuicklyProvider extends BaseProvider {
       // original from the product page. onSale only when we have a real original to show.
       price_old: priceOld,
       onSale: priceOld != null,
+      // Quicklly's OWN badge value ("20 % Off" -> 20), carried through rather than recomputed:
+      // their label is a campaign tier and their price rounding puts the true ratio off it for
+      // cheap items, so deriving it disagrees with their store page on ~1% of products.
+      discount_percent: priceOld != null && card.discountPct ? card.discountPct : null,
       currency: "USD",
       status: "active",
       published_at: null,
@@ -1228,7 +1232,7 @@ export class QuicklyProvider extends BaseProvider {
           product_type: p.product_type, aliases_text: p.aliases_text,
           subcategory_slug: p.subcategory_slug, subcategory_name: p.subcategory_name,
           handle: p.handle, price: p.price, image: p.image,
-          price_old: p.price_old, onSale: p.onSale,
+          price_old: p.price_old, onSale: p.onSale, discount_percent: p.discount_percent,
           // Reflect what base.js will actually embed:
           embed_title: p.title,                  // base.js feeds `product.title` verbatim
           embed_content: content,                 // `${title}. ${body_html}` — body_html is enrichment

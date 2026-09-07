@@ -304,6 +304,7 @@ export class Neo4jService {
            published_date: COALESCE(product.published_date, p.published_date),
            price_old: product.price_old,
            onSale: product.onSale,
+           discount_percent: product.discount_percent,
            inStock: product.inStock,
            materialDominant: COALESCE(product.materialDominant, p.materialDominant),
            materials: COALESCE(product.materials, p.materials),
@@ -560,6 +561,13 @@ export class Neo4jService {
       published_date: p.published_at || null,
       price_old: typeof p.price_old === "number" && Number.isFinite(p.price_old) ? p.price_old : null,
       onSale: p.onSale === true,
+      // The MERCHANT'S OWN discount label, not arithmetic. Quicklly badges a campaign tier
+      // ("20 % Off"), and for cheap items their price rounding pushes the true ratio well off it
+      // ($1.29 -> $0.99 is 23%, badged 20%). Recomputing from the two prices matches them only
+      // 99% of the time, and the 1% are staples a shopper sees constantly - so we carry their
+      // number through instead of deriving one. Null for providers that don't emit it.
+      discount_percent: typeof p.discount_percent === "number" && Number.isFinite(p.discount_percent)
+        ? p.discount_percent : null,
       // Fresh in-stock flag (default true when the provider doesn't compute one).
       inStock: p.inStock !== undefined ? (p.inStock === true) : true,
       materialDominant: p.materialDominant || null,
