@@ -60,6 +60,18 @@ const QUICKLLY_ORIGIN = "https://www.quicklly.com";
 const SITEMAP_INDEX = `${QUICKLLY_ORIGIN}/sitemap.xml`;
 const EXTRA_SITEMAPS = [`${QUICKLLY_ORIGIN}/sitemap_prod.xml`]; // not in the index, referenced separately
 const PRODUCTS_API = `${QUICKLLY_ORIGIN}/ajax-subcat-all-products.php`;
+// The LOCATION-level listing (what /local-grocery-store/<city>/<subcat> renders). Unlike the
+// store-level call above it is NOT capped at 500 per subcategory and it returns a whole
+// subcategory in ONE response; `filterstore` scopes it to a single store and the session ZIP
+// does not have to match that store. Verified Sep 2026: taj-mahal-fresh-market 16,884 products
+// in 66 calls / 16 s, exactly the count we held from the pre-cap era.
+const LISTING_API = `${QUICKLLY_ORIGIN}/ajax-subcat-all-products-listing.php`;
+const LOCATION_MENU_API = `${QUICKLLY_ORIGIN}/ajax-listnewsubcatmenu.php`;
+// Discovery mode. "location" (default) = directory + location listing, complete and uncapped.
+// "store" = the legacy sitemap + store-level listing, kept as a fallback.
+const DISCOVERY_MODE = process.env.QUICKLLY_DISCOVERY || "location";
+// Any served city works as the session seed for the location listing; the ZIP need not match.
+const LOCATION_SEED = { city: "chicago-il", zip: "60610", cityName: "Chicago", state: "Illinois", subcat: "indian-spices" };
 const NEWSUBCATMENU_API = `${QUICKLLY_ORIGIN}/ajax-newsubcatmenu.php`;
 
 // Nationwide / ships-everywhere merchants → products flagged `nationwide=true` become
@@ -487,10 +499,18 @@ export class QuicklyProvider extends BaseProvider {
     if (this.sessionPromise) return this.sessionPromise;
     this.sessionPromise = (async () => {
       const firstLoc = this.merchantContext?.firstLoc;
-      const zipCookie = this.zipCookie || this.cookieHeader || this.zipCookieForLoc(firstLoc);
+      const locationMode = DISCOVERY_MODE === "location" && !!this.loadDirectoryEntry()?.storeId;
+      // Location mode: the ZIP does not have to match the store, so one fixed seed serves every
+      // merchant and the zip-rotation machinery below never needs to run.
+      const zipCookie = locationMode
+        ? `pincode=${LOCATION_SEED.zip}; postalcode=${LOCATION_SEED.zip}; city=${LOCATION_SEED.cityName}; state=${LOCATION_SEED.state}; country=us`
+        : (this.zipCookie || this.cookieHeader || this.zipCookieForLoc(firstLoc));
       this.zipCookie = zipCookie;
+      if (locationMode) this.zipProven = true;
       // Any page mints a usable token — the nationwide path has no sitemap loc, so fall back home.
-      const seedUrl = firstLoc
+      const seedUrl = locationMode
+        ? `${QUICKLLY_ORIGIN}/local-grocery-store/${LOCATION_SEED.city}/${LOCATION_SEED.subcat}`
+        : firstLoc
         ? `${QUICKLLY_ORIGIN}/indian-grocery-store/${firstLoc}/${this.merchantSlug}`
         : `${QUICKLLY_ORIGIN}/`;
       const res = await fetch(seedUrl, {
@@ -653,8 +673,28 @@ export class QuicklyProvider extends BaseProvider {
     return leaves;
   }
 
+  // The store directory built from every city's near-me page (quicklly-store-directory.mjs).
+  // Authoritative for WHICH stores exist and WHERE they deliver; the sitemap is neither.
+  loadDirectoryEntry() {
+    try {
+      const dir = JSON.parse(fs.readFileSync(path.join(this.cacheRoot, "directory.json"), "utf8"));
+      return dir?.stores?.[this.merchantSlug] || null;
+    } catch { return null; }
+  }
+
   async loadMerchantContext() {
     if (this.merchantContext) return this.merchantContext;
+    if (DISCOVERY_MODE === "location") {
+      const entry = this.loadDirectoryEntry();
+      if (entry && entry.storeId) {
+        const locations = (entry.cities || []).slice().sort();
+        this.merchantContext = { subcats: [], locations, firstLoc: locations[0] || null, storeId: String(entry.storeId), name: entry.name || null };
+        if (entry.nationwide) { this.isNationwide = true; this.isPriority = true; }
+        console.log(`  [Quicklly] Merchant ${this.merchantSlug}: directory store_id=${entry.storeId}, ${locations.length} cities`);
+        return this.merchantContext;
+      }
+      console.log(`  [Quicklly] ${this.merchantSlug} not in directory.json (run quicklly-store-directory.mjs) — falling back to sitemap discovery`);
+    }
     console.log(`  [Quicklly] Loading sitemaps to find merchant=${this.merchantSlug}'s subcats + locations...`);
     const leaves = await this.loadSitemapLeaves();
     const subcats = new Set();
@@ -1184,7 +1224,98 @@ export class QuicklyProvider extends BaseProvider {
   // Loads merchant context → discovers ids → calls API for every subcat → normalizes.
   // ═══════════════════════════════════════════════════════════════════════════════
 
+  // ── Location-listing discovery (default) ──────────────────────────────────────────────
+  // One session, the 66 global subcategory ids, one call per subcategory with
+  // filterstore=<store id>. Complete, uncapped, ~15 s per store. Falls back to the legacy
+  // store-level path only when the directory does not know this merchant.
+  async loadGlobalSubcats() {
+    const cache = path.join(this.cacheRoot, "global-subcats.json");
+    try {
+      const j = JSON.parse(await fs.promises.readFile(cache, "utf8"));
+      if (j?.subcats && (Date.now() - Date.parse(j.builtAt)) < 24 * 3600 * 1000) return j.subcats;
+    } catch {}
+    await this.ensureSession();
+    const dept = await this.httpGet(`${QUICKLLY_ORIGIN}/indian-grocery/${LOCATION_SEED.city}/order-groceries`);
+    const depts = ((dept.match(/id="subcatsort"[^>]*value="([^"]+)"/) || [])[1] || "").split(",").filter(Boolean);
+    const subcats = {};
+    for (const catid of depts) {
+      const html = await this.httpPostJson(LOCATION_MENU_API, { catid, catname: "x" }, `${QUICKLLY_ORIGIN}/indian-grocery/${LOCATION_SEED.city}/order-groceries`);
+      for (const m of html.matchAll(/getProductsBySubcat\(\s*(\d+)\s*,\s*(\d+)\s*,[^,]*,\s*this\s*,\s*'([a-z0-9-]+)'\s*,\s*'([^']{0,60})'/gi)) {
+        if (!subcats[m[3]]) subcats[m[3]] = { subcaid: m[2], catid: m[1], subcatName: m[4].replace(/&amp;/g, "&").trim() };
+      }
+    }
+    if (!Object.keys(subcats).length) throw new Error("[Quicklly] could not load the global subcategory list from the location menu");
+    await fs.promises.mkdir(this.cacheRoot, { recursive: true });
+    await fs.promises.writeFile(cache, JSON.stringify({ builtAt: new Date().toISOString(), subcats }, null, 1));
+    console.log(`  [Quicklly] global subcategory list: ${Object.keys(subcats).length} subcats`);
+    return subcats;
+  }
+
+  async fetchSubcatProductsLocation(subcat, subcaid) {
+    const collected = new Map();
+    let start = 0;
+    for (let page = 0; page < this.maxPagesPerSubcat; page++) {
+      const cache = path.join(this.apiDir, `${this.merchantSlug}-loc-${subcat}-${start}.html`);
+      let html;
+      try {
+        html = await fs.promises.readFile(cache, "utf8");
+      } catch {
+        html = await this.httpPostJson(LISTING_API, {
+          subcat_id: String(subcaid), limit: 500, start,
+          filterstore: String(this.merchantStoreId),
+          filterbrand: "", filterdiscount: "", filtersortby: "", filteraction: "",
+        }, `${QUICKLLY_ORIGIN}/local-grocery-store/${LOCATION_SEED.city}/${subcat}`);
+        this.stats.apiCalls++;
+        if (!isEmptyApiBody(html)) {
+          await fs.promises.mkdir(path.dirname(cache), { recursive: true });
+          await fs.promises.writeFile(cache, html);
+        }
+        if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
+      }
+      const cards = this.parseProductCards(html);
+      const before = collected.size;
+      for (const c of cards) if (!collected.has(c.pid)) collected.set(c.pid, c);
+      // The location listing returns the whole subcategory in one response (3,054 cards seen in
+      // one call), so a second page is only asked for when the first one was large enough to
+      // suggest paging came back — otherwise every non-empty subcategory would cost an extra
+      // empty call (118 calls instead of 66 for taj-mahal).
+      if (cards.length < 500 || collected.size === before) break;
+      start += cards.length;
+    }
+    return [...collected.values()];
+  }
+
+  async discoverLocation() {
+    await this.loadMerchantContext();
+    this.merchantStoreId = this.merchantContext.storeId;
+    console.log(`  [Quicklly] Merchant storeid=${this.merchantStoreId} (directory)`);
+    const subcats = await this.loadGlobalSubcats();
+    const list = Object.entries(subcats);
+    const allCards = await mapWithConcurrency(list, this.scrapeConcurrency, async ([subcat, ids]) => {
+      const cards = await this.fetchSubcatProductsLocation(subcat, ids.subcaid);
+      return { subcat, ids, cards };
+    });
+    await this.enrichSalePrices(this.dedupCards(allCards.flatMap((a) => a.cards)));
+    const seen = new Set();
+    const normalized = [];
+    for (const { subcat, ids, cards } of allCards) {
+      for (const card of cards) {
+        if (seen.has(card.pid)) continue;
+        seen.add(card.pid);
+        normalized.push(this.normalizeProduct(card, { subcat, subcatName: ids.subcatName, subcaid: ids.subcaid, catid: ids.catid }));
+      }
+    }
+    this.normalizedProducts = normalized;
+    this.stats.products = normalized.length;
+    console.log(`  [Quicklly] Discovered ${normalized.length} unique products for ${this.merchantSlug} via location listing (${this.stats.apiCalls} API calls)`);
+    return normalized;
+  }
+
   async discover() {
+    if (DISCOVERY_MODE === "location") {
+      const entry = this.loadDirectoryEntry();
+      if (entry && entry.storeId) return this.discoverLocation();
+    }
     if (this.isNationwideStore) return this.discoverNationwide();
     await this.loadMerchantContext();
     const subcaidByCat = await this.discoverIds();

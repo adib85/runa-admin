@@ -83,12 +83,17 @@ fi
 if [ -n "${MERCHANTS:-}" ]; then
   read -ra MERCHANT_LIST <<< "$MERCHANTS"
 else
-  log "Enumerating merchants from sitemaps…"
-  mapfile -t MERCHANT_LIST < <(node apps/api/src/scripts/list-quicklly-merchants.mjs --slugs 2>>"$MAIN_LOG")
-  # The nationwide first-party catalog (storeid 345) has no sitemap subcats, so the
-  # enumerator skips it — append it explicitly so daily/monthly keep it fresh.
-  printf '%s\n' "${MERCHANT_LIST[@]}" | grep -qx "quicklly-indian-grocery-nationwide" \
-    || MERCHANT_LIST+=("quicklly-indian-grocery-nationwide")
+  # Store directory from every city's near-me page — the list shoppers actually see. The
+  # sitemap (the old enumerator) misses 9 live stores and still lists 8 dead ones. Falls back
+  # to the sitemap enumerator only if the directory cannot be built (network down, etc.).
+  log "Building the store directory from Quicklly's near-me pages…"
+  mapfile -t MERCHANT_LIST < <(node apps/api/src/scripts/quicklly-store-directory.mjs --slugs 2>>"$MAIN_LOG")
+  if [ "${#MERCHANT_LIST[@]}" -lt 20 ]; then
+    log "Directory came back with ${#MERCHANT_LIST[@]} stores — falling back to the sitemap enumerator"
+    mapfile -t MERCHANT_LIST < <(node apps/api/src/scripts/list-quicklly-merchants.mjs --slugs 2>>"$MAIN_LOG")
+    printf '%s\n' "${MERCHANT_LIST[@]}" | grep -qx "quicklly-indian-grocery-nationwide" \
+      || MERCHANT_LIST+=("quicklly-indian-grocery-nationwide")
+  fi
 fi
 TOTAL=${#MERCHANT_LIST[@]}
 if [ "$TOTAL" -eq 0 ]; then log "No merchants found — aborting."; exit 1; fi
@@ -141,6 +146,14 @@ fi
 log "═══════════════════════════════════════════════════════════"
 log "Quicklly sync finished. Scraped: $(wc -l <"$SCRAPED_DONE")  Written: $(wc -l <"$WRITTEN_DONE")  (of $TOTAL)"
 log "═══════════════════════════════════════════════════════════"
+
+# ── Retire dead stores ──
+# A store no near-me page lists any more cannot take an order; stop offering its products.
+# Reversible: a later directory that lists it again flips them back on the next sync.
+if [ -z "${MERCHANTS:-}" ]; then
+  log "── Retiring stores absent from the directory ──"
+  node apps/api/src/scripts/quicklly-store-directory.mjs --retire-dead >> "$MAIN_LOG" 2>&1 || log "retire-dead failed (non-fatal)"
+fi
 
 # ── Health check ──
 # The Aug 2026 outage exited 0 while writing nothing, so "the script finished" is not

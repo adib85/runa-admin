@@ -175,8 +175,19 @@ try {
   await driver.close();
 }
 
-// Quicklly's sitemap merchant list — same shape list-quicklly-merchants.mjs walks.
+// Live merchants: the near-me directory when we have a fresh one (it is what shoppers see and
+// it disagrees with the sitemap in both directions), else the sitemap as before.
 async function liveMerchantSlugs() {
+  try {
+    const dirPath = path.join(process.env.QUICKLLY_CACHE_ROOT || path.join(REPO, ".quicklly-cache"), "directory.json");
+    const dir = JSON.parse(fs.readFileSync(dirPath, "utf8"));
+    if (dir?.stores && Date.now() - Date.parse(dir.builtAt) < 48 * 3600 * 1000) {
+      return new Set(Object.entries(dir.stores).filter(([, s]) => s.storeId).map(([slug]) => slug));
+    }
+  } catch {}
+  return sitemapMerchantSlugs();
+}
+async function sitemapMerchantSlugs() {
   const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
   const ORIGIN = "https://www.quicklly.com";
   const get = async (u) => {
