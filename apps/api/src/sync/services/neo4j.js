@@ -665,6 +665,64 @@ export class Neo4jService {
     }
   }
 
+  /**
+   * Retire products this run did not see: the catalogue keeps selling them otherwise.
+   *
+   * `deleteStaleProducts` above has existed for a long time and is called from nowhere, so a
+   * product that disappears from a merchant's catalogue stays in the graph forever at whatever
+   * price it had when last seen. Measured on quicklly_new-foods-of-india: 5,385 products indexed,
+   * 1,902 in the current crawl, 3,458 still being offered at prices from five weeks earlier —
+   * the same "price differs from the store page" the QA report opened with, from a second cause.
+   *
+   * We flag rather than delete. inStock:false is reversible — the next run that sees the product
+   * stamps it back to true — and the chat's coalesce(p.inStock, true) filter stops offering it
+   * immediately. Deleting thousands of rows on one run's evidence is not recoverable if that run
+   * was simply wrong.
+   *
+   * Returns { retired, skipped } — `skipped` true when the guard in the caller refused to run.
+   */
+  async retireUnseenProducts(storeId, syncRunStartedAt) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      const res = await session.run(
+        `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
+         WHERE p.lastSeenAt IS NOT NULL AND p.lastSeenAt < $syncRunStartedAt
+           AND coalesce(p.inStock, true) = true
+         SET p.inStock = false, p.retiredAt = $syncRunStartedAt
+         RETURN count(p) AS retired`,
+        { storeId, syncRunStartedAt }
+      );
+      const rec = res.records[0];
+      const retired = rec ? (rec.get("retired").toNumber ? rec.get("retired").toNumber() : Number(rec.get("retired"))) : 0;
+      return { retired, skipped: false };
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
+  /** How many products this store has, and how many the given run actually saw. Used by the
+   *  caller's safety guard: a crawl that collapses must not retire the whole catalogue. */
+  async countStoreProducts(storeId, syncRunStartedAt) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      const res = await session.run(
+        `MATCH (store:Store {id: $storeId})-[:HAS_PRODUCT]->(p:Product)
+         RETURN count(p) AS total,
+                sum(CASE WHEN p.lastSeenAt >= $syncRunStartedAt THEN 1 ELSE 0 END) AS seen`,
+        { storeId, syncRunStartedAt }
+      );
+      const r = res.records[0];
+      const n = (v) => (v && v.toNumber ? v.toNumber() : Number(v || 0));
+      return { total: n(r.get("total")), seen: n(r.get("seen")) };
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
   async deleteStaleProducts(storeId, syncRunStartedAt) {
     const driver = this.getDriver();
     const session = driver.session();

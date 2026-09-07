@@ -294,6 +294,35 @@ export class BaseProvider {
       }
     }
 
+    // ── Retire what this run did not see ────────────────────────────────────────────────
+    // Without this a product that leaves the merchant's catalogue is served forever at the price
+    // it had when it left. Flagged, not deleted: reversible, and the chat's inStock filter stops
+    // offering it at once.
+    //
+    // Guarded, because the failure mode is severe. Skipped when the run only ever looked at part
+    // of the catalogue (--max, dry-run, a resumed partial run), and skipped when the run saw
+    // implausibly little of what is indexed — a crawl that breaks the way Quicklly's did in August
+    // returns almost nothing, and must never be allowed to retire a whole store on that basis.
+    if (!this.dryRun && !this.maxProducts && totalProductsSeen > 0) {
+      try {
+        const { total, seen } = await this.neo4j.countStoreProducts(this.shopName, syncRunStartedAt);
+        const coverage = total > 0 ? seen / total : 1;
+        const FLOOR = Number(process.env.SYNC_RETIRE_MIN_COVERAGE || 0.5);
+        if (coverage < FLOOR) {
+          console.log(`  [retire] SKIPPED — this run saw ${seen}/${total} indexed products ` +
+            `(${(coverage * 100).toFixed(0)}%, floor ${(FLOOR * 100).toFixed(0)}%). ` +
+            `A run this partial is more likely broken than the catalogue being that much smaller.`);
+        } else {
+          const { retired } = await this.neo4j.retireUnseenProducts(this.shopName, syncRunStartedAt);
+          console.log(retired > 0
+            ? `  [retire] ${retired} product(s) not seen this run marked out of stock (${seen}/${total} seen)`
+            : `  [retire] nothing to retire (${seen}/${total} seen)`);
+        }
+      } catch (e) {
+        console.log(`  [retire] skipped: ${e.message}`);   // never fail a sync over housekeeping
+      }
+    }
+
     if (!this.dryRun) {
       this.clearProgress();
       this.pubnub.publishProgress(this.channelId, countProcessed, count);
