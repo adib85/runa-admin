@@ -52,6 +52,7 @@
 import fs from "fs";
 import path from "path";
 import fetch from "node-fetch";
+import zipcodes from "zipcodes";
 import { BaseProvider } from "./base.js";
 import { delay, mapWithConcurrency, storePrefixedId } from "../utils/index.js";
 
@@ -90,6 +91,17 @@ const NATIONWIDE_DEPARTMENTS = [
 const NATIONWIDE_ZIP = process.env.QUICKLLY_NATIONWIDE_ZIP || "08502";
 const NATIONWIDE_ZIP_COOKIE =
   `pincode=${NATIONWIDE_ZIP}; postalcode=${NATIONWIDE_ZIP}; latitude=40.46; longitude=-74.66; city=Belle%20Mead; state=New%20Jersey; country=us`;
+
+// How many delivery ZIPs we are willing to try before giving up on a merchant. Large merchants
+// list dozens of cities; one zip per city is enough to find a deliverable one.
+const MAX_ZIP_CANDIDATES = parseInt(process.env.QUICKLLY_MAX_ZIP_CANDIDATES, 10) || 40;
+
+// Their "no records / bad session" sentinel: the ajax endpoints answer with the bare string
+// "false" (occasionally an empty body) instead of a product-card fragment.
+function isEmptyApiBody(body) {
+  const t = String(body || "").trim();
+  return t === "" || t === "false" || t === '"false"' || t === "0";
+}
 
 // Quicklly FIRST-PARTY stores — Quicklly operates these directly (vs third-party
 // marketplace merchants). The owners asked to PRIORITIZE Quicklly's own products, so we
@@ -392,6 +404,11 @@ export class QuicklyProvider extends BaseProvider {
     this.normalizedProducts = null;
     this.cursorIndex = 0;
     this.stats = { sitemapsRead: 0, pagesFetched: 0, apiCalls: 0, products: 0 };
+
+    // Zip-session state (see ensureSession / rotateZipSession).
+    this.zipGen = 0;        // bumped on every successful zip rotation
+    this._rotating = null;  // in-flight rotation shared by concurrent subcat workers
+    this.zipProven = false; // set once a zip has actually returned products for this merchant
   }
 
   get providerType() {
@@ -445,6 +462,141 @@ export class QuicklyProvider extends BaseProvider {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
+    });
+  }
+
+  // ── Quicklly's hardened ajax contract (changed ~Aug 2026; this broke the nightly sync) ──────
+  // Their pages now wrap every ajax call in secureAjax(), which (a) attaches the page's
+  // <meta name="csrf-token"> as X-CSRF-TOKEN and (b) JSON-stringifies object payloads. On top of
+  // that the PHP side needs a delivery-zip session cookie. A plain form-encoded POST — what we used
+  // to send — now returns the bare string "false" (their own "no records" sentinel) or HTTP 403.
+  // So we bootstrap ONE session per merchant and reuse it for that merchant's product calls.
+  // Bootstrapped ONCE per merchant and shared by all concurrent subcat workers (a per-worker
+  // bootstrap would hand each request a token minted against a different session → HTTP 419).
+  // The token only validates against the session cookie issued with it, so we keep the server's
+  // Set-Cookie jar alongside our zip cookie.
+  //   (Their js/api-security.js additionally AES-256-CBC-encrypts the body into
+  //    {endpoint, body, method} when ENABLE_SECURE_MODE is on. Verified that the PHP side still
+  //    accepts a plain JSON — and even form-encoded — body, so we do not reimplement that.)
+  async ensureSession() {
+    if (this.csrfToken) return;
+    if (this.sessionPromise) return this.sessionPromise;
+    this.sessionPromise = (async () => {
+      const firstLoc = this.merchantContext?.firstLoc;
+      const zipCookie = this.zipCookie || this.cookieHeader || this.zipCookieForLoc(firstLoc);
+      this.zipCookie = zipCookie;
+      // Any page mints a usable token — the nationwide path has no sitemap loc, so fall back home.
+      const seedUrl = firstLoc
+        ? `${QUICKLLY_ORIGIN}/indian-grocery-store/${firstLoc}/${this.merchantSlug}`
+        : `${QUICKLLY_ORIGIN}/`;
+      const res = await fetch(seedUrl, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cookie": zipCookie,
+        },
+        redirect: "follow",
+      });
+      const html = await res.text();
+      // Carry the server's session cookie forward — the CSRF token is bound to it.
+      const setCookies = typeof res.headers.raw === "function" ? (res.headers.raw()["set-cookie"] || []) : [];
+      const jar = setCookies.map((c) => String(c).split(";")[0]).filter(Boolean).join("; ");
+      this.cookieHeader = jar ? `${zipCookie}; ${jar}` : zipCookie;
+      const m = html.match(/name="csrf-token"\s+content="([a-f0-9]{32,})"/i);
+      if (!m) throw new Error(`[Quicklly] no csrf-token found on ${seedUrl} — session bootstrap failed`);
+      this.csrfToken = m[1];
+      console.log(`  [Quicklly] session ready (csrf ${this.csrfToken.slice(0, 8)}… + ${setCookies.length} session cookies)`);
+    })();
+    return this.sessionPromise;
+  }
+
+  // The product endpoints are gated on the browsing DELIVERY ZIP, carried as a `postalcode`
+  // cookie. Verified against the live site (Sep 2026):
+  //   • no zip cookie          → the endpoint answers the bare string "false" for every subcat
+  //     (this is exactly what killed the nightly sync — we never sent one for normal merchants);
+  //   • a zip OUTSIDE the merchant's delivery radius → also "false";
+  //   • a deliverable zip      → the product-card fragment, as before.
+  // The page slug in the URL is irrelevant — only the cookie decides (al-noor-meat-market answers
+  // for 60610/Chicago and refuses 60193/Schaumburg on BOTH its /chicago-il/ and /schaumburg-il/ URLs,
+  // even though the sitemap lists both cities). So we cannot trust one city: we build a candidate
+  // list spanning EVERY location the merchant is listed under and rotate through it until one
+  // answers (see fetchSubcatProducts). One zip per city first, so we cover all cities cheaply.
+  zipCandidatesForLoc(loc) {
+    const parts = String(loc || "").split("-");
+    const state = (parts.pop() || "").toUpperCase();
+    const city = parts.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
+    try { return zipcodes.lookupByName(city, state) || []; } catch { return []; }
+  }
+
+  // All of the merchant's cities, interleaved: city A zip 1, city B zip 1, …, city A zip 2, …
+  buildZipCandidates() {
+    const locs = this.merchantContext?.locations?.length
+      ? this.merchantContext.locations
+      : [this.merchantContext?.firstLoc].filter(Boolean);
+    const perLoc = locs.map((l) => this.zipCandidatesForLoc(l));
+    const out = [];
+    const seen = new Set();
+    const deepest = Math.max(0, ...perLoc.map((a) => a.length));
+    for (let round = 0; round < deepest && out.length < MAX_ZIP_CANDIDATES; round++) {
+      for (const list of perLoc) {
+        const z = list[round];
+        if (!z || seen.has(z.zip)) continue;
+        seen.add(z.zip);
+        out.push(z);
+        if (out.length >= MAX_ZIP_CANDIDATES) break;
+      }
+    }
+    return out;
+  }
+
+  cookieFromZip(z) {
+    if (!z) return NATIONWIDE_ZIP_COOKIE;
+    return `pincode=${z.zip}; postalcode=${z.zip}; latitude=${z.latitude}; longitude=${z.longitude}; ` +
+      `city=${encodeURIComponent(z.city)}; state=${encodeURIComponent(z.state)}; country=us`;
+  }
+
+  zipCookieForLoc(loc) {
+    if (!this._zips) { this._zips = this.buildZipCandidates(); this._zipIdx = 0; }
+    return this.cookieFromZip(this._zips[this._zipIdx]);
+  }
+
+  // Advance to the next candidate zip and re-bootstrap. Returns false when exhausted.
+  //
+  // Called from several concurrent subcat workers, so it is serialized behind a generation
+  // counter: a worker passes the generation it observed, and if another worker has already
+  // rotated since then it just gets `true` (retry on the fresh session) without burning a zip.
+  async rotateZipSession(seenGen = this.zipGen) {
+    if (this.zipGen > seenGen) return true;            // someone else already rotated
+    if (this._rotating) { await this._rotating; return this.zipGen > seenGen; }
+    if (!this._zips || this._zipIdx >= this._zips.length - 1) return false;
+    this._rotating = (async () => {
+      this._zipIdx += 1;
+      const z = this._zips[this._zipIdx];
+      console.log(`  [Quicklly] API said "false" — retrying with zip ${z.zip} (${this._zipIdx + 1}/${this._zips.length})`);
+      this.zipCookie = this.cookieFromZip(z);
+      this.cookieHeader = this.zipCookie;
+      this.csrfToken = null;
+      this.sessionPromise = null;
+      await this.ensureSession();
+      this.zipGen += 1;
+    })();
+    try { await this._rotating; } finally { this._rotating = null; }
+    return true;
+  }
+
+  // POST in their current shape: JSON body + CSRF header + the zip session cookie (added by http()).
+  async httpPostJson(url, payload, referer) {
+    await this.ensureSession();
+    return this.http(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-CSRF-TOKEN": this.csrfToken,
+        ...(referer ? { Referer: referer } : {}),
+      },
+      body: JSON.stringify(payload),
     });
   }
 
@@ -659,19 +811,40 @@ export class QuicklyProvider extends BaseProvider {
     let start = 0;
     let page = 0;
     while (true) {
-      const body =
-        `subcat_id=${subcaid}&catid=${catid}` +
-        `&filterstore=&filterbrand=&filterdiscount=&filtersortby=&filteraction=` +
-        `&storeid=${this.merchantStoreId}&limit=500&start=${start}`;
+      // Mirrors their page's secureAjax payload exactly (object → JSON, see httpPostJson).
+      const payload = {
+        subcat_id: String(subcaid),
+        catid: String(catid),
+        filterstore: "", filterbrand: "", filterdiscount: "", filtersortby: "", filteraction: "",
+        storeid: String(this.merchantStoreId),
+        limit: 500,
+        start,
+      };
       const cache = path.join(this.apiDir, `${this.merchantSlug}-${subcat}-${start}.html`);
+      const referer = `${QUICKLLY_ORIGIN}/indian-grocery/${this.merchantContext?.firstLoc}/${this.merchantSlug}/${subcat}`;
       let html;
       try {
         html = await fs.promises.readFile(cache, "utf8");
+        // A cached "false" is a poisoned session, not a real empty subcat — refetch it.
+        if (isEmptyApiBody(html)) throw new Error("cached sentinel");
       } catch {
-        html = await this.httpPost(PRODUCTS_API, body);
-        await fs.promises.mkdir(path.dirname(cache), { recursive: true });
-        await fs.promises.writeFile(cache, html);
+        html = await this.httpPostJson(PRODUCTS_API, payload, referer);
         this.stats.apiCalls++;
+        // "false" on the FIRST page means the session zip is not inside this merchant's delivery
+        // area. Rotate to the next candidate zip and retry until one answers. Once ANY subcat has
+        // come back with products the zip is proven deliverable, so from then on "false" means a
+        // genuinely empty subcat and we stop burning candidates on it.
+        while (start === 0 && !this.zipProven && isEmptyApiBody(html)) {
+          const gen = this.zipGen;
+          if (!(await this.rotateZipSession(gen))) break;   // candidates exhausted
+          html = await this.httpPostJson(PRODUCTS_API, payload, referer);
+          this.stats.apiCalls++;
+        }
+        if (!isEmptyApiBody(html)) this.zipProven = true;
+        if (!isEmptyApiBody(html)) {
+          await fs.promises.mkdir(path.dirname(cache), { recursive: true });
+          await fs.promises.writeFile(cache, html);
+        }
         if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       }
       const cards = this.parseProductCards(html);
@@ -985,37 +1158,52 @@ export class QuicklyProvider extends BaseProvider {
     // 1) department menus → subcat slugs (dedup; first dept wins for catid)
     const subcatByCat = new Map(); // slug → { catid }
     for (const dept of NATIONWIDE_DEPARTMENTS) {
-      const body = `storeid=${NATIONWIDE_STORE_ID}&catid=${dept.catid}&slug=${NATIONWIDE_STORE_SLUG}` +
-        `&catname=${encodeURIComponent(dept.catname)}`;
+      // Their secureAjax shape: JSON body + CSRF header. A bare form POST now gets 403.
+      const body = {
+        storeid: String(NATIONWIDE_STORE_ID),
+        catid: String(dept.catid),
+        slug: NATIONWIDE_STORE_SLUG,
+        catname: dept.catname,
+      };
       const cache = path.join(this.pagesDir, `nationwide-menu-${dept.catid}.html`);
       let html;
       try { html = await fs.promises.readFile(cache, "utf8"); }
       catch {
-        html = await this.httpPost(NEWSUBCATMENU_API, body);
+        html = await this.httpPostJson(NEWSUBCATMENU_API, body, `${QUICKLLY_ORIGIN}/indian-grocery-online`);
         await fs.promises.mkdir(path.dirname(cache), { recursive: true });
         await fs.promises.writeFile(cache, html);
         this.stats.pagesFetched++;
         if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       }
+      // The menu now carries BOTH ids inline, so we no longer need a page fetch per subcat:
+      //   getProductsBySubcat(4001, 4070, '…/atta-wheat-flour', this, 'atta-wheat-flour', 'Atta/Wheat Flour', event)
+      // Older markup linked to /indian-grocery-online/buy-<slug>-online instead — kept as fallback.
+      for (const m of html.matchAll(
+        /getProductsBySubcat\(\s*(\d+)\s*,\s*(\d+)\s*,[^,]*,\s*this\s*,\s*'([a-z0-9-]+)'/gi
+      )) {
+        if (!subcatByCat.has(m[3])) subcatByCat.set(m[3], { catid: m[1], subcaid: m[2] });
+      }
       for (const m of html.matchAll(/buy-([a-z0-9-]+)-online/g)) {
-        if (!subcatByCat.has(m[1])) subcatByCat.set(m[1], { catid: dept.catid });
+        if (!subcatByCat.has(m[1])) subcatByCat.set(m[1], { catid: String(dept.catid) });
       }
     }
     console.log(`  [Quicklly] NATIONWIDE: ${subcatByCat.size} subcats discovered`);
 
-    // 2) per subcat → subcaid (from its buy-<slug>-online page) → products
+    // 2) per subcat → products (subcaid inline from the menu, else from its legacy landing page)
     const subcatList = [...subcatByCat.entries()];
     const allCards = await mapWithConcurrency(subcatList, this.scrapeConcurrency, async ([slug, info]) => {
-      const url = `${QUICKLLY_ORIGIN}/indian-grocery-online/buy-${slug}-online`;
-      const cache = path.join(this.pagesDir, `nationwide-${slug}.html`);
-      let page;
-      try { page = await this.cachedGet(url, cache); this.stats.pagesFetched++; }
-      catch (e) { console.log(`  [Quicklly] NATIONWIDE: ${slug} page failed: ${e.message}`); return { slug, info, cards: [] }; }
-      const sm = page.match(/subcaid\s*=\s*"(\d+)"/);
-      if (!sm) return { slug, info, cards: [] };
-      const subcaid = sm[1];
-      const cm = page.match(/catid\s*=\s*"(\d+)"/);
-      const catid = cm ? cm[1] : info.catid;
+      let { catid, subcaid } = info;
+      if (!subcaid) {
+        const url = `${QUICKLLY_ORIGIN}/indian-grocery-online/buy-${slug}-online`;
+        const cache = path.join(this.pagesDir, `nationwide-${slug}.html`);
+        let page;
+        try { page = await this.cachedGet(url, cache); this.stats.pagesFetched++; }
+        catch (e) { console.log(`  [Quicklly] NATIONWIDE: ${slug} page failed: ${e.message}`); return { slug, info, cards: [] }; }
+        const sm = page.match(/subcaid\s*=\s*"(\d+)"/);
+        if (!sm) return { slug, info, cards: [] };
+        subcaid = sm[1];
+        catid = (page.match(/catid\s*=\s*"(\d+)"/) || [])[1] || catid;
+      }
       const cards = await this.fetchSubcatProducts(`nationwide-${slug}`, subcaid, catid);
       if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       return { slug, info: { catid, subcaid }, cards };
