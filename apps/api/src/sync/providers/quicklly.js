@@ -96,6 +96,9 @@ const NATIONWIDE_ZIP_COOKIE =
 // list dozens of cities; one zip per city is enough to find a deliverable one.
 const MAX_ZIP_CANDIDATES = parseInt(process.env.QUICKLLY_MAX_ZIP_CANDIDATES, 10) || 40;
 
+// Ceiling on per-merchant product-page fetches for pre-discount prices (see enrichSalePrices).
+const MAX_SALE_PDP = parseInt(process.env.QUICKLLY_MAX_SALE_PDP, 10) || 2500;
+
 // Their "no records / bad session" sentinel: the ajax endpoints answer with the bare string
 // "false" (occasionally an empty body) instead of a product-card fragment.
 function isEmptyApiBody(body) {
@@ -800,11 +803,90 @@ export class QuicklyProvider extends BaseProvider {
     while ((cm = clsRe.exec(html)) !== null) {
       if (!clsByPid.has(cm[1])) clsByPid.set(cm[1], cm[2].replace(/\s+/g, " ").trim());
     }
+    // Sale badge. When a product is discounted the card gets a badge overlay on the image:
+    //   <span class="clsProdImgTagtext"><i class="txtDicntTg">20 % Off</i></span>
+    // `data-price` is already the DISCOUNTED price (verified against their product pages), so the
+    // badge is the only in-card signal that a sale is on — and it tells us WHICH products to open
+    // for the exact pre-discount price, which is ~3% of them rather than all of them.
+    // Split on card boundaries so a badge can never be attributed to the next card along.
+    const discountByPid = new Map();
+    for (const block of html.split(/(?=<div class="clsProd)/)) {
+      const pm = block.match(/txtDicntTg[^>]*>\s*(\d+)\s*%\s*Off/i);
+      if (!pm) continue;
+      const pidM = block.match(/data-pid="(\d+)"/);
+      if (pidM) discountByPid.set(pidM[1], parseInt(pm[1], 10));
+    }
     for (const card of out) {
       card.handle = slugByPid.get(card.pid) || "";
       card.fullTitle = clsByPid.get(card.pid) || "";   // richer than data-name (has the pack size)
+      const pct = discountByPid.get(card.pid);
+      if (pct) card.discountPct = pct;                 // exact pre-discount price added by enrichSalePrices()
     }
     return out;
+  }
+
+  // Cards can repeat across subcats; enrichment must see each product once.
+  dedupCards(cards) {
+    const byPid = new Map();
+    for (const c of cards) if (!byPid.has(c.pid)) byPid.set(c.pid, c);
+    return [...byPid.values()];
+  }
+
+  // ─── Exact pre-discount price, for the ~3% of products that carry a sale badge ──────────
+  // The card gives the sale price and "NN % Off" but not the original. That original lives only
+  // on the product page, as <p class="price"> $3.19 <span class="cutprice"> $3.99 </span>.
+  //
+  // We do NOT derive it from the badge: validated against 80 product pages, reconstructing the
+  // original from price + percentage is only ~55% exact (their badge is rounded, and sometimes
+  // plain inconsistent — one product badged "5 % Off" is really 7.4% off). A wrong strike-through
+  // price is worse than none, so we read the real one.
+  //
+  // Cost is bounded by the badge: only badged cards are opened, ~2.9% of the catalog.
+  async enrichSalePrices(cards) {
+    let onSale = cards.filter((c) => c.discountPct && c.price);
+    if (!onSale.length) return;
+    // Sale counts are bimodal: most merchants have a handful, but one running a storewide promo
+    // can have its whole catalog badged (new-foods-of-india: 1,888 of 1,902 — ~20 min of page
+    // fetches on its own). Cap it so a big promo can't stretch the nightly run without bound.
+    if (onSale.length > MAX_SALE_PDP) {
+      console.log(`  [Quicklly] ${onSale.length} sale products exceeds the ${MAX_SALE_PDP} cap — ` +
+        `taking the ${MAX_SALE_PDP} cheapest (raise QUICKLLY_MAX_SALE_PDP to cover them all)`);
+      onSale = onSale
+        .slice()
+        .sort((a, b) => parseFloat(a.price) - parseFloat(b.price))
+        .slice(0, MAX_SALE_PDP);
+    }
+    console.log(`  [Quicklly] ${onSale.length} sale product(s) of ${cards.length} — fetching pre-discount prices…`);
+    let got = 0;
+    await mapWithConcurrency(onSale, Math.min(this.scrapeConcurrency, 4), async (card) => {
+      const cache = path.join(this.apiDir, `pdp-${card.pid}.html`);
+      let html;
+      try {
+        html = await fs.promises.readFile(cache, "utf8");
+      } catch {
+        try {
+          // The product page keys off the pid — the slug segment is cosmetic and redirects.
+          html = await this.httpGet(`${QUICKLLY_ORIGIN}/grocery-store/${card.handle || "p"}/${card.pid}`);
+        } catch (e) {
+          console.log(`  [Quicklly] sale price for ${card.pid} failed: ${e.message}`);
+          return;
+        }
+        await fs.promises.mkdir(path.dirname(cache), { recursive: true });
+        await fs.promises.writeFile(cache, html);
+        this.stats.pagesFetched++;
+        if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
+      }
+      const m = html.match(/<p class="price">\s*\$?([\d.]+)\s*<span class="cutprice">\s*\$?([\d.]+)/);
+      if (!m) return;                       // sale ended between the listing and this fetch
+      const was = parseFloat(m[2]);
+      const now = parseFloat(m[1]);
+      if (!(was > now)) return;             // never store a "was" that isn't above the price
+      card.priceOld = was;
+      // Their listing price can lag the product page mid-sale; the product page is authoritative.
+      card.price = String(now);
+      got++;
+    });
+    console.log(`  [Quicklly] captured ${got}/${onSale.length} pre-discount prices`);
   }
 
   async fetchSubcatProducts(subcat, subcaid, catid) {
@@ -988,6 +1070,8 @@ export class QuicklyProvider extends BaseProvider {
     const productType = this.extractProductType(title, brand, packSize);
     const aliases = this.aliasesFor(title, subcat);
     const price = parseFloat(card.price) || null;
+    // Set by enrichSalePrices() for badged products; null for everything else.
+    const priceOld = typeof card.priceOld === "number" && card.priceOld > price ? card.priceOld : null;
 
     const id = storePrefixedId(this.shopName, card.pid);
     const variantId = `${id}-default`;
@@ -1038,6 +1122,10 @@ export class QuicklyProvider extends BaseProvider {
       images: image ? [{ src: image, alt: title }] : [],
 
       price,
+      // Sale fields. `price` is already what the shopper pays; price_old is the struck-through
+      // original from the product page. onSale only when we have a real original to show.
+      price_old: priceOld,
+      onSale: priceOld != null,
       currency: "USD",
       status: "active",
       published_at: null,
@@ -1061,7 +1149,7 @@ export class QuicklyProvider extends BaseProvider {
           id: variantId,
           title: "Default",
           price: price ?? 0,
-          compare_at_price: null,
+          compare_at_price: priceOld,
           sku: String(card.pid),
           inventory_quantity: 1,
         },
@@ -1104,6 +1192,10 @@ export class QuicklyProvider extends BaseProvider {
       return { subcat, ids, cards };
     });
 
+    // Exact pre-discount price for the badged minority (dedup first — a product can sit in
+    // several subcats and must not be fetched once per subcat).
+    await this.enrichSalePrices(this.dedupCards(allCards.flatMap((a) => a.cards)));
+
     // Normalize, dedup by pid (a product can appear in multiple subcats — keep first).
     const seen = new Set();
     const normalized = [];
@@ -1136,6 +1228,7 @@ export class QuicklyProvider extends BaseProvider {
           product_type: p.product_type, aliases_text: p.aliases_text,
           subcategory_slug: p.subcategory_slug, subcategory_name: p.subcategory_name,
           handle: p.handle, price: p.price, image: p.image,
+          price_old: p.price_old, onSale: p.onSale,
           // Reflect what base.js will actually embed:
           embed_title: p.title,                  // base.js feeds `product.title` verbatim
           embed_content: content,                 // `${title}. ${body_html}` — body_html is enrichment
@@ -1212,6 +1305,8 @@ export class QuicklyProvider extends BaseProvider {
       if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       return { slug, info: { catid, subcaid }, cards };
     });
+
+    await this.enrichSalePrices(this.dedupCards(allCards.flatMap((a) => a.cards)));
 
     // 3) normalize + dedup by pid
     const seen = new Set();
