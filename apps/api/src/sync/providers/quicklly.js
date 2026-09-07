@@ -374,7 +374,8 @@ export class QuicklyProvider extends BaseProvider {
       (parseInt(process.env.QUICKLLY_SCRAPE_CONCURRENCY, 10) || 4);
     this.scrapeDelayMs = config.scrapeDelayMs ??
       (parseInt(process.env.QUICKLLY_SCRAPE_DELAY_MS, 10) || 250);
-    this.maxPagesPerSubcat = parseInt(process.env.QUICKLLY_MAX_PAGES_PER_SUBCAT, 10) || 10;
+    // 50 products per page (their cap) — 60 pages is 3,000 products in a single subcat.
+    this.maxPagesPerSubcat = parseInt(process.env.QUICKLLY_MAX_PAGES_PER_SUBCAT, 10) || 60;
 
     // BaseProvider knobs — copy Bringo's grocery-tuned defaults.
     this.descriptionLanguage = "en";
@@ -853,8 +854,11 @@ export class QuicklyProvider extends BaseProvider {
         if (!collected.has(c.pid)) collected.set(c.pid, c);
       }
       page++;
-      if (cards.length < 500 || collected.size === before || page >= this.maxPagesPerSubcat) break;
-      start += 500;
+      // They now CAP the page at 50 regardless of `limit` (it used to honour 500). Advance by what
+      // the server actually returned rather than by what we asked for — assuming 500 made us stop
+      // after the first page and silently keep only the first 50 products of every subcat.
+      if (cards.length === 0 || collected.size === before || page >= this.maxPagesPerSubcat) break;
+      start += cards.length;
     }
     return [...collected.values()];
   }
