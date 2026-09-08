@@ -140,13 +140,16 @@ async function build() {
           if (storeId) break;
         }
       }
+      let fromPage = !!storeId;
       if (!storeId && graphStoreId.has(slug)) { storeId = graphStoreId.get(slug); say(`  [directory] ${slug}: store id ${storeId} taken from the graph (its page did not render one)`); }
-      stores[slug] = { storeId, name, cities: cityList };
+      stores[slug] = { storeId, name, cities: cityList, ...(fromPage ? { idFromPage: true } : {}) };
     }
   }));
   // Quicklly's own nationwide catalogue is on no near-me page as a store card — where it applies,
   // the city's near-me page IS its store page. Its cities come from the availability pass below.
   stores[NATIONWIDE_SLUG] = { storeId: NATIONWIDE_ID, name: "Quicklly Indian Grocery Nationwide", cities: [], nationwide: true };
+
+  dedupeByStoreId(stores);
 
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
   // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
@@ -169,6 +172,28 @@ async function build() {
   const unresolved = slugs.filter((s) => !stores[s].storeId);
   say(`  [directory] wrote ${OUT}: ${slugs.length} live stores + nationwide; ${unresolved.length} without a store id${unresolved.length ? ` (${unresolved.join(", ")})` : ""}`);
   return stores;
+}
+
+// One store, one slug. Near-me pages can link the same store under two slugs (surabhi-store and
+// surabhi-indian-grocery are both id 115); syncing both would index the catalogue twice and the
+// chat would offer the same products under two store names. The slug whose page renders the id
+// (or, failing that, the one on more pages) keeps it; the others lose their id and retire.
+function dedupeByStoreId(stores) {
+  const bySid = new Map();
+  for (const [slug, st] of Object.entries(stores)) if (st.storeId) (bySid.get(String(st.storeId)) || bySid.set(String(st.storeId), []).get(String(st.storeId))).push(slug);
+  for (const [sid, slugs] of bySid) {
+    if (slugs.length < 2) continue;
+    // The page that renders the id wins; failing that (older directories), the page with a real
+    // store name — the dead shell's <title> is blank — then the one on more pages.
+    const rank = (slug) => (stores[slug].idFromPage ? 1000 : 0) + (stores[slug].name ? 100 : 0) + (stores[slug].pageCities || stores[slug].cities || []).length;
+    const keep = slugs.slice().sort((a, b) => rank(b) - rank(a))[0];
+    for (const slug of slugs) {
+      if (slug === keep) continue;
+      stores[slug].storeId = null;
+      stores[slug].duplicateOf = keep;
+      say(`  [directory] ${slug} is store ${sid} under a second slug — kept as ${keep}, this one retires`);
+    }
+  }
 }
 
 // The page embeds a 24h service token for ormwebapi (the same one their checkout JS uses).
@@ -271,6 +296,7 @@ async function applyFootprint(stores) {
       `UNWIND $rows AS row
        MATCH (s:Store {id: row.id})
        SET s.store_id = coalesce(s.store_id, row.storeId), s.nationwide = row.nationwide, s.virtual = row.virtual
+       REMOVE s.retiredAt
        WITH s, row
        OPTIONAL MATCH (s)-[old:DELIVERS_TO]->(ol:Location) WHERE NOT ol.slug IN [e IN row.entries | e.slug]
        DELETE old
@@ -402,6 +428,9 @@ try {
   const fresh = cached && (Date.now() - Date.parse(cached.builtAt)) < 20 * 3600 * 1000;
   if ((SLUGS_ONLY && fresh) || (APPLY_ONLY && cached) || (RETIRE_DEAD && !SLUGS_ONLY && !APPLY_ONLY && fresh)) {
     stores = cached.stores;   // fresh enough — don't re-crawl 813 pages twice a day
+    const before = JSON.stringify(stores);
+    dedupeByStoreId(stores);
+    if (JSON.stringify(stores) !== before) fs.writeFileSync(OUT, JSON.stringify({ ...cached, stores }, null, 1));
   } else {
     stores = await build();
     await applyFootprint(stores);
