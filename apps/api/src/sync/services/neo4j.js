@@ -135,20 +135,25 @@ export class Neo4jService {
    * (locations the store no longer serves) are NOT deleted here — call
    * `unlinkStoreDeliveryStaleness(storeId, syncRunStartedAt)` if you need that.
    */
-  async linkStoreDelivery(storeId, locationSlugs) {
+  async linkStoreDelivery(storeId, locationSlugs, zipsByCity = null) {
     if (!storeId || !locationSlugs || locationSlugs.length === 0) return;
     const nowIso = new Date().toISOString();
+    // r.zips = the ZIPs of that city where the marketplace's own availability check accepts the
+    // store (Quicklly: check-store-avaibility, per ZIP). The chat requires the shopper's ZIP to be
+    // in it when it knows the ZIP; an edge without zips (older data, sitemap fallback) stays
+    // city-level. Never clobber a known list with "unknown".
+    const entries = locationSlugs.map((slug) => ({ slug, zips: zipsByCity && Array.isArray(zipsByCity[slug]) ? zipsByCity[slug] : null }));
     const driver = this.getDriver();
     const session = driver.session();
     try {
       await session.run(
         `MATCH (s:Store {id: $storeId})
-         UNWIND $slugs AS slug
-         MATCH (l:Location {slug: slug})
+         UNWIND $entries AS e
+         MATCH (l:Location {slug: e.slug})
          MERGE (s)-[r:DELIVERS_TO]->(l)
-         ON CREATE SET r.lastSeenAt = $nowIso
-         ON MATCH SET r.lastSeenAt = $nowIso`,
-        { storeId, slugs: locationSlugs, nowIso }
+         SET r.lastSeenAt = $nowIso,
+             r.zips = CASE WHEN e.zips IS NULL THEN r.zips ELSE e.zips END`,
+        { storeId, entries, nowIso }
       );
       // The list is AUTHORITATIVE (it comes from Quicklly's own near-me pages): a city the store
       // no longer serves must lose its edge, or the chat keeps offering the store there. Stale

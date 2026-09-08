@@ -84,9 +84,11 @@ if [ -n "${MERCHANTS:-}" ]; then
   read -ra MERCHANT_LIST <<< "$MERCHANTS"
 else
   # Store directory from every city's near-me page — the list shoppers actually see. The
-  # sitemap (the old enumerator) misses 9 live stores and still lists 8 dead ones. Falls back
-  # to the sitemap enumerator only if the directory cannot be built (network down, etc.).
-  log "Building the store directory from Quicklly's near-me pages…"
+  # sitemap (the old enumerator) misses 9 live stores and still lists 8 dead ones. The build
+  # also asks Quicklly's availability API, per ZIP, WHERE each store delivers (nationwide store
+  # included) and writes that to the graph's DELIVERS_TO edges before the product sync starts.
+  # Falls back to the sitemap enumerator only if the directory cannot be built (network down).
+  log "Building the store directory (near-me pages + per-ZIP availability API)…"
   mapfile -t MERCHANT_LIST < <(node apps/api/src/scripts/quicklly-store-directory.mjs --slugs 2>>"$MAIN_LOG")
   if [ "${#MERCHANT_LIST[@]}" -lt 20 ]; then
     log "Directory came back with ${#MERCHANT_LIST[@]} stores — falling back to the sitemap enumerator"

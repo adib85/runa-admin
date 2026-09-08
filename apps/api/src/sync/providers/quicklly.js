@@ -688,12 +688,15 @@ export class QuicklyProvider extends BaseProvider {
       const entry = this.loadDirectoryEntry();
       if (entry && entry.storeId) {
         const locations = (entry.cities || []).slice().sort();
-        this.merchantContext = { subcats: [], locations, firstLoc: locations[0] || null, storeId: String(entry.storeId), name: entry.name || null };
-        // First-party catalogues: the nationwide store, and Quicklly's VIRTUAL stores (e.g. 113399
-        // "Festive Specials") that are on no near-me page and only surface through the hub sweep.
-        // Both ship everywhere and are Quicklly's own, so: candidates for every location, GO-first.
-        if (entry.nationwide || entry.virtual) { this.isNationwide = true; this.isPriority = true; }
-        console.log(`  [Quicklly] Merchant ${this.merchantSlug}: directory store_id=${entry.storeId}, ${locations.length} cities`);
+        // zipsByCity: per city, the ZIPs where Quicklly's own availability API accepts this store
+        // (the directory's availability pass). Lands on the DELIVERS_TO edges as r.zips.
+        this.merchantContext = { subcats: [], locations, firstLoc: locations[0] || null, storeId: String(entry.storeId), name: entry.name || null, zipsByCity: entry.zipsByCity || null };
+        // No store "ships everywhere" — not even the nationwide one. Quicklly's availability API says
+        // where each store (345 included) delivers, per ZIP, and that is what its edges carry. The
+        // nationwide catalogue stays first-party (GO ranking); virtual stores (113399 "Festive
+        // Specials", on no near-me page) are ordinary sellers with a footprint of their own.
+        if (entry.nationwide) { this.isNationwide = true; this.isPriority = true; }
+        console.log(`  [Quicklly] Merchant ${this.merchantSlug}: directory store_id=${entry.storeId}, ${locations.length} cities${entry.zipsByCity ? " (ZIP-level footprint)" : ""}`);
         return this.merchantContext;
       }
       console.log(`  [Quicklly] ${this.merchantSlug} not in directory.json (run quicklly-store-directory.mjs) — falling back to sitemap discovery`);
@@ -1640,7 +1643,7 @@ export class QuicklyProvider extends BaseProvider {
     // NOW link Store -> Location, after :Store has been created by super.sync().
     if (!this.dryRun && this.merchantContext) {
       try {
-        await this.neo4j.linkStoreDelivery(this.shopName, this.merchantContext.locations || []);
+        await this.neo4j.linkStoreDelivery(this.shopName, this.merchantContext.locations || [], this.merchantContext.zipsByCity || null);
       } catch (e) {
         console.error(`  [Quicklly] linkStoreDelivery failed (non-fatal):`, e.message);
       }

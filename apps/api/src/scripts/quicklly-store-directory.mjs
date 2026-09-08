@@ -11,14 +11,26 @@
  *     37k products we were still offering to shoppers.
  * A near-me page is authoritative: it is literally the store list a shopper is shown.
  *
- * Output: <cacheRoot>/directory.json
- *   { builtAt, stores: { <slug>: { storeId, name, cities: [...] } } }
  * storeId is the numeric id Quicklly's listing endpoint filters on (`filterstore`) and the
  * cart writes with (`data-sid`). Resolved from the store's own page and cached across runs.
  *
+ * WHERE a store delivers is decided per ZIP by Quicklly's own availability API
+ * (check-store-avaibility — the call their checkout makes before accepting a cart). Measured
+ * Sep 2026: the same city answers differently per ZIP (Dallas 75201 → D-Mart/Apna/Patel/
+ * nationwide; Plano 75024 → Desi Brothers only), the nationwide store (345) is available in a
+ * specific set of ZIPs (Belle Mead 08502, Dallas 75201… but NOT Chicago, Queens, SF, Anchorage)
+ * and the near-me page of a city where it applies is literally the nationwide store's page.
+ * So every store — nationwide included — gets `zipsByCity`: the ZIPs of each city where the
+ * API says it delivers. A city the near-me page lists but the API rejects for every ZIP keeps
+ * an empty list (browsable by city, refused by ZIP — exactly what their site does).
+ *
+ * Output: <cacheRoot>/directory.json
+ *   { builtAt, availability:{checkedAt,zips,calls,errors}, stores: { <slug>: { storeId, name, cities, zipsByCity } } }
+ *
  * Usage:
- *   node quicklly-store-directory.mjs              # (re)build the directory
+ *   node quicklly-store-directory.mjs              # (re)build the directory + apply it to the graph
  *   node quicklly-store-directory.mjs --slugs      # live store slugs, one per line (shell loops)
+ *   node quicklly-store-directory.mjs --apply      # (re)write DELIVERS_TO edges + flags from the cached directory
  *   node quicklly-store-directory.mjs --retire-dead # flag products of indexed stores that no
  *                                                   #   near-me page lists (inStock=false, reversible)
  */
@@ -39,6 +51,9 @@ const NATIONWIDE_ID = "345";
 const args = process.argv.slice(2);
 const SLUGS_ONLY = args.includes("--slugs");
 const RETIRE_DEAD = args.includes("--retire-dead");
+const APPLY_ONLY = args.includes("--apply");
+const AVAIL_API = "https://ormwebapi.quicklly.com/user/check-store-avaibility";
+const AVAIL_CONCURRENCY = parseInt(process.env.QUICKLLY_AVAIL_CONCURRENCY || "8", 10);
 const say = (...a) => { if (!SLUGS_ONLY) console.log(...a); };
 
 // ── env ──────────────────────────────────────────────────────────────────────
@@ -121,7 +136,8 @@ async function build() {
       stores[slug] = { storeId, name, cities: cityList };
     }
   }));
-  // Quicklly's own nationwide catalogue is not a near-me store, but it ships everywhere.
+  // Quicklly's own nationwide catalogue is on no near-me page as a store card — where it applies,
+  // the city's near-me page IS its store page. Its cities come from the availability pass below.
   stores[NATIONWIDE_SLUG] = { storeId: NATIONWIDE_ID, name: "Quicklly Indian Grocery Nationwide", cities: [], nationwide: true };
 
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
@@ -133,11 +149,122 @@ async function build() {
   // extra hubs also add delivery cities the near-me pages under-report.
   await sweepHiddenStores(stores, zipOf);
 
+  // ── Third source, the decisive one: WHERE each store delivers, per ZIP, from their API ──
+  const availability = await availabilityPass(stores);
+  if (availability) mergeFootprint(stores, availability.footprint);
+  else for (const [slug, st] of Object.entries(prev)) if (stores[slug] && st.zipsByCity) { stores[slug].zipsByCity = st.zipsByCity; stores[slug].cities = [...new Set([...stores[slug].cities, ...Object.keys(st.zipsByCity)])].sort(); }
+
   fs.mkdirSync(CACHE_ROOT, { recursive: true });
-  fs.writeFileSync(OUT, JSON.stringify({ builtAt: new Date().toISOString(), stores }, null, 1));
+  const meta = availability ? { checkedAt: new Date().toISOString(), zips: availability.zips, calls: availability.calls, errors: availability.errors }
+    : (JSON.parse(fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "{}").availability || null);
+  fs.writeFileSync(OUT, JSON.stringify({ builtAt: new Date().toISOString(), availability: meta, stores }, null, 1));
   const unresolved = slugs.filter((s) => !stores[s].storeId);
   say(`  [directory] wrote ${OUT}: ${slugs.length} live stores + nationwide; ${unresolved.length} without a store id${unresolved.length ? ` (${unresolved.join(", ")})` : ""}`);
   return stores;
+}
+
+// The page embeds a 24h service token for ormwebapi (the same one their checkout JS uses).
+async function availabilityToken() {
+  for (const url of [`${ORIGIN}/indian-grocery-delivery/near-me-in-chicago-il`, `${ORIGIN}/indian-grocery-delivery`, `${ORIGIN}/`]) {
+    const html = await get(url);
+    const t = (html.match(/"token":\s*"(eyJ[^"]+)"/) || [])[1];
+    if (t) return t;
+  }
+  return null;
+}
+
+// One call per ZIP with EVERY store id → the exact store set their checkout accepts for that ZIP.
+// ~0.4 s per call; all the ZIPs of all our cities take a few minutes at AVAIL_CONCURRENCY.
+async function availabilityPass(stores) {
+  const session = driver.session();
+  let locs;
+  try {
+    const r = await session.run(`MATCH (l:Location) WHERE l.zips IS NOT NULL RETURN l.slug AS slug, l.zips AS zips`);
+    locs = r.records.map((x) => ({ slug: x.get("slug"), zips: x.get("zips") || [] }));
+  } finally { await session.close(); }
+  const zipCities = new Map();   // a ZIP can sit in two city slugs (10001: manhattan-ny + upper-manhattan-ny)
+  for (const l of locs) for (const z of l.zips) { if (!zipCities.has(z)) zipCities.set(z, []); zipCities.get(z).push(l.slug); }
+  const token = await availabilityToken();
+  if (!token) { say("  [directory] availability pass SKIPPED: no API token on the page — keeping the previous footprint"); return null; }
+  const idToSlug = new Map(Object.entries(stores).filter(([, s]) => s.storeId).map(([slug, s]) => [String(s.storeId), slug]));
+  const ids = [...idToSlug.keys()].join(",");
+  const zips = [...zipCities.keys()];
+  say(`  [directory] availability pass: ${zips.length} ZIPs × ${idToSlug.size} store ids…`);
+  const footprint = {};   // slug → city → Set(zip)
+  let k = 0, calls = 0, errors = 0;
+  const t0 = Date.now();
+  await Promise.all(Array.from({ length: AVAIL_CONCURRENCY }, async () => {
+    while (k < zips.length) {
+      const zip = zips[k++];
+      let list = null;
+      for (let a = 0; a < 3 && !list; a++) {
+        try {
+          const r = await fetch(AVAIL_API, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": UA }, body: JSON.stringify({ zipcode: zip, storeids: ids, token }) });
+          const j = r.ok ? await r.json() : null;
+          if (j && j.success === true && Array.isArray(j.lstStores)) list = j.lstStores;
+        } catch {}
+        if (!list) await new Promise((res) => setTimeout(res, 1000 * (a + 1)));
+      }
+      calls++;
+      if (!list) { errors++; continue; }
+      for (const st of list) {
+        const slug = idToSlug.get(String(st.storeid));
+        if (!slug) continue;
+        for (const city of zipCities.get(zip)) ((footprint[slug] ??= {})[city] ??= new Set()).add(zip);
+      }
+      if (calls % 500 === 0) say(`  [directory]   …${calls}/${zips.length} ZIPs (${errors} errors, ${Math.round((Date.now() - t0) / 1000)}s)`);
+    }
+  }));
+  if (errors > zips.length * 0.05) { say(`  [directory] availability pass ABORTED: ${errors}/${zips.length} ZIPs failed — keeping the previous footprint`); return null; }
+  const covered = Object.keys(footprint).length;
+  say(`  [directory] availability pass: ${zips.length} ZIPs in ${Math.round((Date.now() - t0) / 1000)}s, ${errors} errors → ${covered} stores have a footprint`);
+  return { footprint, zips: zips.length, calls, errors };
+}
+
+// cities = near-me cities ∪ API cities; zipsByCity[city] = the ZIPs the API accepts (empty when only
+// the near-me page lists the store there: browsable by city, refused by ZIP — as on quicklly.com).
+function mergeFootprint(stores, footprint) {
+  for (const [slug, st] of Object.entries(stores)) {
+    if (!st.storeId) continue;
+    const zipsByCity = {};
+    for (const city of st.cities || []) zipsByCity[city] = [];
+    for (const [city, set] of Object.entries(footprint[slug] || {})) zipsByCity[city] = [...set].sort();
+    st.zipsByCity = zipsByCity;
+    st.cities = Object.keys(zipsByCity).sort();
+  }
+}
+
+// Write the directory's footprint to the graph for every store it holds: DELIVERS_TO edges
+// (with r.zips) to exactly its cities, plus the store flags the chat reads. Runs after each
+// build so coverage is right before the product sync starts, and standalone via --apply.
+async function applyFootprint(stores) {
+  const rows = Object.entries(stores).filter(([, s]) => s.storeId).map(([slug, s]) => ({
+    id: `quicklly_${slug}`, storeId: String(s.storeId), nationwide: !!s.nationwide, virtual: !!s.virtual,
+    entries: Object.entries(s.zipsByCity || Object.fromEntries((s.cities || []).map((c) => [c, null]))).map(([city, zips]) => ({ slug: city, zips })),
+  }));
+  const now = new Date().toISOString();
+  const session = driver.session();
+  try {
+    const res = await session.run(
+      `UNWIND $rows AS row
+       MATCH (s:Store {id: row.id})
+       SET s.store_id = coalesce(s.store_id, row.storeId), s.nationwide = row.nationwide, s.virtual = row.virtual
+       WITH s, row
+       OPTIONAL MATCH (s)-[old:DELIVERS_TO]->(ol:Location) WHERE NOT ol.slug IN [e IN row.entries | e.slug]
+       DELETE old
+       WITH DISTINCT s, row
+       UNWIND (CASE WHEN size(row.entries) = 0 THEN [null] ELSE row.entries END) AS e
+       OPTIONAL MATCH (l:Location {slug: e.slug})
+       FOREACH (_ IN CASE WHEN l IS NULL THEN [] ELSE [1] END |
+         MERGE (s)-[r:DELIVERS_TO]->(l) SET r.lastSeenAt = $now, r.zips = e.zips, r.source = 'availability-api')
+       RETURN row.id AS id, count(l) AS n, size(row.entries) AS want`,
+      { rows, now }
+    );
+    let stores_ = 0, edges = 0;
+    for (const x of res.records) { stores_++; edges += num(x.get("n")); }
+    say(`  [directory] applied footprint: ${stores_}/${rows.length} stores in the graph, ${edges} delivery edges`);
+    for (const x of res.records) if (num(x.get("n")) === 0 && num(x.get("want")) > 0) say(`  [directory]   ${x.get("id")}: none of its ${num(x.get("want"))} cities exist as :Location yet (created on its next sync)`);
+  } finally { await session.close(); }
 }
 
 const HUBS = ["chicago-il", "manhattan-ny", "edison-nj", "san-jose-ca", "houston-tx", "atlanta-ga", "dallas-tx", "seattle-wa", "boston-ma", "philadelphia-pa"];
@@ -245,11 +372,15 @@ async function retireDead(stores) {
 
 try {
   let stores;
-  if (SLUGS_ONLY && fs.existsSync(OUT) && (Date.now() - Date.parse(JSON.parse(fs.readFileSync(OUT, "utf8")).builtAt)) < 20 * 3600 * 1000) {
-    stores = JSON.parse(fs.readFileSync(OUT, "utf8")).stores;   // fresh enough — don't re-crawl 813 pages twice a day
+  const cached = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : null;
+  const fresh = cached && (Date.now() - Date.parse(cached.builtAt)) < 20 * 3600 * 1000;
+  if ((SLUGS_ONLY && fresh) || (APPLY_ONLY && cached) || (RETIRE_DEAD && !SLUGS_ONLY && !APPLY_ONLY && fresh)) {
+    stores = cached.stores;   // fresh enough — don't re-crawl 813 pages twice a day
   } else {
     stores = await build();
+    await applyFootprint(stores);
   }
+  if (APPLY_ONLY) await applyFootprint(stores);
   if (RETIRE_DEAD) await retireDead(stores);
   if (SLUGS_ONLY) {
     for (const [slug, s] of Object.entries(stores)) if (s.storeId) console.log(slug);
