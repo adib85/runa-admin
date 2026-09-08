@@ -667,13 +667,22 @@ export class Neo4jService {
          WHERE p.storeId = $storeId
          SET p.lastSeenAt = $timestamp, p.inStock = item.inStock,
              p.availableSizes = item.availableSizes, p.availableSizeTokens = item.availableSizeTokens,
-             p.price = COALESCE(item.price, p.price)`,
+             p.price = COALESCE(item.price, p.price),
+             p.onSale = CASE WHEN item.hasSale THEN item.onSale ELSE p.onSale END,
+             p.price_old = CASE WHEN item.hasSale THEN item.priceOld ELSE p.price_old END,
+             p.discount_percent = CASE WHEN item.hasSale THEN item.discountPercent ELSE p.discount_percent END`,
         { items: items.map(i => ({
             id: String(i.id),
             inStock: i.inStock === true,
             availableSizes: i.availableSizes || [],
             availableSizeTokens: i.availableSizeTokens || [],
             price: (typeof i.price === "number" && Number.isFinite(i.price)) ? i.price : null,
+            // Sale fields ride along when the provider reports them (hasSale): null clears a
+            // finished sale. Without them the daily run kept yesterday's badge forever.
+            hasSale: i.hasSale === true,
+            onSale: i.onSale === true,
+            priceOld: (typeof i.priceOld === "number" && Number.isFinite(i.priceOld)) ? i.priceOld : null,
+            discountPercent: (typeof i.discountPercent === "number" && Number.isFinite(i.discountPercent)) ? i.discountPercent : null,
           })), storeId, timestamp }
       );
     } finally {

@@ -238,6 +238,13 @@ export class BaseProvider {
           // stampSeen COALESCEs, so null leaves the existing value untouched. Static fields
           // (image, title, category) are refreshed by the periodic full --force re-sync.
           price: (typeof p.price === "number" && Number.isFinite(p.price)) ? p.price : null,
+          // Sale state is as volatile as price (Quicklly's badges change daily), so it is refreshed
+          // on existing products too — INCLUDING clearing it when a product leaves sale. Only for
+          // providers that report it (onSale defined); others leave the stored values untouched.
+          hasSale: p.onSale !== undefined,
+          onSale: p.onSale === true,
+          priceOld: (typeof p.price_old === "number" && Number.isFinite(p.price_old)) ? p.price_old : null,
+          discountPercent: (typeof p.discount_percent === "number" && Number.isFinite(p.discount_percent)) ? p.discount_percent : null,
         };
       });
       if (!this.dryRun) {
