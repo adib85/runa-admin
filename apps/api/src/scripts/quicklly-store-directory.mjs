@@ -88,11 +88,16 @@ const resolved = (html) => /<title>\s*Indian Grocery Delivery in /i.test(html);
 
 async function build() {
   const session = driver.session();
-  let cities, zipOf;
+  let cities, zipOf, graphStoreId;
   try {
     const r = await session.run(`MATCH (l:Location) RETURN l.slug AS slug, l.zips[0] AS zip`);
     cities = r.records.map((x) => x.get("slug")).filter(Boolean);
     zipOf = new Map(r.records.map((x) => [x.get("slug"), x.get("zip")]));
+    // Ids already learned by earlier syncs: a store page renders its storeid only for some
+    // ZIP sessions (Everest Supermarket resolved from 19801 but not from its first cities'
+    // ZIPs), and an unresolved id means the store is skipped by the nightly loop.
+    const g = await session.run(`MATCH (s:Store) WHERE s.id STARTS WITH 'quicklly_' AND s.store_id IS NOT NULL RETURN s.id AS id, s.store_id AS sid`);
+    graphStoreId = new Map(g.records.map((x) => [x.get("id").replace(/^quicklly_/, ""), String(x.get("sid"))]));
   } finally { await session.close(); }
 
   let prev = {};
@@ -126,7 +131,7 @@ async function build() {
       const cityList = [...storeCities.get(slug)].sort();
       let storeId = prev[slug]?.storeId || null, name = prev[slug]?.name || null;
       if (!storeId) {
-        for (const city of cityList.slice(0, 3)) {
+        for (const city of cityList.slice(0, 6)) {
           const zip = zipOf.get(city);
           if (!zip) continue;
           const html = await get(`${ORIGIN}/indian-grocery-store/${city}/${slug}`, `pincode=${zip}; postalcode=${zip}; country=us`);
@@ -135,6 +140,7 @@ async function build() {
           if (storeId) break;
         }
       }
+      if (!storeId && graphStoreId.has(slug)) { storeId = graphStoreId.get(slug); say(`  [directory] ${slug}: store id ${storeId} taken from the graph (its page did not render one)`); }
       stores[slug] = { storeId, name, cities: cityList };
     }
   }));
@@ -358,7 +364,11 @@ async function sweepHiddenStores(stores, zipOf) {
 }
 
 async function retireDead(stores) {
-  const live = new Set(Object.keys(stores).map((s) => `quicklly_${s}`));
+  // Live = in the directory WITH a store id. An entry without one cannot be synced, and its store
+  // page is an empty shell (surabhi-indian-grocery: blank title, no storeid — the real store is
+  // surabhi-store, id 115, with the same 2,725 products); offering its stale copy is wrong.
+  // Reversible: the day its page renders an id (or the graph knows one) it is live again.
+  const live = new Set(Object.entries(stores).filter(([, s]) => s.storeId).map(([s]) => `quicklly_${s}`));
   const session = driver.session();
   try {
     const r = await session.run(`MATCH (st:Store) WHERE st.id STARTS WITH 'quicklly_' RETURN st.id AS id`);
