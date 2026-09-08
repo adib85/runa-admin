@@ -221,15 +221,24 @@ async function retireDead(stores) {
     const r = await session.run(`MATCH (st:Store) WHERE st.id STARTS WITH 'quicklly_' RETURN st.id AS id`);
     const dead = r.records.map((x) => x.get("id")).filter((id) => !live.has(id));
     if (!dead.length) { say("  [directory] no dead stores"); return; }
+    const now = new Date().toISOString();
     const res = await session.run(
       `UNWIND $dead AS id
-       MATCH (st:Store {id: id})-[:HAS_PRODUCT]->(p:Product)
-       WHERE coalesce(p.inStock, true) = true
+       MATCH (st:Store {id: id})
+       SET st.retiredAt = coalesce(st.retiredAt, $now)
+       WITH st, id
+       OPTIONAL MATCH (st)-[r:DELIVERS_TO]->(:Location)
+       DELETE r
+       WITH st, id
+       OPTIONAL MATCH (st)-[:HAS_PRODUCT]->(p:Product) WHERE coalesce(p.inStock, true) = true
        SET p.inStock = false, p.retiredAt = $now
        RETURN id, count(p) AS n`,
-      { dead, now: new Date().toISOString() }
+      { dead, now }
     );
-    for (const x of res.records) say(`  [directory] retired ${num(x.get("n"))} products of dead store ${x.get("id")}`);
+    // The store node keeps a `retiredAt` stamp (the health check skips retired stores; a store
+    // that syncs again clears it) and loses its DELIVERS_TO edges — a dead store must never
+    // count as "local" for any city again.
+    for (const x of res.records) say(`  [directory] retired dead store ${x.get("id")} (${num(x.get("n"))} products flagged, delivery edges removed)`);
     say(`  [directory] ${dead.length} store(s) not on any near-me page → their products are no longer offered (reversible: a future directory that lists them flips inStock back on the next sync)`);
   } finally { await session.close(); }
 }

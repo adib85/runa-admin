@@ -150,6 +150,18 @@ export class Neo4jService {
          ON MATCH SET r.lastSeenAt = $nowIso`,
         { storeId, slugs: locationSlugs, nowIso }
       );
+      // The list is AUTHORITATIVE (it comes from Quicklly's own near-me pages): a city the store
+      // no longer serves must lose its edge, or the chat keeps offering the store there. Stale
+      // edges are how four dead stores were still "delivering" to San Francisco, a city Quicklly
+      // itself reports as having no grocery delivery. A store that syncs again is, by definition,
+      // not retired — clear the stamp the directory's retire-dead pass may have left.
+      await session.run(
+        `MATCH (s:Store {id: $storeId})-[r:DELIVERS_TO]->(l:Location)
+         WHERE NOT l.slug IN $slugs
+         DELETE r`,
+        { storeId, slugs: locationSlugs }
+      );
+      await session.run(`MATCH (s:Store {id: $storeId}) REMOVE s.retiredAt`, { storeId });
       console.log(`  [neo4j] linkStoreDelivery: ${storeId} -> ${locationSlugs.length} location(s)`);
     } catch (e) {
       console.error("  [neo4j] linkStoreDelivery failed:", e.message);

@@ -77,10 +77,16 @@ const session = driver.session();
 let snapshot;
 try {
   // Per-store counts + the newest product timestamp we hold for each.
+  // Freshness is max(lastSeenAt), NOT max(updated_at): stampSeen refreshes lastSeenAt (and price)
+  // on every product the crawl sees without rewriting it, while updated_at only moves when a
+  // product is (re)embedded. After the first complete crawl most stores have no new products on a
+  // given night, so updated_at would flag the whole catalogue stale while it is perfectly fresh.
+  // Retired stores (stamped by the directory's retire-dead pass) are not the sync's job any more
+  // and are left out entirely — a dead store with zero products is expected, not critical.
   const res = await session.run(`
-    MATCH (s:Store) WHERE s.id STARTS WITH 'quicklly_'
+    MATCH (s:Store) WHERE s.id STARTS WITH 'quicklly_' AND s.retiredAt IS NULL
     OPTIONAL MATCH (s)-[:HAS_PRODUCT]->(p:Product)
-    RETURN s.id AS store, count(p) AS products, max(p.updated_at) AS newest
+    RETURN s.id AS store, count(p) AS products, max(coalesce(p.lastSeenAt, p.updated_at)) AS newest
     ORDER BY store
   `);
   const stores = res.records.map((r) => ({
@@ -98,6 +104,7 @@ try {
   //    75 dead ones, which is precisely how the August outage stayed invisible.
   const ageOf = (iso) => (iso ? (Date.now() - Date.parse(iso)) / 86_400_000 : Infinity);
   const stocked = stores.filter((s) => s.products > 0);
+  snapshot.retiredStores = num((await session.run(`MATCH (s:Store) WHERE s.id STARTS WITH 'quicklly_' AND s.retiredAt IS NOT NULL RETURN count(s) AS n`)).records[0].get("n"));
   const stale = stocked
     .map((s) => ({ ...s, age: ageOf(s.newest) }))
     .filter((s) => s.age > FRESH_DAYS)
