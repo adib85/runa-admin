@@ -25,7 +25,9 @@
  * an empty list (browsable by city, refused by ZIP — exactly what their site does).
  *
  * Output: <cacheRoot>/directory.json
- *   { builtAt, availability:{checkedAt,zips,calls,errors}, stores: { <slug>: { storeId, name, cities, zipsByCity } } }
+ *   { builtAt, availability:{checkedAt,zips,calls,errors}, stores: { <slug>: { storeId, name, pageCities, cities, zipsByCity } } }
+ *   pageCities = where a near-me page (or a hub listing) shows the store; cities = where it is
+ *   offered (pageCities for local stores, the API footprint for the nationwide store).
  *
  * Usage:
  *   node quicklly-store-directory.mjs              # (re)build the directory + apply it to the graph
@@ -152,7 +154,7 @@ async function build() {
   // ── Third source, the decisive one: WHERE each store delivers, per ZIP, from their API ──
   const availability = await availabilityPass(stores);
   if (availability) mergeFootprint(stores, availability.footprint);
-  else for (const [slug, st] of Object.entries(prev)) if (stores[slug] && st.zipsByCity) { stores[slug].zipsByCity = st.zipsByCity; stores[slug].cities = [...new Set([...stores[slug].cities, ...Object.keys(st.zipsByCity)])].sort(); }
+  else for (const [slug, st] of Object.entries(prev)) if (stores[slug] && st.zipsByCity) { stores[slug].pageCities = stores[slug].cities.slice().sort(); stores[slug].zipsByCity = st.zipsByCity; stores[slug].cities = Object.keys(st.zipsByCity).sort(); }
 
   fs.mkdirSync(CACHE_ROOT, { recursive: true });
   const meta = availability ? { checkedAt: new Date().toISOString(), zips: availability.zips, calls: availability.calls, errors: availability.errors }
@@ -221,14 +223,28 @@ async function availabilityPass(stores) {
   return { footprint, zips: zips.length, calls, errors };
 }
 
-// cities = near-me cities ∪ API cities; zipsByCity[city] = the ZIPs the API accepts (empty when only
-// the near-me page lists the store there: browsable by city, refused by ZIP — as on quicklly.com).
+// What a shopper is SHOWN for a ZIP (their location listing for that ZIP session) is narrower than
+// what checkout ACCEPTS (the availability API): a few stores ship far beyond their delivery zone —
+// D-Mart, Apna Bazar and Patel Brothers (NJ/NY) pass the API for Dallas 75201, yet the Dallas 75201
+// listing shows only the nationwide store. Measured Sep 2026 over 60610, 94022, 08502, 08873, 75201,
+// 75024, 75038, 78701, 94305, 11419, 94105, the listing equals:
+//   • a local store: accepted by the API for the ZIP AND listed for that city by a near-me page (or
+//     seen selling into a hub listing) — pageCities;
+//   • the nationwide store: wherever the API accepts it (its cities are exactly its API footprint);
+//   • never a virtual store (the chat excludes them in location mode anyway).
+// So zipsByCity keeps a local store's API ZIPs only for its page cities. A page city the API rejects
+// for every ZIP keeps an empty list (browsable by city, refused by ZIP — as on quicklly.com).
 function mergeFootprint(stores, footprint) {
   for (const [slug, st] of Object.entries(stores)) {
     if (!st.storeId) continue;
+    const pageCities = (st.pageCities || st.cities || []).slice().sort();
     const zipsByCity = {};
-    for (const city of st.cities || []) zipsByCity[city] = [];
-    for (const [city, set] of Object.entries(footprint[slug] || {})) zipsByCity[city] = [...set].sort();
+    if (st.nationwide) {
+      for (const [city, set] of Object.entries(footprint[slug] || {})) zipsByCity[city] = [...set].sort();
+    } else {
+      for (const city of pageCities) zipsByCity[city] = [...(footprint[slug]?.[city] || [])].sort();
+    }
+    st.pageCities = pageCities;
     st.zipsByCity = zipsByCity;
     st.cities = Object.keys(zipsByCity).sort();
   }
