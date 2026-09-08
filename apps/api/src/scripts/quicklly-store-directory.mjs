@@ -124,11 +124,94 @@ async function build() {
   // Quicklly's own nationwide catalogue is not a near-me store, but it ships everywhere.
   stores[NATIONWIDE_SLUG] = { storeId: NATIONWIDE_ID, name: "Quicklly Indian Grocery Nationwide", cities: [], nationwide: true };
 
+  // ── Second source: stores that sell into a city without being on its near-me page ──────────
+  // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
+  // collection) whose products reach shoppers through the location listings but which no
+  // near-me page ever lists. The all-stores location listing (no filterstore) for a city returns
+  // a data-sid on every card, so asking it for every subcategory in a few hub cities surfaces
+  // any such store. Virtual stores sell everywhere, so the first hub already catches them; the
+  // extra hubs also add delivery cities the near-me pages under-report.
+  await sweepHiddenStores(stores, zipOf);
+
   fs.mkdirSync(CACHE_ROOT, { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify({ builtAt: new Date().toISOString(), stores }, null, 1));
   const unresolved = slugs.filter((s) => !stores[s].storeId);
   say(`  [directory] wrote ${OUT}: ${slugs.length} live stores + nationwide; ${unresolved.length} without a store id${unresolved.length ? ` (${unresolved.join(", ")})` : ""}`);
   return stores;
+}
+
+const HUBS = ["chicago-il", "manhattan-ny", "edison-nj", "san-jose-ca", "houston-tx", "atlanta-ga", "dallas-tx", "seattle-wa", "boston-ma", "philadelphia-pa"];
+const SUBCAT_MENU_DEPTS_PAGE = `${ORIGIN}/indian-grocery/chicago-il/order-groceries`;
+
+async function sweepHiddenStores(stores, zipOf) {
+  // one session is enough — the ZIP only scopes the all-stores listing, and we set it per hub
+  const idToSlug = new Map(Object.entries(stores).filter(([, s]) => s.storeId).map(([slug, s]) => [String(s.storeId), slug]));
+  // global subcategory ids from the location department menus
+  let jar = `pincode=60610; postalcode=60610; city=Chicago; state=Illinois; country=us`;
+  const seed = await fetch(SUBCAT_MENU_DEPTS_PAGE, { headers: { "User-Agent": UA, Cookie: jar }, redirect: "follow" });
+  for (const c of seed.headers.getSetCookie?.() || []) jar += "; " + String(c).split(";")[0];
+  const seedHtml = await seed.text();
+  const csrf = (seedHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || [])[1];
+  const depts = ((seedHtml.match(/id="subcatsort"[^>]*value="([^"]+)"/) || [])[1] || "").split(",").filter(Boolean);
+  const hdr = (referer, cookie) => ({ "User-Agent": UA, "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", "X-CSRF-TOKEN": csrf, Referer: referer, Cookie: cookie });
+  const subcats = new Set();
+  for (const catid of depts) {
+    const t = await (await fetch(`${ORIGIN}/ajax-listnewsubcatmenu.php`, { method: "POST", headers: hdr(SUBCAT_MENU_DEPTS_PAGE, jar), body: JSON.stringify({ catid, catname: "x" }) })).text();
+    for (const m of t.matchAll(/getProductsBySubcat\(\s*\d+\s*,\s*(\d+)\s*,/g)) subcats.add(m[1]);
+  }
+  if (!subcats.size) { say("  [directory] hidden-store sweep skipped: no subcategory ids"); return; }
+
+  const seen = new Map();   // storeId → { name, cities:Set }
+  for (const hub of HUBS) {
+    const zip = zipOf.get(hub);
+    if (!zip) continue;
+    const cookie = `pincode=${zip}; postalcode=${zip}; country=us` + jar.slice(jar.indexOf("; PHPSESSID") >= 0 ? jar.indexOf("; PHPSESSID") : jar.length);
+    const referer = `${ORIGIN}/local-grocery-store/${hub}/indian-spices`;
+    let k = 0; const list = [...subcats];
+    await Promise.all(Array.from({ length: 6 }, async () => {
+      while (k < list.length) {
+        const sc = list[k++];
+        try {
+          const t = await (await fetch(`${ORIGIN}/ajax-subcat-all-products-listing.php`, { method: "POST", headers: hdr(referer, cookie),
+            body: JSON.stringify({ subcat_id: sc, limit: 500, start: 0, filterstore: "", filterbrand: "", filterdiscount: "", filtersortby: "", filteraction: "" }) })).text();
+          for (const m of t.matchAll(/data-sid="(\d+)"(?:[^>]{0,160}data-sname="([^"]{0,60})")?/g)) {
+            if (!seen.has(m[1])) seen.set(m[1], { name: m[2] || null, cities: new Set() });
+            else if (m[2] && !seen.get(m[1]).name) seen.get(m[1]).name = m[2];
+            seen.get(m[1]).cities.add(hub);
+          }
+        } catch {}
+      }
+    }));
+  }
+  let added = 0, citiesAdded = 0;
+  for (const [id, info] of seen) {
+    const slug = idToSlug.get(id);
+    if (slug) {
+      // known store: the sweep can only ADD delivery cities the near-me pages missed
+      const before = stores[slug].cities.length;
+      stores[slug].cities = [...new Set([...stores[slug].cities, ...info.cities])].sort();
+      citiesAdded += stores[slug].cities.length - before;
+      continue;
+    }
+    // unknown store id: resolve its slug/name from one of its product pages
+    let name = info.name, storeSlug = null;
+    try {
+      const t = await (await fetch(`${ORIGIN}/ajax-subcat-all-products-listing.php`, { method: "POST", headers: hdr(`${ORIGIN}/local-grocery-store/chicago-il/indian-spices`, jar),
+        body: JSON.stringify({ subcat_id: [...subcats][0], limit: 500, start: 0, filterstore: id, filterbrand: "", filterdiscount: "", filtersortby: "", filteraction: "" }) })).text();
+      const pid = (t.match(/data-pid="(\d+)"/) || [])[1];
+      if (pid) {
+        const pd = await get(`${ORIGIN}/grocery-store/x/${pid}`, jar);
+        storeSlug = (pd.match(/indian-grocery-store\/([a-z0-9-]+)\/[a-z0-9-]+"/) || [])[1] || null;
+        name = name || (pd.match(new RegExp(`data-sname="([^"]{0,60})"[^>]{0,400}data-pid="${pid}"`)) || [])[1] || null;
+      }
+    } catch {}
+    if (!storeSlug && name) storeSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!storeSlug || stores[storeSlug]) continue;
+    stores[storeSlug] = { storeId: id, name: name || storeSlug, cities: [...info.cities].sort(), virtual: true };
+    added++;
+    say(`  [directory] hidden store found: ${storeSlug} (store_id ${id}, "${name}") — sells into ${info.cities.size} hub cities, on no near-me page`);
+  }
+  say(`  [directory] hidden-store sweep: ${HUBS.length} hubs × ${subcats.size} subcats → ${seen.size} store ids seen, ${added} added, ${citiesAdded} delivery cities added`);
 }
 
 async function retireDead(stores) {
