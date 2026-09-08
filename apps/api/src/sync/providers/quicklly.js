@@ -689,7 +689,10 @@ export class QuicklyProvider extends BaseProvider {
       if (entry && entry.storeId) {
         const locations = (entry.cities || []).slice().sort();
         this.merchantContext = { subcats: [], locations, firstLoc: locations[0] || null, storeId: String(entry.storeId), name: entry.name || null };
-        if (entry.nationwide) { this.isNationwide = true; this.isPriority = true; }
+        // First-party catalogues: the nationwide store, and Quicklly's VIRTUAL stores (e.g. 113399
+        // "Festive Specials") that are on no near-me page and only surface through the hub sweep.
+        // Both ship everywhere and are Quicklly's own, so: candidates for every location, GO-first.
+        if (entry.nationwide || entry.virtual) { this.isNationwide = true; this.isPriority = true; }
         console.log(`  [Quicklly] Merchant ${this.merchantSlug}: directory store_id=${entry.storeId}, ${locations.length} cities`);
         return this.merchantContext;
       }
