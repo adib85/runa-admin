@@ -315,11 +315,24 @@ export class BaseProvider {
         const { total, seen } = await this.neo4j.countStoreProducts(this.shopName, syncRunStartedAt);
         const coverage = total > 0 ? seen / total : 1;
         const FLOOR = Number(process.env.SYNC_RETIRE_MIN_COVERAGE || 0.5);
-        if (coverage < FLOOR) {
+        // A shrink below the floor is still real when consecutive runs AGREE on the smaller size:
+        // a broken crawl returns a different (usually tiny) number each time, a catalogue that
+        // really got smaller returns the same one day after day. Fresh Farms sat at 1,874/5,599
+        // (33%) on two consecutive runs — its 3,725 vanished products (blank pages on Quicklly)
+        // stayed on offer because the floor alone can only say "suspicious", never "confirmed".
+        const prev = await this.neo4j.getStoreSyncSeen(this.shopName);
+        const STABLE_PCT = Number(process.env.SYNC_RETIRE_STABLE_PCT || 0.05);
+        const STABLE_DAYS = Number(process.env.SYNC_RETIRE_STABLE_DAYS || 4);
+        const prevFresh = prev && prev.at && (Date.now() - Date.parse(prev.at)) < STABLE_DAYS * 86400e3;
+        const confirmed = prevFresh && prev.seen > 0 && Math.abs(seen - prev.seen) <= STABLE_PCT * prev.seen;
+        await this.neo4j.setStoreSyncSeen(this.shopName, seen, syncRunStartedAt);
+        if (coverage < FLOOR && !confirmed) {
           console.log(`  [retire] SKIPPED — this run saw ${seen}/${total} indexed products ` +
             `(${(coverage * 100).toFixed(0)}%, floor ${(FLOOR * 100).toFixed(0)}%). ` +
-            `A run this partial is more likely broken than the catalogue being that much smaller.`);
+            `A run this partial is more likely broken than the catalogue being that much smaller` +
+            (prev && prev.seen ? `; previous run saw ${prev.seen} — retires once two consecutive runs agree within ${(STABLE_PCT * 100).toFixed(0)}%.` : `; retires once the next run agrees within ${(STABLE_PCT * 100).toFixed(0)}%.`));
         } else {
+          if (coverage < FLOOR) console.log(`  [retire] shrink CONFIRMED by consecutive runs (${prev.seen} then ${seen} of ${total} indexed) — retiring the rest`);
           const { retired } = await this.neo4j.retireUnseenProducts(this.shopName, syncRunStartedAt);
           console.log(retired > 0
             ? `  [retire] ${retired} product(s) not seen this run marked out of stock (${seen}/${total} seen)`

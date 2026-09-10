@@ -730,6 +730,39 @@ export class Neo4jService {
 
   /** How many products this store has, and how many the given run actually saw. Used by the
    *  caller's safety guard: a crawl that collapses must not retire the whole catalogue. */
+  // How many products the previous run of this store saw, and when — the memory that lets the
+  // retire pass tell a confirmed shrink (two runs agree) from a broken crawl (they do not).
+  async getStoreSyncSeen(storeId) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      const res = await session.run(
+        `MATCH (s:Store {id: $storeId}) RETURN s.syncSeenCount AS seen, s.syncSeenAt AS at`,
+        { storeId }
+      );
+      if (!res.records.length) return null;
+      const seen = res.records[0].get("seen");
+      return { seen: seen == null ? 0 : Number(typeof seen.toNumber === "function" ? seen.toNumber() : seen), at: res.records[0].get("at") || null };
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
+  async setStoreSyncSeen(storeId, seen, syncRunStartedAt) {
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      await session.run(
+        `MATCH (s:Store {id: $storeId}) SET s.syncSeenCount = $seen, s.syncSeenAt = $at`,
+        { storeId, seen: Number(seen) || 0, at: syncRunStartedAt || new Date().toISOString() }
+      );
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
   async countStoreProducts(storeId, syncRunStartedAt) {
     const driver = this.getDriver();
     const session = driver.session();
