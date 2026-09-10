@@ -27,10 +27,13 @@
  * Alerting (all optional — with none configured it still prints and exits non-zero):
  *   QUICKLLY_ALERT_WEBHOOK   Slack/Discord-compatible incoming webhook
  *   QUICKLLY_ALERT_EMAIL_TO  comma-separated recipients
- *   QUICKLLY_ALERT_EMAIL_FROM  the sender — a SendGrid-verified one (noreply@modapp.me, the
- *                              address the platform already mails from) when SENDGRID_API_KEY
- *                              is set, else an SES-verified one (SES creds via the instance)
- *   SENDGRID_API_KEY         SendGrid key → email goes out over their HTTPS API, no SDK needed
+ *   QUICKLLY_ALERT_EMAIL_FROM  an SES-verified sender (the account is in the SES sandbox, so the
+ *                              recipients must be verified too — adrian@askruna.ai is both).
+ *                              Sent through @aws-sdk/client-ses when installed, else the AWS CLI
+ *                              (present and configured on the sync box). Region: AWS_REGION or us-east-1.
+ *   QUICKLLY_ALERT_SENDGRID_KEY  optional SendGrid key → tried first over their HTTPS API, SES on
+ *                              failure (the platform's SendGrid account currently refuses to send:
+ *                              2FA required, so it is not wired by default)
  *   --test-alert             send a test email/webhook now and exit (verifies the channel)
  *
  * Thresholds (env-overridable):
@@ -302,6 +305,31 @@ async function sendgridEmail(key, from, to, title, body) {
   if (r.status !== 202) throw new Error(`SendGrid HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
 
+// SES through the SDK when it is installed, else through the AWS CLI (the sync box has the CLI
+// configured but not the SDK — no extra dependency for one email a day).
+async function sesEmail(from, to, title, body) {
+  const region = env.AWS_REGION || "us-east-1";
+  const recipients = to.split(",").map((s) => s.trim()).filter(Boolean);
+  try {
+    const { SESClient, SendEmailCommand } = await import("@aws-sdk/client-ses");
+    const ses = new SESClient({ region });
+    await ses.send(new SendEmailCommand({
+      Source: from,
+      Destination: { ToAddresses: recipients },
+      Message: { Subject: { Data: title }, Body: { Text: { Data: body } } },
+    }));
+    return;
+  } catch (e) {
+    if (e && e.code !== "ERR_MODULE_NOT_FOUND" && !/Cannot find (module|package)/.test(String(e.message))) throw e;
+  }
+  const { execFile } = await import("node:child_process");
+  await new Promise((resolve, reject) => {
+    execFile("aws", ["ses", "send-email", "--region", region, "--from", from, "--destination", JSON.stringify({ ToAddresses: recipients }),
+      "--message", JSON.stringify({ Subject: { Data: title, Charset: "UTF-8" }, Body: { Text: { Data: body, Charset: "UTF-8" } } })],
+      { timeout: 30000 }, (err, stdout, stderr) => (err ? reject(new Error((stderr || err.message).trim().slice(0, 300))) : resolve(stdout)));
+  });
+}
+
 async function alert(title, body) {
   const hook = env.QUICKLLY_ALERT_WEBHOOK;
   if (hook) {
@@ -313,22 +341,16 @@ async function alert(title, body) {
   }
   const to = env.QUICKLLY_ALERT_EMAIL_TO;
   const from = env.QUICKLLY_ALERT_EMAIL_FROM;
-  if (to && from && env.SENDGRID_API_KEY) {
-    try {
-      await sendgridEmail(env.SENDGRID_API_KEY, from, to, title, body);
-      say(`Alert emailed to ${to} (SendGrid).`);
-    } catch (e) { say(`Email alert failed: ${e.message}`); }
-  } else if (to && from) {
-    try {
-      const { SESClient, SendEmailCommand } = await import("@aws-sdk/client-ses");
-      const ses = new SESClient({ region: env.AWS_REGION || "us-east-1" });
-      await ses.send(new SendEmailCommand({
-        Source: from,
-        Destination: { ToAddresses: to.split(",").map((s) => s.trim()).filter(Boolean) },
-        Message: { Subject: { Data: title }, Body: { Text: { Data: body } } },
-      }));
-      say(`Alert emailed to ${to}.`);
-    } catch (e) { say(`Email alert failed: ${e.message}`); }
+  if (to && from) {
+    let sent = false;
+    if (env.QUICKLLY_ALERT_SENDGRID_KEY) {
+      try { await sendgridEmail(env.QUICKLLY_ALERT_SENDGRID_KEY, from, to, title, body); say(`Alert emailed to ${to} (SendGrid).`); sent = true; }
+      catch (e) { say(`SendGrid alert failed (${e.message}) — trying SES`); }
+    }
+    if (!sent) {
+      try { await sesEmail(from, to, title, body); say(`Alert emailed to ${to} (SES).`); }
+      catch (e) { say(`Email alert failed: ${e.message}`); }
+    }
   }
   if (!hook && !(to && from)) {
     say("No alert channel configured (QUICKLLY_ALERT_WEBHOOK / QUICKLLY_ALERT_EMAIL_TO+FROM) — exit code only.");
