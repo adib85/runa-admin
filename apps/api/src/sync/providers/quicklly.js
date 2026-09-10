@@ -499,17 +499,32 @@ export class QuicklyProvider extends BaseProvider {
     if (this.sessionPromise) return this.sessionPromise;
     this.sessionPromise = (async () => {
       const firstLoc = this.merchantContext?.firstLoc;
-      const locationMode = DISCOVERY_MODE === "location" && !!this.loadDirectoryEntry()?.storeId;
-      // Location mode: the ZIP does not have to match the store, so one fixed seed serves every
-      // merchant and the zip-rotation machinery below never needs to run.
+      const entry = this.loadDirectoryEntry();
+      const locationMode = DISCOVERY_MODE === "location" && !!entry?.storeId;
+      // Location mode: the listing answers for any ZIP, but the PRICES it returns depend on the
+      // session ZIP — inside the store's delivery zone Quicklly shows the zone price (what a
+      // shopper who can actually order sees), outside it a 10-25% lower base price. Measured
+      // 2026-09-10 over all 74 stores: in-zone prices are identical across a store's zone, and
+      // a Chicago seed for everyone had indexed 28 non-Chicago stores at the base price (Taj
+      // Mahal Fresh Market: chat $0.99 vs site $1.09). So the session ZIP is the first ZIP
+      // Quicklly's availability API accepts for this store (directory zipsByCity); the Chicago
+      // seed remains the fallback for a store with no accepted ZIP (unbuyable anyway).
+      const zone = locationMode ? this.inZoneSeed(entry) : null;
       const zipCookie = locationMode
-        ? `pincode=${LOCATION_SEED.zip}; postalcode=${LOCATION_SEED.zip}; city=${LOCATION_SEED.cityName}; state=${LOCATION_SEED.state}; country=us`
+        ? (zone
+            ? `pincode=${zone.zip}; postalcode=${zone.zip}; country=us`
+            : `pincode=${LOCATION_SEED.zip}; postalcode=${LOCATION_SEED.zip}; city=${LOCATION_SEED.cityName}; state=${LOCATION_SEED.state}; country=us`)
         : (this.zipCookie || this.cookieHeader || this.zipCookieForLoc(firstLoc));
       this.zipCookie = zipCookie;
-      if (locationMode) this.zipProven = true;
+      if (locationMode) {
+        this.zipProven = true;
+        console.log(zone
+          ? `  [Quicklly] session ZIP ${zone.zip} (${zone.city}) — inside ${this.merchantSlug}'s delivery zone, zone prices`
+          : `  [Quicklly] session ZIP ${LOCATION_SEED.zip} (fallback) — ${this.merchantSlug} has no accepted ZIP in the directory`);
+      }
       // Any page mints a usable token — the nationwide path has no sitemap loc, so fall back home.
       const seedUrl = locationMode
-        ? `${QUICKLLY_ORIGIN}/local-grocery-store/${LOCATION_SEED.city}/${LOCATION_SEED.subcat}`
+        ? `${QUICKLLY_ORIGIN}/local-grocery-store/${zone ? zone.city : LOCATION_SEED.city}/${LOCATION_SEED.subcat}`
         : firstLoc
         ? `${QUICKLLY_ORIGIN}/indian-grocery-store/${firstLoc}/${this.merchantSlug}`
         : `${QUICKLLY_ORIGIN}/`;
@@ -554,6 +569,17 @@ export class QuicklyProvider extends BaseProvider {
   }
 
   // All of the merchant's cities, interleaved: city A zip 1, city B zip 1, …, city A zip 2, …
+  // First (city, ZIP) Quicklly's availability API accepts for this store — from the directory's
+  // zipsByCity, cities in alphabetical order. null when no city has an accepted ZIP.
+  inZoneSeed(entry) {
+    const byCity = entry?.zipsByCity || {};
+    for (const city of Object.keys(byCity).sort()) {
+      const zips = byCity[city];
+      if (Array.isArray(zips) && zips.length) return { city, zip: String(zips[0]) };
+    }
+    return null;
+  }
+
   buildZipCandidates() {
     const locs = this.merchantContext?.locations?.length
       ? this.merchantContext.locations
@@ -856,17 +882,27 @@ export class QuicklyProvider extends BaseProvider {
     // for the exact pre-discount price, which is ~3% of them rather than all of them.
     // Split on card boundaries so a badge can never be attributed to the next card along.
     const discountByPid = new Map();
+    // The 2026 listing card also prints the pre-discount price, struck through, next to the
+    // current one: <span class="clsPrice"><span style="text-decoration:line-through">$1.70</span> - $1.49</span>.
+    // Read it here — it is the same figure as the product page's .cutprice, at this session's
+    // zone price — so the product page only has to be opened for a badged card without it.
+    const cutByPid = new Map();
     for (const block of html.split(/(?=<div class="clsProd)/)) {
-      const pm = block.match(/txtDicntTg[^>]*>\s*(\d+)\s*%\s*Off/i);
-      if (!pm) continue;
       const pidM = block.match(/data-pid="(\d+)"/);
-      if (pidM) discountByPid.set(pidM[1], parseInt(pm[1], 10));
+      if (!pidM) continue;
+      const pm = block.match(/txtDicntTg[^>]*>\s*(\d+)\s*%\s*Off/i);
+      if (pm) discountByPid.set(pidM[1], parseInt(pm[1], 10));
+      const cm = block.match(/line-through[^>]*>\s*\$?\s*([\d.]+)/i);
+      if (cm) cutByPid.set(pidM[1], parseFloat(cm[1]));
     }
     for (const card of out) {
       card.handle = slugByPid.get(card.pid) || "";
       card.fullTitle = clsByPid.get(card.pid) || "";   // richer than data-name (has the pack size)
       const pct = discountByPid.get(card.pid);
-      if (pct) card.discountPct = pct;                 // exact pre-discount price added by enrichSalePrices()
+      if (pct) card.discountPct = pct;                 // exact pre-discount price from the card, else enrichSalePrices()
+      const cut = cutByPid.get(card.pid);
+      const now = parseFloat(card.price);
+      if (Number.isFinite(cut) && Number.isFinite(now) && cut > now) card.priceOld = cut;
     }
     return out;
   }
@@ -889,7 +925,9 @@ export class QuicklyProvider extends BaseProvider {
   //
   // Cost is bounded by the badge: only badged cards are opened, ~2.9% of the catalog.
   async enrichSalePrices(cards) {
-    let onSale = cards.filter((c) => c.discountPct && c.price);
+    const fromListing = cards.filter((c) => c.discountPct && typeof c.priceOld === "number").length;
+    let onSale = cards.filter((c) => c.discountPct && c.price && !(typeof c.priceOld === "number" && c.priceOld > parseFloat(c.price)));
+    if (fromListing) console.log(`  [Quicklly] ${fromListing} sale product(s) priced from the listing card (no page fetch)`);
     if (!onSale.length) return;
     // Sale counts are bimodal: most merchants have a handful, but one running a storewide promo
     // can have its whole catalog badged (new-foods-of-india: 1,888 of 1,902 — ~20 min of page
