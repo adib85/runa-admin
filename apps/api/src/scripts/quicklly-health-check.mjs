@@ -26,8 +26,12 @@
  *
  * Alerting (all optional — with none configured it still prints and exits non-zero):
  *   QUICKLLY_ALERT_WEBHOOK   Slack/Discord-compatible incoming webhook
- *   QUICKLLY_ALERT_EMAIL_TO  comma-separated recipients (needs SES creds + FROM below)
- *   QUICKLLY_ALERT_EMAIL_FROM  an SES-verified sender
+ *   QUICKLLY_ALERT_EMAIL_TO  comma-separated recipients
+ *   QUICKLLY_ALERT_EMAIL_FROM  the sender — a SendGrid-verified one (noreply@modapp.me, the
+ *                              address the platform already mails from) when SENDGRID_API_KEY
+ *                              is set, else an SES-verified one (SES creds via the instance)
+ *   SENDGRID_API_KEY         SendGrid key → email goes out over their HTTPS API, no SDK needed
+ *   --test-alert             send a test email/webhook now and exit (verifies the channel)
  *
  * Thresholds (env-overridable):
  *   QUICKLLY_FRESH_DAYS        default 3   — a daily sync gives itself 3 days of slack
@@ -36,6 +40,7 @@
  */
 import neo4j from "neo4j-driver";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +48,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "../../../..");
 const LOG_DIR = path.join(REPO, "logs");
 const SNAPSHOT = path.join(LOG_DIR, "quicklly-health-latest.json");
+const SNAPSHOT_PREV = path.join(LOG_DIR, "quicklly-health-verdict.json");   // last run's verdict, for "new warning" / "recovered" mails
 
 const args = process.argv.slice(2);
 const JSON_ONLY = args.includes("--json");
@@ -65,6 +71,11 @@ for (const f of [path.join(REPO, ".env")]) {
 }
 
 const say = (...a) => { if (!JSON_ONLY) console.log(...a); };
+
+if (process.argv.includes("--test-alert")) {
+  await alert("Quicklly catalog health — test alert", `Test alert from ${os.hostname()} at ${new Date().toISOString()}.\nIf you can read this, the health-check alert channel works.`);
+  process.exit(0);
+}
 const num = (v) => (v && typeof v.toNumber === "function" ? v.toNumber() : Number(v || 0));
 
 // ── checks ───────────────────────────────────────────────────────────────────
@@ -256,11 +267,39 @@ fs.writeFileSync(
 if (JSON_ONLY) console.log(JSON.stringify({ snapshot, findings }, null, 2));
 
 // ── alert ────────────────────────────────────────────────────────────────────
+// Email on: any critical; a WARNING that was not there the previous run (a persistent one,
+// e.g. UNSERVED cities, would otherwise mail every day); and the first PASS after a failure.
+// The previous run's verdict comes from the snapshot the last run wrote.
+const prevVerdict = (() => { try { return JSON.parse(fs.readFileSync(SNAPSHOT_PREV, "utf8")); } catch { return null; } })();
+const nonOk = findings.filter((f) => f.level !== "OK");
+const newWarnings = warn.filter((f) => !(prevVerdict?.warnings || []).includes(f.check));
+const wasFailing = !!prevVerdict?.critical?.length;
+const summary = `${snapshot.total.toLocaleString()} products / ${snapshot.stores.length} stores`;
+const detailText = nonOk.map((f) => `${f.level} ${f.check}: ${f.message}` + (f.detail?.length ? `\n    ${f.detail.slice(0, 15).join("\n    ")}` : "")).join("\n\n");
 if (critical.length) {
   const title = `Quicklly catalog health FAILED — ${critical.length} critical`;
-  const body = `${title}\n${snapshot.total.toLocaleString()} products / ${snapshot.stores.length} stores\n\n` +
-    findings.filter((f) => f.level !== "OK").map((f) => `${f.level} ${f.check}: ${f.message}`).join("\n");
-  await alert(title, body);
+  await alert(title, `${title}\n${summary}\n\n${detailText}\n\nLog: ${LOG_DIR}`);
+} else if (newWarnings.length) {
+  const title = `Quicklly catalog health: new warning — ${newWarnings.map((f) => f.check).join(", ")}`;
+  await alert(title, `${title}\n${summary}\n\n${detailText}\n\nLog: ${LOG_DIR}`);
+} else if (wasFailing) {
+  const title = "Quicklly catalog health recovered — PASSED";
+  await alert(title, `${title}\n${summary}${warn.length ? `\n\n${detailText}` : ""}`);
+}
+fs.writeFileSync(SNAPSHOT_PREV, JSON.stringify({ ranAt: snapshot.ranAt, critical: critical.map((f) => f.check), warnings: warn.map((f) => f.check) }));
+
+async function sendgridEmail(key, from, to, title, body) {
+  const r = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: to.split(",").map((s) => s.trim()).filter(Boolean).map((email) => ({ email })) }],
+      from: { email: from, name: "Runa sync monitor" },
+      subject: title,
+      content: [{ type: "text/plain", value: body }],
+    }),
+  });
+  if (r.status !== 202) throw new Error(`SendGrid HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
 
 async function alert(title, body) {
@@ -274,7 +313,12 @@ async function alert(title, body) {
   }
   const to = env.QUICKLLY_ALERT_EMAIL_TO;
   const from = env.QUICKLLY_ALERT_EMAIL_FROM;
-  if (to && from) {
+  if (to && from && env.SENDGRID_API_KEY) {
+    try {
+      await sendgridEmail(env.SENDGRID_API_KEY, from, to, title, body);
+      say(`Alert emailed to ${to} (SendGrid).`);
+    } catch (e) { say(`Email alert failed: ${e.message}`); }
+  } else if (to && from) {
     try {
       const { SESClient, SendEmailCommand } = await import("@aws-sdk/client-ses");
       const ses = new SESClient({ region: env.AWS_REGION || "us-east-1" });
