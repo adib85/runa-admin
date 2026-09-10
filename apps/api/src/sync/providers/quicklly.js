@@ -909,7 +909,14 @@ export class QuicklyProvider extends BaseProvider {
       let html;
       try {
         html = await fs.promises.readFile(cache, "utf8");
-      } catch {
+        // A cached product page is only good while the item's price is what the listing says
+        // now. New Foods of India repriced 44% of its catalogue in one day (and moved its 20%
+        // promo to the new base): a cached page would pair today's price with yesterday's
+        // struck-through one. Price moved → fetch the page again.
+        const cachedNow = (html.match(/<p class="price">\s*\$?([\d.]+)/) || [])[1];
+        if (cachedNow && card.price && Math.abs(parseFloat(cachedNow) - parseFloat(card.price)) > 0.005) html = null;
+      } catch { html = null; }
+      if (html == null) {
         try {
           // The product page keys off the pid — the slug segment is cosmetic and redirects.
           html = await this.httpGet(`${QUICKLLY_ORIGIN}/grocery-store/${card.handle || "p"}/${card.pid}`);

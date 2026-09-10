@@ -67,12 +67,19 @@ log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$MAIN_LOG"; }
 # scheduled refresh actually re-fetches, and resets the .done files so every store is
 # re-processed (not skipped as "already done").
 #   FRESH=products → clear api-responses only (re-fetch prices/stock; keep discovery cache) → DAILY
+#   FRESH=listings → clear the LISTING responses only, keep the product pages (pdp-*.html): the
+#                    light midday refresh — prices, badges and stock come from the listings, and a
+#                    product page is re-fetched by the provider only where the price moved
 #   FRESH=all      → clear the entire cache (also re-discover) → MONTHLY (pair with FORCE=1)
 CACHE_DIR="$REPO_ROOT/.quicklly-cache"
 if [ "${FRESH:-}" = "products" ]; then
   rm -rf "$CACHE_DIR/api-responses"/* 2>/dev/null
   rm -f "$SCRAPED_DONE" "$WRITTEN_DONE"; touch "$SCRAPED_DONE" "$WRITTEN_DONE"
   log "FRESH=products → cleared api-responses cache + reset .done (daily refresh)"
+elif [ "${FRESH:-}" = "listings" ]; then
+  find "$CACHE_DIR/api-responses" -maxdepth 1 -type f ! -name 'pdp-*.html' -delete 2>/dev/null
+  rm -f "$SCRAPED_DONE" "$WRITTEN_DONE"; touch "$SCRAPED_DONE" "$WRITTEN_DONE"
+  log "FRESH=listings → cleared listing responses (kept product pages) + reset .done (midday refresh)"
 elif [ "${FRESH:-}" = "all" ]; then
   rm -rf "$CACHE_DIR"/* 2>/dev/null
   rm -f "$SCRAPED_DONE" "$WRITTEN_DONE"; touch "$SCRAPED_DONE" "$WRITTEN_DONE"
