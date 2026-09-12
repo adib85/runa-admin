@@ -164,6 +164,21 @@ if [ -z "${MERCHANTS:-}" ]; then
   node apps/api/src/scripts/quicklly-store-directory.mjs --retire-dead >> "$MAIN_LOG" 2>&1 || log "retire-dead failed (non-fatal)"
 fi
 
+# ── Nationwide store: full-US ZIP list ──
+# The nationwide store (345) ships to ZIPs far outside the 813 near-me cities; its per-ZIP verdict
+# from Quicklly's availability API is kept on the Store node (s.zips). Re-applied from the cache
+# every run; re-probed from scratch weekly (NATIONWIDE_ZIPS=full, ~40 min at 8-way) — or the first
+# time, when there is no cache yet.
+if [ -z "${MERCHANTS:-}" ]; then
+  if [ "${NATIONWIDE_ZIPS:-}" = "full" ] || [ ! -f "$CACHE_DIR/nationwide-zips.json" ]; then
+    log "── Nationwide store: probing every US ZIP (weekly) ──"
+    [ "${NATIONWIDE_ZIPS:-}" = "full" ] && rm -f "$CACHE_DIR/nationwide-zips.json"
+    node apps/api/src/scripts/quicklly-nationwide-zips.mjs --apply >> "$MAIN_LOG" 2>&1 || log "nationwide ZIP probe failed (non-fatal)"
+  else
+    node apps/api/src/scripts/quicklly-nationwide-zips.mjs --apply --no-probe >> "$MAIN_LOG" 2>&1 || log "nationwide ZIP apply failed (non-fatal)"
+  fi
+fi
+
 # ── Health check ──
 # The Aug 2026 outage exited 0 while writing nothing, so "the script finished" is not
 # evidence the catalog is alive. Ask the database instead. Non-fatal here (the run is
