@@ -30,6 +30,14 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 set -uo pipefail
 
+# ── One run at a time ──
+# Two schedules once fired on the same night (cron treats a restricted day-of-month AND a
+# restricted day-of-week as OR: `30 3 2-31 * 0` also runs every weekday) and both syncs ran
+# concurrently — twice the load on Quicklly, interleaved logs, one nationwide-ZIP apply failing
+# because the other had just deleted the cache. A lock makes that impossible whatever cron does.
+exec 9>/tmp/quicklly-sync.lock
+if ! flock -n 9; then echo "[$(date +%H:%M:%S)] another Quicklly sync is already running — exiting"; exit 0; fi
+
 # ── Locate repo root (works on EC2 /home/ec2-user/runa-admin and on a laptop) ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
@@ -169,8 +177,9 @@ fi
 # from Quicklly's availability API is kept on the Store node (s.zips). Re-applied from the cache
 # every run; re-probed from scratch weekly (NATIONWIDE_ZIPS=full, ~40 min at 8-way) — or the first
 # time, when there is no cache yet.
+# The weekly re-probe is decided HERE (Sunday, `date +%u` = 7), not by a second cron line.
 if [ -z "${MERCHANTS:-}" ]; then
-  if [ "${NATIONWIDE_ZIPS:-}" = "full" ] || [ ! -f "$CACHE_DIR/nationwide-zips.json" ]; then
+  if [ "${NATIONWIDE_ZIPS:-}" = "full" ] || [ "$(date +%u)" = "7" ] || [ ! -f "$CACHE_DIR/nationwide-zips.json" ]; then
     log "── Nationwide store: probing every US ZIP (weekly) ──"
     [ "${NATIONWIDE_ZIPS:-}" = "full" ] && rm -f "$CACHE_DIR/nationwide-zips.json"
     node apps/api/src/scripts/quicklly-nationwide-zips.mjs --apply >> "$MAIN_LOG" 2>&1 || log "nationwide ZIP probe failed (non-fatal)"
