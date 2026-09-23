@@ -179,6 +179,27 @@ export class Neo4jService {
   // Persist a marketplace's numeric seller/store id on the :Store node (e.g. Quicklly's
   // data-sid "112338"). The chat reads this as the cart line-item store_id; falls back to
   // p.merchant_storeid on products if absent, but keeping it on the Store node is cleaner.
+  // Persist the seller's logo URL on the :Store node. The Quicklly chat reads s.image as the
+  // product card's store badge and the /quicklly-stores dropdown icon; it is also what their
+  // cart shows per line. Only set from a real listing card (data-simg), never cleared here.
+  async setStoreImage(storeId, imageUrl) {
+    if (!storeId || !imageUrl) return;
+    const driver = this.getDriver();
+    const session = driver.session();
+    try {
+      await session.run(
+        `MATCH (s:Store {id: $storeId}) SET s.image = $imageUrl`,
+        { storeId, imageUrl: String(imageUrl) }
+      );
+      console.log(`  [neo4j] setStoreImage: ${storeId} -> ${imageUrl}`);
+    } catch (e) {
+      console.error("  [neo4j] setStoreImage failed:", e.message);
+    } finally {
+      await session.close();
+      await driver.close();
+    }
+  }
+
   async setStoreNumericId(storeId, numericStoreId) {
     if (!storeId || !numericStoreId) return;
     const driver = this.getDriver();

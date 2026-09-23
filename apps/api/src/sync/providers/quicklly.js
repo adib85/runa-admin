@@ -416,6 +416,7 @@ export class QuicklyProvider extends BaseProvider {
     // Internal state — populated lazily on the first fetchProducts call.
     this.merchantContext = null;   // { subcats, locations, firstLoc }
     this.merchantStoreId = null;
+    this.merchantStoreImage = null;   // seller logo (listing card data-simg) → Store.image, the chat's store badge
     this.subcatCatalog = null;     // [{subcat, subcaid, catid, products: []}]
     this.normalizedProducts = null;
     this.cursorIndex = 0;
@@ -890,6 +891,15 @@ export class QuicklyProvider extends BaseProvider {
     for (const block of html.split(/(?=<div class="clsProd)/)) {
       const pidM = block.match(/data-pid="(\d+)"/);
       if (!pidM) continue;
+      // Seller logo. Every card carries data-simg="https://cdn.quicklly.com/seller/upload_images/store/thumb/…".
+      // Before 2026-09-23 Store.image was only ever set from product data, which is null for
+      // Quicklly, so the ~160 stores added on 2026-09-15 had no logo in the chat's store badge
+      // nor in their cart (Anshul's QA). Remember the first one seen for this merchant.
+      if (!this.merchantStoreImage) {
+        // (a seller without a logo prints the bare folder ".../store/thumb/" — that is not an image)
+        const sm = block.match(/data-simg="(https?:[^"]+\/[^"\/]+\.(?:png|jpe?g|webp|gif|svg)(?:\?[^"]*)?)"/i);
+        if (sm) this.merchantStoreImage = sm[1];
+      }
       const pm = block.match(/txtDicntTg[^>]*>\s*(\d+)\s*%\s*Off/i);
       if (pm) discountByPid.set(pidM[1], parseInt(pm[1], 10));
       const cm = block.match(/line-through[^>]*>\s*\$?\s*([\d.]+)/i);
@@ -1703,6 +1713,13 @@ export class QuicklyProvider extends BaseProvider {
         console.error(`  [Quicklly] setStoreNumericId failed (non-fatal):`, e.message);
       }
     }
+    if (!this.dryRun && this.merchantStoreImage) {
+      try {
+        await this.neo4j.setStoreImage(this.shopName, this.merchantStoreImage);
+      } catch (e) {
+        console.error(`  [Quicklly] setStoreImage failed (non-fatal):`, e.message);
+      }
+    }
 
     this.logFinalStats();
   }
@@ -1717,6 +1734,7 @@ export class QuicklyProvider extends BaseProvider {
     console.log(`    Subcats:              ${this.merchantContext?.subcats.length || 0}`);
     console.log(`    Delivery locations:   ${this.merchantContext?.locations.length || 0}`);
     console.log(`    Merchant storeid:     ${this.merchantStoreId}`);
+    console.log(`    Merchant logo:        ${this.merchantStoreImage || "(none)"}`);
     console.log("  ════════════════════════════════════════════════════════════\n");
   }
 }
