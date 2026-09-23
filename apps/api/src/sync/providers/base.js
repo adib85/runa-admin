@@ -245,6 +245,10 @@ export class BaseProvider {
           onSale: p.onSale === true,
           priceOld: (typeof p.price_old === "number" && Number.isFinite(p.price_old)) ? p.price_old : null,
           discountPercent: (typeof p.discount_percent === "number" && Number.isFinite(p.discount_percent)) ? p.discount_percent : null,
+          // Fast-delivery eligibility (Quicklly listing cards); same contract as the sale fields.
+          hasFast: typeof p.fast_delivery === "boolean",
+          fastDelivery: p.fast_delivery === true,
+          fastDeliveryFee: (typeof p.fast_delivery_fee === "number" && Number.isFinite(p.fast_delivery_fee)) ? p.fast_delivery_fee : null,
         };
       });
       if (!this.dryRun) {

@@ -888,6 +888,8 @@ export class QuicklyProvider extends BaseProvider {
     // Read it here — it is the same figure as the product page's .cutprice, at this session's
     // zone price — so the product page only has to be opened for a badged card without it.
     const cutByPid = new Map();
+    const fastByPid = new Map();
+    const fastFeeByPid = new Map();
     for (const block of html.split(/(?=<div class="clsProd)/)) {
       const pidM = block.match(/data-pid="(\d+)"/);
       if (!pidM) continue;
@@ -904,6 +906,14 @@ export class QuicklyProvider extends BaseProvider {
       if (pm) discountByPid.set(pidM[1], parseInt(pm[1], 10));
       const cm = block.match(/line-through[^>]*>\s*\$?\s*([\d.]+)/i);
       if (cm) cutByPid.set(pidM[1], parseFloat(cm[1]));
+      // Fast delivery (their newer delivery partners, 2026-09): the card prints
+      // data-fastdelivery="1" (eligible) or "" and data-fastdeliveryfee="2.99". Their cart copies the
+      // flag from the card into every line (cart.js addToCart_mini: fastdelivery = lnk.dataset.fastdelivery)
+      // and decides the fast-delivery flow on it, so the chat's add-to-cart must send the same value.
+      const fm = block.match(/data-fastdelivery="([^"]*)"/i);
+      if (fm) fastByPid.set(pidM[1], fm[1].trim() === "1");
+      const ff = block.match(/data-fastdeliveryfee="([^"]*)"/i);
+      if (ff && ff[1].trim() !== "" && Number.isFinite(parseFloat(ff[1]))) fastFeeByPid.set(pidM[1], parseFloat(ff[1]));
     }
     for (const card of out) {
       card.handle = slugByPid.get(card.pid) || "";
@@ -913,6 +923,8 @@ export class QuicklyProvider extends BaseProvider {
       const cut = cutByPid.get(card.pid);
       const now = parseFloat(card.price);
       if (Number.isFinite(cut) && Number.isFinite(now) && cut > now) card.priceOld = cut;
+      if (fastByPid.has(card.pid)) card.fastDelivery = fastByPid.get(card.pid);
+      if (fastFeeByPid.has(card.pid)) card.fastDeliveryFee = fastFeeByPid.get(card.pid);
     }
     return out;
   }
@@ -1231,6 +1243,10 @@ export class QuicklyProvider extends BaseProvider {
       // their label is a campaign tier and their price rounding puts the true ratio off it for
       // cheap items, so deriving it disagrees with their store page on ~1% of products.
       discount_percent: priceOld != null && card.discountPct ? card.discountPct : null,
+      // Fast-delivery eligibility as printed on the listing card (see parseProductCards); undefined
+      // when the card did not carry the attribute, so stampSeen leaves the stored value alone.
+      fast_delivery: typeof card.fastDelivery === "boolean" ? card.fastDelivery : undefined,
+      fast_delivery_fee: typeof card.fastDeliveryFee === "number" ? card.fastDeliveryFee : null,
       currency: "USD",
       status: "active",
       published_at: null,

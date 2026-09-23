@@ -343,6 +343,8 @@ export class Neo4jService {
            price_old: product.price_old,
            onSale: product.onSale,
            discount_percent: product.discount_percent,
+           fast_delivery: product.fast_delivery,
+           fast_delivery_fee: product.fast_delivery_fee,
            inStock: product.inStock,
            materialDominant: COALESCE(product.materialDominant, p.materialDominant),
            materials: COALESCE(product.materials, p.materials),
@@ -606,6 +608,9 @@ export class Neo4jService {
       // number through instead of deriving one. Null for providers that don't emit it.
       discount_percent: typeof p.discount_percent === "number" && Number.isFinite(p.discount_percent)
         ? p.discount_percent : null,
+      // Fast-delivery eligibility + fee as the marketplace prints them (Quicklly); null elsewhere.
+      fast_delivery: typeof p.fast_delivery === "boolean" ? p.fast_delivery : null,
+      fast_delivery_fee: typeof p.fast_delivery_fee === "number" && Number.isFinite(p.fast_delivery_fee) ? p.fast_delivery_fee : null,
       // Fresh in-stock flag (default true when the provider doesn't compute one).
       inStock: p.inStock !== undefined ? (p.inStock === true) : true,
       materialDominant: p.materialDominant || null,
@@ -691,7 +696,9 @@ export class Neo4jService {
              p.price = COALESCE(item.price, p.price),
              p.onSale = CASE WHEN item.hasSale THEN item.onSale ELSE p.onSale END,
              p.price_old = CASE WHEN item.hasSale THEN item.priceOld ELSE p.price_old END,
-             p.discount_percent = CASE WHEN item.hasSale THEN item.discountPercent ELSE p.discount_percent END`,
+             p.discount_percent = CASE WHEN item.hasSale THEN item.discountPercent ELSE p.discount_percent END,
+             p.fast_delivery = CASE WHEN item.hasFast THEN item.fastDelivery ELSE p.fast_delivery END,
+             p.fast_delivery_fee = CASE WHEN item.hasFast THEN item.fastDeliveryFee ELSE p.fast_delivery_fee END`,
         { items: items.map(i => ({
             id: String(i.id),
             inStock: i.inStock === true,
@@ -704,6 +711,9 @@ export class Neo4jService {
             onSale: i.onSale === true,
             priceOld: (typeof i.priceOld === "number" && Number.isFinite(i.priceOld)) ? i.priceOld : null,
             discountPercent: (typeof i.discountPercent === "number" && Number.isFinite(i.discountPercent)) ? i.discountPercent : null,
+            hasFast: i.hasFast === true,
+            fastDelivery: i.fastDelivery === true,
+            fastDeliveryFee: (typeof i.fastDeliveryFee === "number" && Number.isFinite(i.fastDeliveryFee)) ? i.fastDeliveryFee : null,
           })), storeId, timestamp }
       );
     } finally {
