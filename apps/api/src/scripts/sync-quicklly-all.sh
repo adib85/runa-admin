@@ -188,6 +188,20 @@ if [ -z "${MERCHANTS:-}" ]; then
   fi
 fi
 
+# ── Per-ZIP store list (quicklly.com's "Grocery stores near you", for every US ZIP) ──
+# The chat's store list for a ZIP follows it (:QuickllyZip nodes). Stores change ZIPs rarely, so
+# the ~42.5k-call probe runs weekly (Sunday), or when the cache is missing; every other run only
+# re-applies the cache, which also maps stores indexed since. Non-fatal either way.
+if [ -z "${MERCHANTS:-}" ]; then
+  if [ "${ZIP_STORES:-}" = "full" ] || [ "$(date +%u)" = "7" ] || [ ! -f "$CACHE_DIR/zip-stores.json" ]; then
+    log "── Per-ZIP store list: probing every US ZIP (weekly) ──"
+    node apps/api/src/scripts/quicklly-zip-stores.mjs --apply --fresh >> "$MAIN_LOG" 2>&1 || log "per-ZIP store list probe failed (non-fatal)"
+  else
+    log "── Per-ZIP store list: re-applying the cached list ──"
+    node apps/api/src/scripts/quicklly-zip-stores.mjs --apply --no-probe >> "$MAIN_LOG" 2>&1 || log "per-ZIP store list apply failed (non-fatal)"
+  fi
+fi
+
 # ── Fast delivery ("⚡ Delivery in 3 hours or less") ──
 # Store-level flag from Quicklly's own store-list API — what their store cards show and what the
 # chat surfaces as the bolt. Refreshed on every run (nightly + midday); non-fatal, and the script

@@ -151,6 +151,15 @@ async function build() {
 
   dedupeByStoreId(stores);
 
+  // ── Stores their per-ZIP store list returns that no near-me page links ─────────────────────
+  // quicklly.com's "Grocery stores near you" (view-all-grocery-stores, probed for every US ZIP by
+  // quicklly-zip-stores.mjs) lists stores in metros that have no near-me page at all — Atlanta's
+  // (Indiaco, Desi Brothers Duluth, Spices Hut Alpharetta, Bangladeshi Grocery Plus), Desi Brothers
+  // Ln 133 Austin … Without this they were never indexed, and --retire-dead retired any that had
+  // been. They carry no cities (the chat reaches them through the ZIP list); seedZip is a ZIP
+  // their API lists them for, so the product sync fetches their listing at zone prices.
+  addZipApiStores(stores);
+
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
   // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
   // collection) whose products reach shoppers through the location listings but which no
@@ -172,6 +181,31 @@ async function build() {
   const unresolved = slugs.filter((s) => !stores[s].storeId);
   say(`  [directory] wrote ${OUT}: ${slugs.length} live stores + nationwide; ${unresolved.length} without a store id${unresolved.length ? ` (${unresolved.join(", ")})` : ""}`);
   return stores;
+}
+
+function addZipApiStores(stores) {
+  let cache;
+  try { cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8")); } catch { return; }
+  const done = cache.done || {}, slugs = cache.slugs || {};
+  const known = new Set(Object.values(stores).map((s) => String(s.storeId || "")).filter(Boolean));
+  const firstZip = new Map(), zipCount = new Map();
+  for (const zip of Object.keys(done).sort()) for (const sid of done[zip] || []) {
+    if (known.has(String(sid))) continue;
+    if (!firstZip.has(sid)) firstZip.set(sid, zip);
+    zipCount.set(sid, (zipCount.get(sid) || 0) + 1);
+  }
+  let added = 0;
+  for (const [sid, zip] of firstZip) {
+    const slug = slugs[sid];
+    if (!slug || !/^[a-z0-9-]+$/.test(slug)) continue;
+    // a slug already taken by ANOTHER store id (their slugs are not unique: two "nirav-express") gets the id appended
+    const key = stores[slug] ? `${slug}-${sid}` : slug;
+    if (stores[key]) continue;
+    stores[key] = { storeId: String(sid), name: slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()), cities: [], fromZipApi: true, seedZip: zip };
+    added++;
+    say(`  [directory] ${key}: store id ${sid} from their per-ZIP store list (${zipCount.get(sid)} ZIPs, on no near-me page)`);
+  }
+  if (added) say(`  [directory] ${added} store(s) added from the per-ZIP store list`);
 }
 
 // One store, one slug. Near-me pages can link the same store under two slugs (surabhi-store and

@@ -578,6 +578,9 @@ export class QuicklyProvider extends BaseProvider {
       const zips = byCity[city];
       if (Array.isArray(zips) && zips.length) return { city, zip: String(zips[0]) };
     }
+    // A store known only from their per-ZIP store list (no near-me city): the directory records
+    // one ZIP that list returns it for. Any real city page mints the session; the ZIP decides.
+    if (entry?.seedZip) return { city: LOCATION_SEED.city, zip: String(entry.seedZip) };
     return null;
   }
 
