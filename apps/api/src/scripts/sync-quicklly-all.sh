@@ -188,6 +188,15 @@ if [ -z "${MERCHANTS:-}" ]; then
   fi
 fi
 
+# ── Fast delivery ("⚡ Delivery in 3 hours or less") ──
+# Store-level flag from Quicklly's own store-list API — what their store cards show and what the
+# chat surfaces as the bolt. Refreshed on every run (nightly + midday); non-fatal, and the script
+# keeps the previous values if the API answers for too few stores.
+if [ -z "${MERCHANTS:-}" ]; then
+  log "── Fast delivery: store-level instant-delivery flag ──"
+  node apps/api/src/scripts/quicklly-instant-delivery.mjs --apply >> "$MAIN_LOG" 2>&1 || log "instant-delivery refresh failed (non-fatal)"
+fi
+
 # ── Health check ──
 # The Aug 2026 outage exited 0 while writing nothing, so "the script finished" is not
 # evidence the catalog is alive. Ask the database instead. Non-fatal here (the run is
