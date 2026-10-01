@@ -159,12 +159,12 @@ async function build() {
   // been. They carry no cities (the chat reaches them through the ZIP list); seedZip is a ZIP
   // their API lists them for, so the product sync fetches their listing at zone prices.
   //
-  // The location listing does not carry most of them (filtered to such a store it returns the
-  // nationwide catalogue); the provider then reads the store's own page (discoverStorePage).
-  // Switched on by a marker file that the one-off backfill (quicklly-backfill-new-stores.sh)
-  // leaves once it has indexed them — otherwise their first full indexing (~100 stores at
-  // once) would land inside a nightly run and hold it for most of a day.
-  if (process.env.QUICKLLY_INDEX_ZIP_API_STORES === "1" || fs.existsSync(path.join(CACHE_ROOT, "zip-api-stores.on"))) addZipApiStores(stores);
+  // The location listing carries only some of them from the right ZIP (seedZips below); for the
+  // rest the provider reads the store's own page (discoverStorePage).
+  // A store the graph already holds (indexed by quicklly-backfill-new-stores.sh, or by an earlier
+  // run) always joins; brand-new ones join a few per run, so a hundred first-time indexings
+  // never land in one nightly run and hold it for most of a day.
+  await addZipApiStores(stores, new Set(graphStoreId.values()));
 
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
   // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
@@ -206,11 +206,9 @@ async function addSeedZips(stores) {
     nw = new Set((r.records[0]?.get("zips") || []).map(String));
   } catch (e) { say(`  [directory] seed ZIPs: nationwide ZIP list unavailable (${e.message})`); }
   finally { await session.close(); }
-  let apiZips = new Map();
-  try {
-    const cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8"));
-    for (const [zip, sids] of Object.entries(cache.done || {})) for (const sid of sids || []) { if (!apiZips.has(String(sid))) apiZips.set(String(sid), []); apiZips.get(String(sid)).push(zip); }
-  } catch { /* no per-ZIP store list yet */ }
+  const apiZips = new Map();
+  const idx = await loadZipStoreIndex();
+  for (const [zip, sids] of Object.entries(idx.done || {})) for (const sid of sids || []) { if (!apiZips.has(String(sid))) apiZips.set(String(sid), []); apiZips.get(String(sid)).push(zip); }
   const spread = (list, n) => [...new Set(Array.from({ length: n }, (_, i) => list[Math.min(list.length - 1, Math.floor((list.length - 1) * (n === 1 ? 0 : i / (n - 1))))]))];
   let withGood = 0, without = 0;
   for (const st of Object.values(stores)) {
@@ -225,10 +223,30 @@ async function addSeedZips(stores) {
   say(`  [directory] seed ZIPs: ${withGood} stores have a ZIP outside the nationwide store's area, ${without} do not (their store page is the fallback)`);
 }
 
-function addZipApiStores(stores) {
-  let cache;
-  try { cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8")); } catch { return; }
-  const done = cache.done || {}, slugs = cache.slugs || {};
+// Their per-ZIP store list: the probe's cache file, or — when a FRESH=all run has just wiped the
+// cache directory — the copy quicklly-zip-stores.mjs keeps in the graph.
+async function loadZipStoreIndex() {
+  try {
+    const cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8"));
+    if (cache.done && Object.keys(cache.done).length) return { done: cache.done, slugs: cache.slugs || {} };
+  } catch { /* fall through to the graph */ }
+  const session = driver.session();
+  try {
+    const z = await session.run(`MATCH (z:QuickllyZip) RETURN z.zip AS zip, z.sids AS sids`);
+    const m = await session.run(`MATCH (m:QuickllyZipMeta {id: 'slugs'}) RETURN m.json AS json`);
+    const done = {};
+    for (const r of z.records) done[r.get("zip")] = (r.get("sids") || []).map(String);
+    let slugs = {};
+    try { slugs = JSON.parse(m.records[0]?.get("json") || "{}"); } catch { /* names only */ }
+    return { done, slugs };
+  } catch { return { done: {}, slugs: {} }; }
+  finally { await session.close(); }
+}
+
+const MAX_NEW_API_STORES_PER_RUN = parseInt(process.env.QUICKLLY_MAX_NEW_API_STORES || "3", 10);
+async function addZipApiStores(stores, sidsInGraph = new Set()) {
+  const { done, slugs } = await loadZipStoreIndex();
+  if (!Object.keys(done).length) return;
   const known = new Set(Object.values(stores).map((s) => String(s.storeId || "")).filter(Boolean));
   const zipsOf = new Map();
   for (const zip of Object.keys(done).sort()) for (const sid of done[zip] || []) {
@@ -237,9 +255,13 @@ function addZipApiStores(stores) {
     zipsOf.get(sid).push(zip);
   }
   const zipCount = new Map([...zipsOf].map(([sid, z]) => [sid, z.length]));
-  let added = 0;
+  let added = 0, fresh = 0, waiting = 0;
   for (const [sid, all] of zipsOf) {
     const zip = all[0];
+    if (!sidsInGraph.has(String(sid))) {
+      if (fresh >= MAX_NEW_API_STORES_PER_RUN) { waiting++; continue; }
+      fresh++;
+    }
     const slug = slugs[sid];
     if (!slug || !/^[a-z0-9-]+$/.test(slug)) continue;
     // a slug already taken by ANOTHER store id (their slugs are not unique: two "nirav-express") gets the id appended
@@ -249,7 +271,8 @@ function addZipApiStores(stores) {
     added++;
     say(`  [directory] ${key}: store id ${sid} from their per-ZIP store list (${zipCount.get(sid)} ZIPs, on no near-me page)`);
   }
-  if (added) say(`  [directory] ${added} store(s) added from the per-ZIP store list`);
+  if (added) say(`  [directory] ${added} store(s) added from the per-ZIP store list (${fresh} of them new to the graph)`);
+  if (waiting) say(`  [directory] ${waiting} more store(s) on their list are not indexed yet — ${MAX_NEW_API_STORES_PER_RUN} join per run, or run quicklly-backfill-new-stores.sh`);
 }
 
 // One store, one slug. Near-me pages can link the same store under two slugs (surabhi-store and

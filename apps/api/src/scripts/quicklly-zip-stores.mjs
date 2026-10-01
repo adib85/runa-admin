@@ -156,6 +156,8 @@ async function apply(state, all) {
       const w = await session.run(`UNWIND $rows AS r MERGE (z:QuickllyZip {zip: r.zip}) SET z.stores = r.stores, z.sids = r.sids, z.checkedAt = $now RETURN count(z) AS n`, { rows: rows.slice(i, i + 2000), now });
       n += w.records[0].get("n").toNumber();
     }
+    // the sid → slug names, so the directory can rebuild this index from the graph if the cache file is gone
+    await session.run(`MERGE (m:QuickllyZipMeta {id: 'slugs'}) SET m.json = $json, m.updatedAt = $now`, { json: JSON.stringify(state.slugs || {}), now });
     say(`applied: ${n} ZIP nodes written`);
   } finally { await session.close(); await driver.close(); }
 }
