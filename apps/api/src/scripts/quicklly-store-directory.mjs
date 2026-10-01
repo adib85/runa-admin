@@ -159,11 +159,12 @@ async function build() {
   // been. They carry no cities (the chat reaches them through the ZIP list); seedZip is a ZIP
   // their API lists them for, so the product sync fetches their listing at zone prices.
   //
-  // OFF until those stores can be indexed correctly: a pilot (2026-10-01) showed the LOCATION
-  // listing does not carry their products — filtered to such a store it returns the nationwide
-  // catalogue (data-sid 345). Their own products come only from the store-page endpoint
-  // (ajax-subcat-all-products.php, 50 per page), which the location-mode sync does not use.
-  if (process.env.QUICKLLY_INDEX_ZIP_API_STORES === "1") addZipApiStores(stores);
+  // The location listing does not carry most of them (filtered to such a store it returns the
+  // nationwide catalogue); the provider then reads the store's own page (discoverStorePage).
+  // Switched on by a marker file that the one-off backfill (quicklly-backfill-new-stores.sh)
+  // leaves once it has indexed them — otherwise their first full indexing (~100 stores at
+  // once) would land inside a nightly run and hold it for most of a day.
+  if (process.env.QUICKLLY_INDEX_ZIP_API_STORES === "1" || fs.existsSync(path.join(CACHE_ROOT, "zip-api-stores.on"))) addZipApiStores(stores);
 
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
   // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
@@ -179,6 +180,8 @@ async function build() {
   if (availability) mergeFootprint(stores, availability.footprint);
   else for (const [slug, st] of Object.entries(prev)) if (stores[slug] && st.zipsByCity) { stores[slug].pageCities = stores[slug].cities.slice().sort(); stores[slug].zipsByCity = st.zipsByCity; stores[slug].cities = Object.keys(st.zipsByCity).sort(); }
 
+  await addSeedZips(stores);
+
   fs.mkdirSync(CACHE_ROOT, { recursive: true });
   const meta = availability ? { checkedAt: new Date().toISOString(), zips: availability.zips, calls: availability.calls, errors: availability.errors }
     : (JSON.parse(fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "{}").availability || null);
@@ -188,19 +191,55 @@ async function build() {
   return stores;
 }
 
+// Session ZIPs for the product sync (entry.seedZips). The location listing, filtered to a store,
+// answers with that store's products only from a ZIP where the NATIONWIDE store does not
+// deliver; where it does, the listing returns the nationwide catalogue instead (measured
+// 2026-10-01: 21 of 22 ZIPs — and the reason 12 stores had been indexed as its clones: their
+// first accepted ZIP A→Z happened to be one of those). So for every store: up to five of its own
+// ZIPs outside the nationwide store's list, spread over its area. A store with none keeps the
+// spread anyway; the provider then falls back to the store's own page.
+async function addSeedZips(stores) {
+  let nw = new Set();
+  const session = driver.session();
+  try {
+    const r = await session.run(`MATCH (s:Store {id: $id}) RETURN s.zips AS zips`, { id: `quicklly_${NATIONWIDE_SLUG}` });
+    nw = new Set((r.records[0]?.get("zips") || []).map(String));
+  } catch (e) { say(`  [directory] seed ZIPs: nationwide ZIP list unavailable (${e.message})`); }
+  finally { await session.close(); }
+  let apiZips = new Map();
+  try {
+    const cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8"));
+    for (const [zip, sids] of Object.entries(cache.done || {})) for (const sid of sids || []) { if (!apiZips.has(String(sid))) apiZips.set(String(sid), []); apiZips.get(String(sid)).push(zip); }
+  } catch { /* no per-ZIP store list yet */ }
+  const spread = (list, n) => [...new Set(Array.from({ length: n }, (_, i) => list[Math.min(list.length - 1, Math.floor((list.length - 1) * (n === 1 ? 0 : i / (n - 1))))]))];
+  let withGood = 0, without = 0;
+  for (const st of Object.values(stores)) {
+    if (!st.storeId || st.nationwide) continue;
+    const own = [...new Set([...Object.values(st.zipsByCity || {}).flat().map(String), ...(apiZips.get(String(st.storeId)) || [])])].sort();
+    if (!own.length) continue;
+    const good = nw.size ? own.filter((z) => !nw.has(z)) : [];
+    st.seedZips = spread(good.length ? good : own, 5);
+    if (good.length) withGood++; else without++;
+    if (st.fromZipApi) st.seedZip = st.seedZips[0];
+  }
+  say(`  [directory] seed ZIPs: ${withGood} stores have a ZIP outside the nationwide store's area, ${without} do not (their store page is the fallback)`);
+}
+
 function addZipApiStores(stores) {
   let cache;
   try { cache = JSON.parse(fs.readFileSync(path.join(CACHE_ROOT, "zip-stores.json"), "utf8")); } catch { return; }
   const done = cache.done || {}, slugs = cache.slugs || {};
   const known = new Set(Object.values(stores).map((s) => String(s.storeId || "")).filter(Boolean));
-  const firstZip = new Map(), zipCount = new Map();
+  const zipsOf = new Map();
   for (const zip of Object.keys(done).sort()) for (const sid of done[zip] || []) {
     if (known.has(String(sid))) continue;
-    if (!firstZip.has(sid)) firstZip.set(sid, zip);
-    zipCount.set(sid, (zipCount.get(sid) || 0) + 1);
+    if (!zipsOf.has(sid)) zipsOf.set(sid, []);
+    zipsOf.get(sid).push(zip);
   }
+  const zipCount = new Map([...zipsOf].map(([sid, z]) => [sid, z.length]));
   let added = 0;
-  for (const [sid, zip] of firstZip) {
+  for (const [sid, all] of zipsOf) {
+    const zip = all[0];
     const slug = slugs[sid];
     if (!slug || !/^[a-z0-9-]+$/.test(slug)) continue;
     // a slug already taken by ANOTHER store id (their slugs are not unique: two "nirav-express") gets the id appended

@@ -572,7 +572,46 @@ export class QuicklyProvider extends BaseProvider {
   // All of the merchant's cities, interleaved: city A zip 1, city B zip 1, …, city A zip 2, …
   // First (city, ZIP) Quicklly's availability API accepts for this store — from the directory's
   // zipsByCity, cities in alphabetical order. null when no city has an accepted ZIP.
+  // Every ZIP worth trying as the session ZIP for this store, best guess first: one per city
+  // (cities A→Z, as inZoneSeed has always picked), then two more per city, then the ZIPs their
+  // per-ZIP store list returned it for (stores with no near-me city carry only those).
+  zoneSeedCandidates(entry) {
+    const byCity = entry?.zipsByCity || {};
+    const cities = Object.keys(byCity).sort().filter((c) => Array.isArray(byCity[c]) && byCity[c].length);
+    const out = [];
+    const seen = new Set();
+    const push = (city, zip) => { const z = String(zip || ""); if (z && !seen.has(z)) { seen.add(z); out.push({ city, zip: z }); } };
+    // 1. the ZIP every sync so far has used (first city's first ZIP) — unchanged for healthy stores
+    if (cities.length) push(cities[0], byCity[cities[0]][0]);
+    // 2. the directory's picks: ZIPs of this store where the NATIONWIDE store does not deliver.
+    //    The listing answers with the nationwide catalogue instead of the filtered store's
+    //    exactly where the nationwide store is deliverable (21 of 22 ZIPs measured, 2026-10-01).
+    const cityOf = (z) => cities.find((c) => byCity[c].map(String).includes(String(z))) || LOCATION_SEED.city;
+    for (const z of [entry?.seedZip, ...(Array.isArray(entry?.seedZips) ? entry.seedZips : [])]) push(cityOf(z), z);
+    // 3. one ZIP per remaining city, then a couple more per city
+    for (const c of cities) push(c, byCity[c][0]);
+    for (const c of cities) for (const z of byCity[c].slice(1, 3)) push(c, z);
+    return out;
+  }
+
+  // Start over with another session ZIP (see discoverLocation): new CSRF/session, and the listing
+  // pages cached under the previous ZIP are dropped — they hold another seller's cards.
+  async reseedSession(seed) {
+    this._seedOverride = seed;
+    this.csrfToken = null;
+    this.sessionPromise = null;
+    this.cookieHeader = null;
+    this.zipCookie = null;
+    this._foreignWarned = false;
+    try {
+      for (const f of await fs.promises.readdir(this.apiDir)) {
+        if (f.startsWith(`${this.merchantSlug}-loc-`)) await fs.promises.unlink(path.join(this.apiDir, f)).catch(() => {});
+      }
+    } catch { /* no cache dir yet */ }
+  }
+
   inZoneSeed(entry) {
+    if (this._seedOverride) return this._seedOverride;
     const byCity = entry?.zipsByCity || {};
     for (const city of Object.keys(byCity).sort()) {
       const zips = byCity[city];
@@ -1397,10 +1436,44 @@ export class QuicklyProvider extends BaseProvider {
     console.log(`  [Quicklly] Merchant storeid=${this.merchantStoreId} (directory)`);
     const subcats = await this.loadGlobalSubcats();
     const list = Object.entries(subcats);
+    // Is this store in the location listing at all? One big subcategory tells: if it answers with
+    // another seller's cards only (see ownCards), every other subcategory will too — go straight
+    // to the store's own page instead of downloading the nationwide catalogue 55 times.
+    //
+    // WHICH ZIP the session carries decides it: Rahi Stores answers with its own 1,382 products
+    // from Dunellen 08812 and with the nationwide catalogue from Belle Mead 08502, though their
+    // availability API accepts both. So before giving up on the listing, the other ZIPs the
+    // directory holds for the store get a try (the listing is the fuller source: 1,382 vs 942 on
+    // Rahi's store page). A store that reached its store page once today goes straight there.
+    const probe = list.find(([k]) => k === "indian-spices") || list[0];
+    const storePageFlag = path.join(this.apiDir, `${this.merchantSlug}-storepage.flag`);
+    if (fs.existsSync(storePageFlag)) return this.discoverStorePage("as decided earlier in this run");
+    if (probe) {
+      const candidates = this.zoneSeedCandidates(this.loadDirectoryEntry()).slice(0, 6);
+      let foreignOnly = false;
+      for (let i = 0; i < Math.max(1, candidates.length); i++) {
+        if (i > 0) {
+          await this.reseedSession(candidates[i]);
+          console.log(`  [Quicklly] ${this.merchantSlug}: trying session ZIP ${candidates[i].zip} (${candidates[i].city})`);
+        }
+        const before = this.stats.foreignCards || 0;
+        const own = await this.fetchSubcatProductsLocation(probe[0], probe[1].subcaid);
+        foreignOnly = own.length === 0 && (this.stats.foreignCards || 0) > before;
+        if (!foreignOnly) break;
+      }
+      if (foreignOnly) {
+        await fs.promises.mkdir(this.apiDir, { recursive: true });
+        await fs.promises.writeFile(storePageFlag, new Date().toISOString());
+        return this.discoverStorePage("its location listing returns another seller's products from every ZIP tried");
+      }
+    }
     const allCards = await mapWithConcurrency(list, this.scrapeConcurrency, async ([subcat, ids]) => {
       const cards = await this.fetchSubcatProductsLocation(subcat, ids.subcaid);
       return { subcat, ids, cards };
     });
+    // Nothing of its own anywhere in the location listing (a shop with no spices, or a ZIP where
+    // the listing answers "false") — its store page is the other place its products can be.
+    if (allCards.every((a) => a.cards.length === 0)) return this.discoverStorePage("the location listing has none of its products");
     await this.enrichSalePrices(this.dedupCards(allCards.flatMap((a) => a.cards)));
     const seen = new Set();
     const normalized = [];
@@ -1414,6 +1487,59 @@ export class QuicklyProvider extends BaseProvider {
     this.normalizedProducts = normalized;
     this.stats.products = normalized.length;
     console.log(`  [Quicklly] Discovered ${normalized.length} unique products for ${this.merchantSlug} via location listing (${this.stats.apiCalls} API calls)`);
+    return normalized;
+  }
+
+  // ── STORE-PAGE discovery: a store the location listing does not carry ─────────────────────
+  // About a third of Quicklly's stores (118 of 330 on 2026-10-01 — most of the partners added in
+  // September, and every store of a metro without a near-me page) are NOT in the location listing:
+  // filtered to one of them it returns the nationwide catalogue, or nothing. Their products exist
+  // only behind the store's own page, the way a shopper reaches them after tapping the store card:
+  //   ajax-newsubcatmenu.php  {storeid, catid, slug, catname}        → the store's subcategories per department
+  //   ajax-subcat-all-products.php {storeid, catid, subcat_id, start} → its cards, 50 per page
+  // Same cards, same prices as anywhere the store is listed (their zone price); the session is
+  // the one ensureSession() already minted for the store's ZIP.
+  async discoverStorePage(why = "") {
+    const storeId = String(this.merchantStoreId);
+    console.log(`  [Quicklly] ${this.merchantSlug}: ${why || "store-page discovery"} → reading its store page (store ${storeId})`);
+    let globalSubcats = {};
+    try { globalSubcats = await this.loadGlobalSubcats(); } catch { /* names only */ }
+    const deptIds = [...new Set([...NATIONWIDE_DEPARTMENTS.map((d) => String(d.catid)), ...Object.values(globalSubcats).map((x) => String(x.catid))])].filter(Boolean);
+    const deptName = new Map(NATIONWIDE_DEPARTMENTS.map((d) => [String(d.catid), d.catname]));
+    const referer = `${QUICKLLY_ORIGIN}/indian-grocery-store/${this.merchantContext?.firstLoc || LOCATION_SEED.city}/${this.merchantSlug}`;
+    const subcatBySlug = new Map();   // slug → { catid, subcaid, name }
+    for (const catid of deptIds) {
+      let html = "";
+      try {
+        html = await this.httpPostJson(NEWSUBCATMENU_API, { storeid: storeId, catid, slug: this.merchantSlug, catname: deptName.get(catid) || "Grocery" }, referer);
+        this.stats.apiCalls++;
+      } catch (e) { console.log(`  [Quicklly] ${this.merchantSlug}: department ${catid} menu failed (${e.message})`); continue; }
+      for (const m of String(html).matchAll(/getProductsBySubcat\(\s*(\d+)\s*,\s*(\d+)\s*,[^,]*,\s*this\s*,\s*'([a-z0-9-]+)'(?:\s*,\s*'([^']{0,60})')?/gi)) {
+        if (!subcatBySlug.has(m[3])) subcatBySlug.set(m[3], { catid: m[1], subcaid: m[2], name: m[4] || null });
+      }
+      if (this.scrapeDelayMs) await delay(this.scrapeDelayMs);
+    }
+    console.log(`  [Quicklly] ${this.merchantSlug}: ${subcatBySlug.size} subcategories on its store page`);
+    const allCards = await mapWithConcurrency([...subcatBySlug.entries()], this.scrapeConcurrency, async ([slug, info]) => {
+      // "sp-" keeps these cache files apart from the location listing's (<slug>-loc-<subcat>-N.html)
+      const cards = await this.fetchSubcatProducts(`sp-${slug}`, info.subcaid, info.catid);
+      return { slug, info, cards };
+    });
+    await this.enrichSalePrices(this.dedupCards(allCards.flatMap((a) => a.cards)));
+    const seen = new Set();
+    const normalized = [];
+    for (const { slug, info, cards } of allCards) {
+      const subcatName = info.name || globalSubcats[slug]?.subcatName || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      for (const card of cards) {
+        if (seen.has(card.pid)) continue;
+        seen.add(card.pid);
+        normalized.push(this.normalizeProduct(card, { subcat: slug, subcatName, subcaid: info.subcaid, catid: info.catid }));
+      }
+    }
+    this.viaStorePage = true;
+    this.normalizedProducts = normalized;
+    this.stats.products = normalized.length;
+    console.log(`  [Quicklly] Discovered ${normalized.length} unique products for ${this.merchantSlug} via its store page (${this.stats.apiCalls} API calls)`);
     return normalized;
   }
 
