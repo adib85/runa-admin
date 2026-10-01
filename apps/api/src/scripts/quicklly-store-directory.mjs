@@ -532,6 +532,21 @@ async function retireDead(stores) {
 try {
   let stores;
   const cached = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, "utf8")) : null;
+  // --check-zip-api: run the per-ZIP-store-list steps of build() on the cached directory and
+  // print what they would add. Reads only; writes neither the file nor the graph.
+  if (process.argv.includes("--check-zip-api")) {
+    if (!cached) throw new Error("no cached directory.json to check against");
+    const copy = JSON.parse(JSON.stringify(cached.stores));
+    const session = driver.session();
+    let sids = new Set();
+    try { const g = await session.run(`MATCH (s:Store) WHERE s.id STARTS WITH 'quicklly_' AND s.store_id IS NOT NULL RETURN toString(s.store_id) AS sid`); sids = new Set(g.records.map((x) => x.get("sid"))); } finally { await session.close(); }
+    const before = Object.keys(copy).length;
+    await addZipApiStores(copy, sids);
+    await addSeedZips(copy);
+    const all = Object.values(copy);
+    say(`  [directory] check: ${before} stores before, ${all.length} after; ${all.filter((x) => x.fromZipApi).length} from the per-ZIP list; ${all.filter((x) => x.seedZip).length} carry a start ZIP; ${all.filter((x) => (x.seedZips || []).length).length} carry seed ZIPs`);
+    process.exitCode = 0;
+  } else {
   const fresh = cached && (Date.now() - Date.parse(cached.builtAt)) < 20 * 3600 * 1000;
   if ((SLUGS_ONLY && fresh) || (APPLY_ONLY && cached) || (RETIRE_DEAD && !SLUGS_ONLY && !APPLY_ONLY && fresh)) {
     stores = cached.stores;   // fresh enough — don't re-crawl 813 pages twice a day
@@ -546,6 +561,7 @@ try {
   if (RETIRE_DEAD) await retireDead(stores);
   if (SLUGS_ONLY) {
     for (const [slug, s] of Object.entries(stores)) if (s.storeId) console.log(slug);
+  }
   }
 } finally {
   await driver.close();
