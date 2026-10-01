@@ -78,6 +78,15 @@ try {
      RETURN s.id AS id, toString(s.store_id) AS sid, s.instantDelivery AS prev,
             reduce(acc = [], z IN zl | acc + coalesce(z, []))[0..4] AS zips`);
   const stores = res.records.map(r => ({ id: r.get("id"), sid: r.get("sid"), prev: r.get("prev"), zips: (r.get("zips") || []).map(String) }));
+  // Stores known only from their per-ZIP store list have no city edges — their ZIPs are on the
+  // (:QuickllyZip) nodes (quicklly-zip-stores.mjs).
+  const need = stores.filter(s => !s.zips.length).map(s => s.id);
+  if (need.length) {
+    const z = await session.run(`MATCH (z:QuickllyZip) UNWIND z.stores AS id WITH id, z.zip AS zip WHERE id IN $need
+                                 WITH id, collect(zip) AS zips RETURN id, zips[0..4] AS zips`, { need });
+    const byId = new Map(z.records.map(r => [r.get("id"), (r.get("zips") || []).map(String)]));
+    for (const s of stores) if (!s.zips.length && byId.has(s.id)) s.zips = byId.get(s.id);
+  }
   say(`instant-delivery: ${stores.length} live stores to check`);
 
   const seen = new Map();          // sid -> { instant, range, slug }
