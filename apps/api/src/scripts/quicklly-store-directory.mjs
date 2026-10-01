@@ -502,10 +502,15 @@ async function retireDead(stores) {
   // surabhi-store, id 115, with the same 2,725 products); offering its stale copy is wrong.
   // Reversible: the day its page renders an id (or the graph knows one) it is live again.
   const live = new Set(Object.entries(stores).filter(([, s]) => s.storeId).map(([s]) => `quicklly_${s}`));
+  // Also live: any store their per-ZIP store list returns today. A directory cached before the
+  // new-store backfill (it is reused for 20 h) does not hold those stores yet, and retiring them
+  // here would take a hundred freshly indexed stores out of the chat until the next rebuild.
+  const idx = await loadZipStoreIndex();
+  const listedSids = new Set(Object.values(idx.done || {}).flat().map(String));
   const session = driver.session();
   try {
-    const r = await session.run(`MATCH (st:Store) WHERE st.id STARTS WITH 'quicklly_' RETURN st.id AS id`);
-    const dead = r.records.map((x) => x.get("id")).filter((id) => !live.has(id));
+    const r = await session.run(`MATCH (st:Store) WHERE st.id STARTS WITH 'quicklly_' RETURN st.id AS id, toString(st.store_id) AS sid`);
+    const dead = r.records.filter((x) => !live.has(x.get("id")) && !(x.get("sid") && listedSids.has(x.get("sid")))).map((x) => x.get("id"));
     if (!dead.length) { say("  [directory] no dead stores"); return; }
     const now = new Date().toISOString();
     const res = await session.run(
