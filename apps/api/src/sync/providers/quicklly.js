@@ -581,13 +581,16 @@ export class QuicklyProvider extends BaseProvider {
     const out = [];
     const seen = new Set();
     const push = (city, zip) => { const z = String(zip || ""); if (z && !seen.has(z)) { seen.add(z); out.push({ city, zip: z }); } };
+    const cityOf = (z) => cities.find((c) => byCity[c].map(String).includes(String(z))) || LOCATION_SEED.city;
+    // 0. entry.seedZip — set by the directory only when the usual first ZIP is one the listing
+    //    cannot be trusted from (see 2), and for stores that have no city at all
+    if (entry?.seedZip) push(cityOf(entry.seedZip), entry.seedZip);
     // 1. the ZIP every sync so far has used (first city's first ZIP) — unchanged for healthy stores
     if (cities.length) push(cities[0], byCity[cities[0]][0]);
     // 2. the directory's picks: ZIPs of this store where the NATIONWIDE store does not deliver.
     //    The listing answers with the nationwide catalogue instead of the filtered store's
     //    exactly where the nationwide store is deliverable (21 of 22 ZIPs measured, 2026-10-01).
-    const cityOf = (z) => cities.find((c) => byCity[c].map(String).includes(String(z))) || LOCATION_SEED.city;
-    for (const z of [entry?.seedZip, ...(Array.isArray(entry?.seedZips) ? entry.seedZips : [])]) push(cityOf(z), z);
+    for (const z of (Array.isArray(entry?.seedZips) ? entry.seedZips : [])) push(cityOf(z), z);
     // 3. one ZIP per remaining city, then a couple more per city
     for (const c of cities) push(c, byCity[c][0]);
     for (const c of cities) for (const z of byCity[c].slice(1, 3)) push(c, z);
@@ -612,6 +615,8 @@ export class QuicklyProvider extends BaseProvider {
 
   inZoneSeed(entry) {
     if (this._seedOverride) return this._seedOverride;
+    const first = this.zoneSeedCandidates(entry)[0];
+    if (first) return first;
     const byCity = entry?.zipsByCity || {};
     for (const city of Object.keys(byCity).sort()) {
       const zips = byCity[city];
@@ -1434,6 +1439,9 @@ export class QuicklyProvider extends BaseProvider {
     await this.loadMerchantContext();
     this.merchantStoreId = this.merchantContext.storeId;
     console.log(`  [Quicklly] Merchant storeid=${this.merchantStoreId} (directory)`);
+    // A ZIP an earlier pass of this run had to switch to (see below) — before any session exists.
+    const seedFile = path.join(this.apiDir, `${this.merchantSlug}-seed.json`);
+    try { const saved = JSON.parse(await fs.promises.readFile(seedFile, "utf8")); if (saved?.zip) this._seedOverride = saved; } catch { /* none */ }
     const subcats = await this.loadGlobalSubcats();
     const list = Object.entries(subcats);
     // Is this store in the location listing at all? One big subcategory tells: if it answers with
@@ -1459,7 +1467,11 @@ export class QuicklyProvider extends BaseProvider {
         const before = this.stats.foreignCards || 0;
         const own = await this.fetchSubcatProductsLocation(probe[0], probe[1].subcaid);
         foreignOnly = own.length === 0 && (this.stats.foreignCards || 0) > before;
-        if (!foreignOnly) break;
+        if (!foreignOnly) {
+          // the write pass of this run (a new process) must browse from the same ZIP
+          if (i > 0) await fs.promises.writeFile(seedFile, JSON.stringify(candidates[i])).catch(() => {});
+          break;
+        }
       }
       if (foreignOnly) {
         await fs.promises.mkdir(this.apiDir, { recursive: true });

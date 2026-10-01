@@ -218,7 +218,13 @@ async function addSeedZips(stores) {
     const good = nw.size ? own.filter((z) => !nw.has(z)) : [];
     st.seedZips = spread(good.length ? good : own, 5);
     if (good.length) withGood++; else without++;
-    if (st.fromZipApi) st.seedZip = st.seedZips[0];
+    // seedZip = "start here": for a store with no city, and for one whose usual first ZIP (first
+    // city A→Z, first ZIP) is inside the nationwide store's area — the 12 clones' case.
+    const byCity = st.zipsByCity || {};
+    const firstCity = Object.keys(byCity).sort().find((c) => Array.isArray(byCity[c]) && byCity[c].length);
+    const legacyFirst = firstCity ? String(byCity[firstCity][0]) : null;
+    if (st.fromZipApi || (good.length && legacyFirst && nw.has(legacyFirst))) st.seedZip = st.seedZips[0];
+    else delete st.seedZip;
   }
   say(`  [directory] seed ZIPs: ${withGood} stores have a ZIP outside the nationwide store's area, ${without} do not (their store page is the fallback)`);
 }
