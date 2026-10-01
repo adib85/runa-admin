@@ -138,7 +138,10 @@ try {
 
   // 2. EMPTY stores
   const empty = stores.filter((s) => s.products === 0).map((s) => s.store);
-  if (empty.length) add("CRITICAL", "EMPTY", `${empty.length} indexed store(s) hold zero products.`, empty);
+  // One or two empty stores are Quicklly's own state (a store created before its products are
+  // loaded: imran-s-market-2 raised this "critical" every day from 2026-09-24), and the chat never
+  // lists a store without products. An OUTAGE empties many at once — that stays critical.
+  if (empty.length) add(empty.length >= Math.max(5, stores.length * 0.05) ? "CRITICAL" : "WARN", "EMPTY", `${empty.length} indexed store(s) hold zero products.`, empty);
   else add("OK", "EMPTY", "Every indexed store holds products.");
 
   // 3/4. Regression vs the previous snapshot.

@@ -893,6 +893,7 @@ export class QuicklyProvider extends BaseProvider {
     const cutByPid = new Map();
     const fastByPid = new Map();
     const fastFeeByPid = new Map();
+    const sidByPid = new Map();
     for (const block of html.split(/(?=<div class="clsProd)/)) {
       const pidM = block.match(/data-pid="(\d+)"/);
       if (!pidM) continue;
@@ -900,7 +901,11 @@ export class QuicklyProvider extends BaseProvider {
       // Before 2026-09-23 Store.image was only ever set from product data, which is null for
       // Quicklly, so the ~160 stores added on 2026-09-15 had no logo in the chat's store badge
       // nor in their cart (Anshul's QA). Remember the first one seen for this merchant.
-      if (!this.merchantStoreImage) {
+      // Whose card is this? (see ownCards — a listing can answer with another seller's products)
+      const sidM = block.match(/data-sid="(\d+)"/);
+      if (sidM) sidByPid.set(pidM[1], sidM[1]);
+      const ownBlock = !sidM || !this.merchantStoreId || String(sidM[1]) === String(this.merchantStoreId);
+      if (!this.merchantStoreImage && ownBlock) {
         // (a seller without a logo prints the bare folder ".../store/thumb/" — that is not an image)
         const sm = block.match(/data-simg="(https?:[^"]+\/[^"\/]+\.(?:png|jpe?g|webp|gif|svg)(?:\?[^"]*)?)"/i);
         if (sm) this.merchantStoreImage = sm[1];
@@ -926,10 +931,31 @@ export class QuicklyProvider extends BaseProvider {
       const cut = cutByPid.get(card.pid);
       const now = parseFloat(card.price);
       if (Number.isFinite(cut) && Number.isFinite(now) && cut > now) card.priceOld = cut;
+      if (sidByPid.has(card.pid)) card.sid = sidByPid.get(card.pid);
       if (fastByPid.has(card.pid)) card.fastDelivery = fastByPid.get(card.pid);
       if (fastFeeByPid.has(card.pid)) card.fastDeliveryFee = fastFeeByPid.get(card.pid);
     }
     return out;
+  }
+
+  // A listing can answer with ANOTHER seller's products. For a store whose own products are not in
+  // the location listing, Quicklly returns the nationwide store's catalogue (every card
+  // data-sid="345") instead of nothing — and we indexed it under that store's name: 12 stores
+  // were exact 3,319-product clones of the nationwide catalogue (found 2026-10-01; the chat showed
+  // nationwide products as theirs, and an add-to-cart paired their store id with a nationwide
+  // product id). A card is only ever indexed under the seller it names.
+  ownCards(cards) {
+    const mine = String(this.merchantStoreId || "");
+    if (!mine) return cards;
+    const own = cards.filter((c) => !c.sid || String(c.sid) === mine);
+    if (own.length !== cards.length) {
+      this.stats.foreignCards = (this.stats.foreignCards || 0) + (cards.length - own.length);
+      if (!this._foreignWarned) {
+        this._foreignWarned = true;
+        console.log(`  [Quicklly] the listing answered with another seller's cards for ${this.merchantSlug} (store ${mine}) — skipped, not indexed under this store`);
+      }
+    }
+    return own;
   }
 
   // Cards can repeat across subcats; enrichment must see each product once.
@@ -1046,7 +1072,7 @@ export class QuicklyProvider extends BaseProvider {
         }
         if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       }
-      const cards = this.parseProductCards(html);
+      const cards = this.ownCards(this.parseProductCards(html));
       const before = collected.size;
       for (const c of cards) {
         if (!collected.has(c.pid)) collected.set(c.pid, c);
@@ -1352,7 +1378,7 @@ export class QuicklyProvider extends BaseProvider {
         }
         if (this.scrapeDelayMs) await delay(this.scrapeDelayMs + Math.floor(Math.random() * this.scrapeDelayMs));
       }
-      const cards = this.parseProductCards(html);
+      const cards = this.ownCards(this.parseProductCards(html));
       const before = collected.size;
       for (const c of cards) if (!collected.has(c.pid)) collected.set(c.pid, c);
       // The location listing returns the whole subcategory in one response (3,054 cards seen in
@@ -1754,6 +1780,7 @@ export class QuicklyProvider extends BaseProvider {
     console.log(`    Delivery locations:   ${this.merchantContext?.locations.length || 0}`);
     console.log(`    Merchant storeid:     ${this.merchantStoreId}`);
     console.log(`    Merchant logo:        ${this.merchantStoreImage || "(none)"}`);
+    if (this.stats.foreignCards) console.log(`    Foreign cards skipped: ${this.stats.foreignCards} (another seller's products in this store's listing)`);
     console.log("  ════════════════════════════════════════════════════════════\n");
   }
 }

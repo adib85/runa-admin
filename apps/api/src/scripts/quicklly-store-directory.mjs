@@ -158,7 +158,12 @@ async function build() {
   // Ln 133 Austin … Without this they were never indexed, and --retire-dead retired any that had
   // been. They carry no cities (the chat reaches them through the ZIP list); seedZip is a ZIP
   // their API lists them for, so the product sync fetches their listing at zone prices.
-  addZipApiStores(stores);
+  //
+  // OFF until those stores can be indexed correctly: a pilot (2026-10-01) showed the LOCATION
+  // listing does not carry their products — filtered to such a store it returns the nationwide
+  // catalogue (data-sid 345). Their own products come only from the store-page endpoint
+  // (ajax-subcat-all-products.php, 50 per page), which the location-mode sync does not use.
+  if (process.env.QUICKLLY_INDEX_ZIP_API_STORES === "1") addZipApiStores(stores);
 
   // ── Second source: stores that sell into a city without being on its near-me page ──────────
   // Quicklly runs VIRTUAL first-party stores (e.g. store 113399 "Festive Specials", the seasonal
