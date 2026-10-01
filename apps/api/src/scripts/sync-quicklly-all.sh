@@ -26,6 +26,9 @@
 #   SCRAPE_WAVE       parallel merchants in PASS 1  (default: 2  — gentle on Quicklly)
 #   WRITE_WAVE        parallel merchants in PASS 2  (default: 3)
 #   FORCE             1 → add --force (re-embed/refresh existing; for daily price/stock)
+#   FORCE_SLICE       N → rolling full re-index: each run writes 1/N of the stores with --force,
+#                     a different slice every day, so every store is rebuilt once per N days
+#                     (nightly cron: 28). See "Rolling full re-index" below.
 #   SYNC_CONCURRENCY  per-merchant embedding concurrency (default: 20)
 # ═══════════════════════════════════════════════════════════════════════════════
 set -uo pipefail
@@ -58,6 +61,26 @@ FORCE_FLAG=""
 export SYNC_CONCURRENCY="${SYNC_CONCURRENCY:-20}"
 export SYNC_FAST_INDEX=true          # skip the inter-write politeness sleep (own DB)
 export SYNC_FETCH_BATCH="${SYNC_FETCH_BATCH:-200}"
+
+# ── Rolling full re-index (FORCE_SLICE=N) ──
+# A normal run refreshes price, stock, sale and fast-delivery on existing products and indexes
+# new ones; their title, image and category (and the embeddings built from them) only change in
+# a --force write. That used to be a monthly `FRESH=all FORCE=1` cron line. The first time it
+# fired (2026-10-01) it needed ~35 h for ~1M products and held the lock the whole time, so no
+# price refresh could run — it was stopped after 26 of 225 stores.
+# Instead, each nightly run forces a slice: a store belongs to slice `cksum(slug) % N` (stable
+# when stores come and go) and tonight's slice is `days-since-epoch % N`. With N=28 that is ~9
+# stores a night and every store rebuilt once every four weeks, with no long run.
+# FORCE=1 still forces everything; the midday run sets no FORCE_SLICE and forces nothing.
+FORCE_SLICE="${FORCE_SLICE:-0}"
+case "$FORCE_SLICE" in ''|*[!0-9]*) FORCE_SLICE=0 ;; esac
+SLICE_DAY="${FORCE_SLICE_DAY:-$(( $(date +%s) / 86400 ))}"   # FORCE_SLICE_DAY: tests only
+in_force_slice() {
+  [ "$FORCE_SLICE" -gt 0 ] || return 1
+  local h
+  h=$(printf '%s' "$1" | cksum | cut -d' ' -f1)
+  [ $(( h % FORCE_SLICE )) -eq $(( SLICE_DAY % FORCE_SLICE )) ]
+}
 
 STAMP="$(date +%Y-%m-%d_%H%M)"
 LOG_DIR="$REPO_ROOT/apps/api/src/scripts/logs"
@@ -128,18 +151,28 @@ run_pass() {
   local running=0 done_count=0 skip_count=0 i=0
 
   log "── PASS: $name (wave=$wave) ──"
+  # Tonight's slice of the rolling full re-index (write pass only; FORCE=1 already forces all).
+  local slicing=0
+  if [ "$name" = "write" ] && [ -z "$FORCE_FLAG" ] && [ "$FORCE_SLICE" -gt 0 ]; then
+    slicing=1
+    local in_slice=""
+    for slug in "${MERCHANT_LIST[@]}"; do in_force_slice "$slug" && in_slice="$in_slice $slug"; done
+    log "Rolling full re-index: slice $(( SLICE_DAY % FORCE_SLICE + 1 )) of $FORCE_SLICE → $(echo $in_slice | wc -w | tr -d ' ') of $TOTAL stores are written with --force:${in_slice:- none}"
+  fi
   for slug in "${MERCHANT_LIST[@]}"; do
     i=$((i+1))
     if grep -qxF "$slug" "$donefile"; then
       skip_count=$((skip_count+1)); continue
     fi
+    local args=("${extra[@]+"${extra[@]}"}") note=""
+    if [ "$slicing" = "1" ] && in_force_slice "$slug"; then args+=("--force"); note=" (full re-index)"; fi
     (
       mlog="$RUN_DIR/${name}-${slug}.log"
-      if node apps/api/src/scripts/sync-modular.js quicklly "$slug" "${extra[@]+"${extra[@]}"}" > "$mlog" 2>&1; then
+      if node apps/api/src/scripts/sync-modular.js quicklly "$slug" "${args[@]+"${args[@]}"}" > "$mlog" 2>&1; then
         echo "$slug" >> "$donefile"
-        echo "[$(date +%H:%M:%S)] ✓ $name $slug" | tee -a "$MAIN_LOG"
+        echo "[$(date +%H:%M:%S)] ✓ $name $slug$note" | tee -a "$MAIN_LOG"
       else
-        echo "[$(date +%H:%M:%S)] ✗ $name $slug — see ${name}-${slug}.log" | tee -a "$MAIN_LOG"
+        echo "[$(date +%H:%M:%S)] ✗ $name $slug$note — see ${name}-${slug}.log" | tee -a "$MAIN_LOG"
       fi
     ) &
     running=$((running+1))
