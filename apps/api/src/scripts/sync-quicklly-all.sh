@@ -208,13 +208,16 @@ fi
 # ── Nationwide store: full-US ZIP list ──
 # The nationwide store (345) ships to ZIPs far outside the 813 near-me cities; its per-ZIP verdict
 # from Quicklly's availability API is kept on the Store node (s.zips). Re-applied from the cache
-# every run; re-probed from scratch weekly (NATIONWIDE_ZIPS=full, ~40 min at 8-way) — or the first
-# time, when there is no cache yet.
-# The weekly re-probe is decided HERE (Sunday, `date +%u` = 7), not by a second cron line.
+# every run; re-probed from scratch weekly (~3 min at 8-way) — or the first time, when there is
+# no cache yet. The weekly re-probe is decided HERE (Sunday, `date +%u` = 7), not by a second
+# cron line. The cache file is removed first: the probe RESUMES from it, so with the file in
+# place a "weekly" run found nothing to do (Sundays 2026-09-27 → 10-04 never re-asked, while
+# their coverage moved from 36,281 to 31,137 ZIPs). apply() refuses a probe that covered < 95%
+# of the ZIPs, so an interrupted Sunday keeps the previous list in the graph.
 if [ -z "${MERCHANTS:-}" ]; then
   if [ "${NATIONWIDE_ZIPS:-}" = "full" ] || [ "$(date +%u)" = "7" ] || [ ! -f "$CACHE_DIR/nationwide-zips.json" ]; then
     log "── Nationwide store: probing every US ZIP (weekly) ──"
-    [ "${NATIONWIDE_ZIPS:-}" = "full" ] && rm -f "$CACHE_DIR/nationwide-zips.json"
+    rm -f "$CACHE_DIR/nationwide-zips.json"
     node apps/api/src/scripts/quicklly-nationwide-zips.mjs --apply >> "$MAIN_LOG" 2>&1 || log "nationwide ZIP probe failed (non-fatal)"
   else
     node apps/api/src/scripts/quicklly-nationwide-zips.mjs --apply --no-probe >> "$MAIN_LOG" 2>&1 || log "nationwide ZIP apply failed (non-fatal)"
