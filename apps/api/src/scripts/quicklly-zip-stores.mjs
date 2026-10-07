@@ -4,7 +4,12 @@
  *
  * quicklly.com renders "Grocery stores near you" from
  *   POST https://ormwebapi.quicklly.com/grocery/view-all-grocery-stores
- *        {zipcode, uid:0, callForm:'WEBSITE', search:'', page:0, token}   → lstGroceryNearYou[{sid, slug, …}]
+ *        {zipcode, uid:0, callForm:'WEBSITE', search:'', page:0, token}   → lstGroceryNearYou[{sid, slug, mini_amt, mini_fee, …}]
+ *
+ * Since 2026-10-07 the minimum order and delivery fee are kept PER ZIP ((:QuickllyZip).minOrders /
+ * .deliveryFees, aligned with .sids): stores that ship far (Patel Brothers, D Mart, Apna Bazar)
+ * ask $10 / $2.99 near home but $40 / $6.99 at a distant ZIP. The store-level copy (the home
+ * values) is on the Store node, written nightly by quicklly-instant-delivery.mjs.
  * It answers for ANY ZIP with the complete list on page 0 (page 1 repeats it), and agrees with their
  * checkout availability API. Our own footprint (near-me pages ∩ availability, 3,131 ZIPs of 770
  * cities) misses what lies outside those city lists — measured 2026-10-01 on 750 ZIPs:
@@ -66,7 +71,10 @@ async function token() {
   throw new Error("no API token on the page");
 }
 
-// → [{sid, slug}] for the ZIP, or null when the call failed (so the ZIP is retried, not recorded empty).
+// "30", 30, "2.99" → number; anything else → null.
+function num(v) { const n = typeof v === "number" ? v : parseFloat(String(v ?? "")); return Number.isFinite(n) ? n : null; }
+
+// → [{sid, slug, min, fee}] for the ZIP, or null when the call failed (so the ZIP is retried, not recorded empty).
 async function storesFor(zip, tok) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -75,7 +83,7 @@ async function storesFor(zip, tok) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       if (!j || j.success === false || !Array.isArray(j.lstGroceryNearYou)) throw new Error("unexpected body");
-      return j.lstGroceryNearYou.filter(s => s && s.sid != null).map(s => ({ sid: String(s.sid), slug: s.slug || "" }));
+      return j.lstGroceryNearYou.filter(s => s && s.sid != null).map(s => ({ sid: String(s.sid), slug: s.slug || "", min: num(s.mini_amt), fee: num(s.mini_fee) }));
     } catch { await new Promise(res => setTimeout(res, 400 * (attempt + 1))); }
   }
   return null;
@@ -88,13 +96,13 @@ const WORK = FRESH ? OUT + ".fresh" : OUT;
 function loadState() {
   try {
     const p = JSON.parse(fs.readFileSync(WORK, "utf8"));
-    if (FRESH && Date.now() - Date.parse(p.checkedAt || 0) > 12 * 3600 * 1000) return { done: {}, slugs: {} };
-    return { done: p.done || {}, slugs: p.slugs || {} };
-  } catch { return { done: {}, slugs: {} }; }
+    if (FRESH && Date.now() - Date.parse(p.checkedAt || 0) > 12 * 3600 * 1000) return { done: {}, slugs: {}, terms: {} };
+    return { done: p.done || {}, slugs: p.slugs || {}, terms: p.terms || {} };
+  } catch { return { done: {}, slugs: {}, terms: {} }; }
 }
 function saveState(state) {
   fs.mkdirSync(CACHE_ROOT, { recursive: true });
-  fs.writeFileSync(WORK + ".tmp", JSON.stringify({ checkedAt: new Date().toISOString(), done: state.done, slugs: state.slugs }));
+  fs.writeFileSync(WORK + ".tmp", JSON.stringify({ checkedAt: new Date().toISOString(), done: state.done, slugs: state.slugs, terms: state.terms || {} }));
   fs.renameSync(WORK + ".tmp", WORK);
 }
 
@@ -116,6 +124,7 @@ async function probe(state) {
       }
       failStreak = 0; ok++;
       state.done[zip] = list.map(s => s.sid);
+      state.terms[zip] = list.map(s => [s.min, s.fee]);       // per-ZIP minimum order + delivery fee, aligned with done[zip]
       for (const s of list) if (s.slug) state.slugs[s.sid] = s.slug;
       if ((ok + failed) % 2000 === 0) say(`${ok + failed}/${todo.length} (${failed} failed)`);
       if (Date.now() - lastSave > 60000) { lastSave = Date.now(); saveState(state); }
@@ -140,7 +149,14 @@ async function apply(state, all) {
     const idBySid = new Map(), virtual = new Set();
     for (const r of res.records) { idBySid.set(r.get("sid"), r.get("id")); if (r.get("virtual") === true) virtual.add(r.get("sid")); }
     const zips = (ONLY || all).filter(z => Array.isArray(state.done[z]));
-    const rows = zips.map(z => ({ zip: z, sids: state.done[z], stores: state.done[z].filter(sid => idBySid.has(sid) && !virtual.has(sid)).map(sid => idBySid.get(sid)) }));
+    const terms = state.terms || {};
+    const rows = zips.map(z => ({
+      zip: z, sids: state.done[z], stores: state.done[z].filter(sid => idBySid.has(sid) && !virtual.has(sid)).map(sid => idBySid.get(sid)),
+      // from a cache written before 2026-10-07 the terms are unknown: null keeps the node's previous values
+      mins: Array.isArray(terms[z]) && terms[z].length === state.done[z].length ? terms[z].map(t => t[0]) : null,
+      fees: Array.isArray(terms[z]) && terms[z].length === state.done[z].length ? terms[z].map(t => t[1]) : null,
+    }));
+    say(`${rows.filter(r => r.mins).length} of ${rows.length} ZIPs carry per-ZIP minimum order / delivery fee`);
     const withStores = rows.filter(r => r.sids.length).length;
     const unknown = new Map();
     for (const r of rows) for (const sid of r.sids) if (!idBySid.has(sid)) unknown.set(sid, (unknown.get(sid) || 0) + 1);
@@ -153,7 +169,10 @@ async function apply(state, all) {
     const now = new Date().toISOString();
     let n = 0;
     for (let i = 0; i < rows.length; i += 2000) {
-      const w = await session.run(`UNWIND $rows AS r MERGE (z:QuickllyZip {zip: r.zip}) SET z.stores = r.stores, z.sids = r.sids, z.checkedAt = $now RETURN count(z) AS n`, { rows: rows.slice(i, i + 2000), now });
+      const w = await session.run(`UNWIND $rows AS r MERGE (z:QuickllyZip {zip: r.zip})
+        SET z.stores = r.stores, z.sids = r.sids, z.checkedAt = $now,
+            z.minOrders = coalesce(r.mins, z.minOrders), z.deliveryFees = coalesce(r.fees, z.deliveryFees)
+        RETURN count(z) AS n`, { rows: rows.slice(i, i + 2000), now });
       n += w.records[0].get("n").toNumber();
     }
     // the sid → slug names, so the directory can rebuild this index from the graph if the cache file is gone

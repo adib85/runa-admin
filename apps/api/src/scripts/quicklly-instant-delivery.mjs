@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// Store-level "⚡ Delivery in 3 hours or less" flag, from Quicklly's own store-list API.
+// Store-level "⚡ Delivery in 3 hours or less" flag — and, since 2026-10-07, the rest of what their
+// store-list API says about a store: minimum order (mini_amt), delivery fee (mini_fee), the
+// delivery label (deliveryType / deliveryRange), street address, rating, logo and banner. Written
+// to the Store node as minOrder / deliveryFee / deliveryType / deliveryRange / address / rating /
+// banner (image only when the store has none yet). Measured 2026-10-07 over 5 ZIPs: the fee is
+// $2.99 everywhere, the minimum $30 or $10; a store whose values differ between ZIPs is reported.
 //
 // quicklly.com renders its "Grocery stores near you" cards from
 //   POST https://ormwebapi.quicklly.com/grocery/view-all-grocery-stores {zipcode, uid:0, callForm:'WEBSITE', search:'', page, token}
@@ -51,6 +56,9 @@ async function apiToken() {
   return null;
 }
 
+// "30", 30, "2.99" → number; anything else → null (the property is then cleared, i.e. unknown).
+function num(v) { const n = typeof v === "number" ? v : parseFloat(String(v ?? "")); return Number.isFinite(n) ? n : null; }
+
 async function storesForZip(zip, token) {
   const out = new Map();
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -62,7 +70,11 @@ async function storesForZip(zip, token) {
     } catch (_) { list = []; }
     const fresh = list.filter(s => s && s.sid != null && !out.has(String(s.sid)));
     if (!fresh.length) break;
-    for (const s of fresh) out.set(String(s.sid), { sid: String(s.sid), slug: s.slug || "", instant: s.instantDelivery === true, range: s.deliveryRange || "" });
+    for (const s of fresh) out.set(String(s.sid), {
+      sid: String(s.sid), slug: s.slug || "", instant: s.instantDelivery === true, range: s.deliveryRange || "",
+      minOrder: num(s.mini_amt), deliveryFee: num(s.mini_fee), deliveryType: s.deliveryType || "",
+      address: s.store_addr || "", rating: num(s.store_rating), icon: s.store_icon || "", banner: s.store_banner || "",
+    });
   }
   return out;
 }
@@ -89,7 +101,8 @@ try {
   }
   say(`instant-delivery: ${stores.length} live stores to check`);
 
-  const seen = new Map();          // sid -> { instant, range, slug }
+  const seen = new Map();          // sid -> { instant, range, slug, minOrder, deliveryFee, … } — first ZIP's answer
+  const varied = new Map();        // sid -> what another ZIP said differently (minimum / fee), for the log
   const asked = new Set();
   let calls = 0;
   // Greedy: a ZIP's answer covers every store listed for it, so most stores are already known by
@@ -102,22 +115,39 @@ try {
         return stores.some(s => !seen.has(s.sid) && s.zips[round] === z);
       });
       const results = await Promise.all(batch.map(z => { asked.add(z); calls++; return storesForZip(z, token); }));
-      for (const m of results) for (const [sid, v] of m) if (!seen.has(sid)) seen.set(sid, v);
+      for (const m of results) for (const [sid, v] of m) {
+        if (!seen.has(sid)) { seen.set(sid, v); continue; }
+        const f = seen.get(sid);
+        if (f.minOrder !== v.minOrder || f.deliveryFee !== v.deliveryFee) varied.set(sid, `min $${f.minOrder}→$${v.minOrder} fee $${f.deliveryFee}→$${v.deliveryFee}`);
+      }
     }
   }
 
-  const rows = stores.filter(s => seen.has(s.sid)).map(s => ({ id: s.id, instant: seen.get(s.sid).instant }));
+  const rows = stores.filter(s => seen.has(s.sid)).map(s => { const v = seen.get(s.sid); return {
+    id: s.id, instant: v.instant, range: v.range, minOrder: v.minOrder, deliveryFee: v.deliveryFee, deliveryType: v.deliveryType,
+    address: v.address, rating: v.rating, icon: v.icon, banner: v.banner,
+  }; });
   const unknown = stores.filter(s => !seen.has(s.sid));
   const changed = stores.filter(s => seen.has(s.sid) && s.prev !== seen.get(s.sid).instant);
   say(`instant-delivery: ${calls} API calls; ${rows.length} stores answered (${rows.filter(r => r.instant).length} instant, ${rows.filter(r => !r.instant).length} not); ${unknown.length} not returned by the API; ${changed.length} changed`);
   if (unknown.length) say(`  not returned: ${unknown.slice(0, 12).map(s => s.id.replace("quicklly_", "")).join(", ")}${unknown.length > 12 ? ` …+${unknown.length - 12}` : ""}`);
   const ranges = {}; for (const v of seen.values()) if (v.instant) ranges[v.range] = (ranges[v.range] || 0) + 1;
   say(`  their label right now: ${Object.entries(ranges).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `"${k}" ×${n}`).join(", ")}`);
+  const mins = {}, fees = {};
+  for (const r of rows) { mins[r.minOrder] = (mins[r.minOrder] || 0) + 1; fees[r.deliveryFee] = (fees[r.deliveryFee] || 0) + 1; }
+  say(`  minimum order: ${Object.entries(mins).map(([k, n]) => `$${k} ×${n}`).join(", ")}; delivery fee: ${Object.entries(fees).map(([k, n]) => `$${k} ×${n}`).join(", ")}; with address ${rows.filter(r => r.address).length}, rating ${rows.filter(r => r.rating != null).length}`);
+  if (varied.size) say(`  differ between ZIPs (first ZIP's value kept): ${[...varied.entries()].slice(0, 8).map(([sid, d]) => `${seen.get(sid).slug || sid}: ${d}`).join("; ")}${varied.size > 8 ? ` …+${varied.size - 8}` : ""}`);
 
   // Refuse a write that would wipe the flag on a bad day (API down / token rejected).
   if (rows.length < Math.max(20, stores.length * 0.5)) { say("instant-delivery: too few stores answered — keeping the previous values"); process.exit(3); }
   if (APPLY) {
-    const w = await session.run(`UNWIND $rows AS r MATCH (s:Store {id: r.id}) SET s.instantDelivery = r.instant, s.instantCheckedAt = $now RETURN count(s) AS n`, { rows, now: new Date().toISOString() });
+    const w = await session.run(`UNWIND $rows AS r MATCH (s:Store {id: r.id})
+      SET s.instantDelivery = r.instant, s.instantCheckedAt = $now,
+          s.deliveryRange = r.range, s.deliveryType = r.deliveryType,
+          s.minOrder = r.minOrder, s.deliveryFee = r.deliveryFee,
+          s.address = r.address, s.rating = r.rating, s.banner = r.banner,
+          s.image = coalesce(s.image, CASE WHEN r.icon <> '' THEN r.icon END)
+      RETURN count(s) AS n`, { rows, now: new Date().toISOString() });
     say(`instant-delivery: applied to ${w.records[0].get("n")} stores`);
   } else say("dry run (add --apply)");
 } finally { await session.close(); await driver.close(); }
