@@ -785,6 +785,10 @@ Return exactly one category.`,
         delete variant.option3;
       }
 
+      if (this.wantsOptionEmbeddings?.(product)) {
+        await this.generateOptionEmbeddings(product);
+      }
+
       product.sizes = [...new Set(
         (product.variants || []).map(v => v.option2).filter(s => s && s !== "unknown")
       )];

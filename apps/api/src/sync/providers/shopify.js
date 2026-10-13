@@ -45,6 +45,9 @@ const BS_HANDLE_TYPO_FIX = {
 // product color from a variant's selectedOptions).
 const COLOR_OPTION_NAMES = new Set(["color", "colour", "culoare"]);
 
+// Amalin (Andreea Raicu) — legacy-crawler parity switches, see docs in the Amalin sync plan.
+const AMALIN_SHOP = "andreearaicu.myshopify.com";
+
 function isBronzeSnakeAdminHandle(h) {
   return BS_ADMIN_HANDLES.has(h)
     || /(^|-)just-landed$/.test(h)
@@ -56,7 +59,7 @@ function isBronzeSnakeAdminHandle(h) {
 }
 
 const GET_PRODUCTS_QUERY = gql`
-  query getProducts($first: Int!, $after: String, $query: String!) {
+  query getProducts($first: Int!, $after: String, $query: String!, $collectionsFirst: Int = 10) {
     products(first: $first, after: $after, query: $query, sortKey: CREATED_AT, reverse: true) {
       pageInfo { hasNextPage endCursor }
       edges {
@@ -67,12 +70,12 @@ const GET_PRODUCTS_QUERY = gql`
           variants(first: 100) {
             edges {
               node {
-                id title price compareAtPrice sku inventoryQuantity inventoryPolicy
+                id title price compareAtPrice sku inventoryQuantity inventoryPolicy availableForSale
                 selectedOptions { name value }
               }
             }
           }
-          collections(first: 10) { edges { node { id title handle } } }
+          collections(first: $collectionsFirst) { edges { node { id title handle } } }
           metafields(first: 10) { edges { node { key value namespace } } }
           styleFilters: metafield(namespace: "custom", key: "style_filters_new") { value type }
           canonicalColorMeta: metafield(namespace: "customAttributes", key: "colour") { value }
@@ -136,6 +139,9 @@ export class ShopifyProvider extends BaseProvider {
   computeInStock(product) {
     const variants = product.variants || [];
     if (variants.length === 0) return true; // no variant data → don't hide
+    // Amalin sells untracked digital programs / gift packaging (qty 0 or negative, policy DENY, but
+    // purchasable). Shopify's own availableForSale is the storefront truth there.
+    if (this.shopName === AMALIN_SHOP) return variants.some(v => v.available_for_sale === true);
     return variants.some(v =>
       (typeof v.inventory_quantity === "number" && v.inventory_quantity > 0) ||
       v.inventory_policy === "CONTINUE" ||
@@ -170,7 +176,9 @@ export class ShopifyProvider extends BaseProvider {
     const response = await this.graphQLClient.request(GET_PRODUCTS_QUERY, {
       first: batchSize,
       after: effectiveCursor,
-      query: queryStr
+      query: queryStr,
+      // Amalin products sit in 11-14 collections (+ unpublished ones); 10 cut off Rochii/PARTY/AMALIN_V2… edges.
+      collectionsFirst: this.shopName === AMALIN_SHOP ? 50 : 10
     });
 
     const products = this.transformGraphQLResponse(response);
@@ -222,6 +230,7 @@ export class ShopifyProvider extends BaseProvider {
           sku: v.sku,
           inventory_quantity: v.inventoryQuantity,
           inventory_policy: v.inventoryPolicy,
+          available_for_sale: v.availableForSale,
           ...options
         };
       }) || [];
@@ -271,7 +280,9 @@ export class ShopifyProvider extends BaseProvider {
         product_type: node.productType,
         status: node.status?.toLowerCase(),
         tags: node.tags?.join(", ") || "",
-        tagsAsCategories: false,
+        // Amalin: the legacy crawler linked every tag as a Category (birou, party, category_amalin/…/rochii);
+        // those names are in the widget's category list (UserTable context), so keep them for new products.
+        tagsAsCategories: this.shopName === AMALIN_SHOP,
         published_at: node.publishedAt,
         price,
         price_old: priceOld,
@@ -614,6 +625,13 @@ export class ShopifyProvider extends BaseProvider {
   // `customAttributes.colour` metafield (33 buckets). We read it directly in
   // the GraphQL query above; this method only fires when that metafield is
   // missing, so Gemini can fill the gap from the product image + title.
+  // Amalin: write Color/Size option embeddings on variants (v.color/v.size/v.colorEmbedding/v.sizeEmbedding)
+  // like the legacy crawler; the PDP "how to style it" Lambda scores v.colorEmbedding / v.sizeEmbedding,
+  // and p.color / p.colorEmbedding fall back to variants[0] in the save query (chat colour scoring).
+  wantsOptionEmbeddings() {
+    return this.shopName === AMALIN_SHOP;
+  }
+
   shouldDetectCanonicalColor(product) {
     if (this.shopName !== "bronze-snake-1.myshopify.com") return false;
     if (product.canonicalColor) return false;
@@ -796,6 +814,11 @@ export class ShopifyProvider extends BaseProvider {
       console.log("========================================\n");
       console.log("✓ Continuing execution...\n");
       return category;
+    }
+
+    // Amalin: product_type (Rochii, Bluze, Fuste…) — the last collection is an admin bucket ("NO SALE").
+    if (this.shopName === AMALIN_SHOP && product.product_type) {
+      return product.product_type.toLowerCase().trim();
     }
 
     // Default handling for other shops — use last (most specific) collection
