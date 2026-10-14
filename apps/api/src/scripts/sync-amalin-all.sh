@@ -13,6 +13,9 @@
 #           (the PDP "how to style it" Lambda ignores inStock, so delete is the only retirement it sees).
 #           NO --require-404: Amalin hides products as UNLISTED (storefront answers 200 + noindex), so a
 #           404 gate would keep them. Guards: aborts if step 1 did not finish <4h ago or would delete >10%.
+#   Step 3  refresh-amalin-bundles.mjs  marks cached "How to style it" bundles for rebuild (2026-10-14) when
+#           they recommend a product that is now sold out or gone, or are older than 30 days. The widget
+#           Lambda rebuilds a marked bundle on its next view (~$10-15/month in AI calls).
 set -euo pipefail
 
 if [ -f /home/ec2-user/miniconda3/etc/profile.d/conda.sh ]; then
@@ -38,10 +41,13 @@ echo "=== Amalin sync $(date) shop=$SHOP_DOMAIN ${FORCE_FLAG:-normal} ===" | tee
 # The sync prints the store's UserTable record (base.js), access token included — keep it out of the logs.
 redact() { sed -E 's/shp(at|ua|ca|ss)_[A-Za-z0-9]+/<redacted>/g; s/("?accessToken"?[:=] *"?)[^",} ]+/\1<redacted>/g'; }
 
-echo "[1/2] sync-modular (full catalogue ${FORCE_FLAG:-new products + stamp all})" | tee -a "$LOG_FILE"
+echo "[1/3] sync-modular (full catalogue ${FORCE_FLAG:-new products + stamp all})" | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-modular.js shopify "$SHOP_DOMAIN" $FORCE_FLAG 2>&1 | redact | tee -a "$LOG_FILE"
 
-echo "[2/2] prune products no longer in the shop (hard delete, store-scoped)" | tee -a "$LOG_FILE"
+echo "[2/3] prune products no longer in the shop (hard delete, store-scoped)" | tee -a "$LOG_FILE"
 node apps/api/src/scripts/sync-cleanup-stale.js "$SHOP_DOMAIN" --grace-days 0 2>&1 | redact | tee -a "$LOG_FILE"
+
+echo "[3/3] refresh product-page bundles (sold out / removed / older than 30 days)" | tee -a "$LOG_FILE"
+node apps/api/src/scripts/refresh-amalin-bundles.mjs --shop "$SHOP_DOMAIN" --max-age-days 30 2>&1 | grep -v "AWS SDK for JavaScript (v2)\|end-of-support\|will no longer receive\|migrate your code\|a.co/cUPnyil\|trace-warnings" | tee -a "$LOG_FILE"
 
 echo "=== Amalin sync completed $(date) ===" | tee -a "$LOG_FILE"
