@@ -138,6 +138,19 @@ if [ "${SKIP_STALE_RITUALS:-0}" != "1" ]; then
   (cd apps/api && node src/scripts/refresh-xpertbeauty-stale-rituals.mjs --concurrency 3) 2>&1 | tee -a "$LOG_FILE" || true
 fi
 
+# ── Step 7: clear the data CDN, so product pages show the prices and stock this sync just wrote. Browsers keep none of our
+# answers since 2026-11-17 (like Amazon); the CDN keeps each one 12 h, so this clear reaches every shopper on their next
+# page view. One path per run ("/*"), free up to 1,000 a month. SKIP_CDN_CLEAR=1 skips it.
+if [ "${SKIP_CDN_CLEAR:-0}" != "1" ]; then
+  echo "" | tee -a "$LOG_FILE"
+  echo "[Step 7] Clearing the data CDN (${XB_CF_DISTRIBUTION:-E1M8L85URRPIX9}) — pages show the new prices and stock..." | tee -a "$LOG_FILE"
+  if INV=$(aws cloudfront create-invalidation --distribution-id "${XB_CF_DISTRIBUTION:-E1M8L85URRPIX9}" --paths "/*" --query 'Invalidation.Id' --output text 2>&1); then
+    echo "  data CDN cleared (invalidation $INV)" | tee -a "$LOG_FILE"
+  else
+    echo "  ⚠ could not clear the data CDN: $INV" | tee -a "$LOG_FILE"
+  fi
+fi
+
 echo "" | tee -a "$LOG_FILE"
 echo "═══════════════════════════════════════════════════════════" | tee -a "$LOG_FILE"
 echo "  Xpert Beauty Sync completed — $(date)"                    | tee -a "$LOG_FILE"
