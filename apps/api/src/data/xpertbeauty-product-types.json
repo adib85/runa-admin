@@ -1,0 +1,1068 @@
+{
+ "_about": "Runa product types for Xpert Beauty (2026-11-16). Each product gets ONE type: rules on the title first (checked in this order; a pattern matches the START of the normalised title, '~' = anywhere), then the shop category map, and the AI checks every new product (scripts/type-xpertbeauty-products.mjs). Source of truth: runa-prompt-labs clients/xpertbeauty/product_types.json — keep this copy in step.",
+ "types": [
+  {
+   "id": "set_cadou",
+   "department": "Seturi",
+   "label": "Set / pachet",
+   "patterns": [
+    "(set|pachet|kit|trusa|coffret|caseta|cutie cadou)\\b"
+   ]
+  },
+  {
+   "id": "mascara",
+   "department": "Make-up",
+   "label": "Mascara",
+   "patterns": [
+    "mascara",
+    "rimel"
+   ]
+  },
+  {
+   "id": "pensule_machiaj",
+   "department": "Make-up",
+   "label": "Pensule / accesorii machiaj",
+   "patterns": [
+    "ondulator (de |pentru )?gene",
+    "(cleste|dispozitiv|aparat) (de |pentru )?(gene|curbat gene|curbarea genelor)"
+   ]
+  },
+  {
+   "id": "dizolvant",
+   "department": "Unghii",
+   "label": "Dizolvant / degresant",
+   "patterns": [
+    "dizolvant",
+    "degresant",
+    "remover",
+    "solutie (de|pentru) (indepartare|curatare)"
+   ]
+  },
+  {
+   "id": "permanent_par",
+   "department": "Par",
+   "label": "Solutie permanent / ondulare",
+   "patterns": [
+    "(solutie|lotiune|kit) (de |pentru )?(permanent|ondulare)",
+    "permanent (de par|pentru par)"
+   ]
+  },
+  {
+   "id": "consumabile",
+   "department": "Corp",
+   "label": "Consumabile salon (manusi, masti, bavete)",
+   "patterns": [
+    "manusi (de unica folosinta|nitril|latex|vinil|de protectie)",
+    "(masca|masti) (medicala|medicale|de protectie)",
+    "bavete",
+    "tifon",
+    "comprese",
+    "camp (chirurgical|steril)"
+   ]
+  },
+  {
+   "id": "oxidant",
+   "department": "Par",
+   "label": "Oxidant / developer",
+   "patterns": [
+    "(crema|emulsie|lotiune) oxidanta",
+    "oxidant",
+    "activator\\b",
+    "developer"
+   ]
+  },
+  {
+   "id": "wellness",
+   "department": "Corp",
+   "label": "Wellness intim",
+   "patterns": [
+    "dispozitiv (de )?stimulare",
+    "vibrator",
+    "lubrifiant",
+    "masturbator",
+    "~\\bstimulare intima\\b"
+   ]
+  },
+  {
+   "id": "epilare",
+   "department": "Corp",
+   "label": "Epilare",
+   "patterns": [
+    "~\\bdepil",
+    "~\\bepil",
+    "ceara (depilatoare|de epilare|traditionala|cerazyme)",
+    "benzi (depilatoare|de epilare|cu ceara)",
+    "incalzitor"
+   ]
+  },
+  {
+   "id": "demachiant",
+   "department": "Ten",
+   "label": "Demachiant / curatare",
+   "patterns": [
+    "apa micelara",
+    "demachiant",
+    "lapte demachiant"
+   ]
+  },
+  {
+   "id": "fard_obraz",
+   "department": "Make-up",
+   "label": "Blush / bronzer / iluminator",
+   "patterns": [
+    "(fard|blush) (de |pentru )?obraz",
+    "pudra (blush|bronzanta|iluminatoare)",
+    "blush",
+    "bronzer",
+    "iluminator",
+    "highlighter"
+   ]
+  },
+  {
+   "id": "sampon_uscat",
+   "department": "Par",
+   "label": "Sampon uscat",
+   "patterns": [
+    "sampon uscat",
+    "sampon pudra",
+    "~\\bdry shampoo\\b"
+   ]
+  },
+  {
+   "id": "sampon",
+   "department": "Par",
+   "label": "Sampon",
+   "patterns": [
+    "sampon",
+    "~\\bco-?wash\\b",
+    "sampoane"
+   ]
+  },
+  {
+   "id": "balsam_fara_clatire",
+   "department": "Par",
+   "label": "Balsam fara clatire (leave-in)",
+   "patterns": [
+    "balsam (de par )?fara clatire",
+    "~\\bleave[- ]in\\b",
+    "balsam spray",
+    "spray balsam"
+   ]
+  },
+  {
+   "id": "balsam_buze",
+   "department": "Make-up",
+   "label": "Balsam de buze",
+   "patterns": [
+    "balsam (de|pentru) buze"
+   ]
+  },
+  {
+   "id": "balsam_fata",
+   "department": "Ten",
+   "label": "Balsam de fata",
+   "patterns": [
+    "balsam (de|pentru) fata"
+   ]
+  },
+  {
+   "id": "balsam_dupa_ras",
+   "department": "Barbati",
+   "label": "After shave",
+   "patterns": [
+    "balsam (after shave|dupa ras)",
+    "after shave",
+    "lotiune (after shave|dupa ras)"
+   ]
+  },
+  {
+   "id": "balsam_barba",
+   "department": "Barbati",
+   "label": "Ingrijire barba",
+   "patterns": [
+    "(balsam|ulei|lotiune|ceara|sampon) (de|pentru) barba",
+    "~\\bbeard\\b"
+   ]
+  },
+  {
+   "id": "balsam",
+   "department": "Par",
+   "label": "Balsam de par",
+   "patterns": [
+    "balsam",
+    "conditioner"
+   ]
+  },
+  {
+   "id": "masca_maini",
+   "department": "Corp",
+   "label": "Masca / tratament maini",
+   "patterns": [
+    "masca (pentru|de) maini",
+    "manusi (hidratante|exfoliante|pentru maini)"
+   ]
+  },
+  {
+   "id": "masca_picioare",
+   "department": "Corp",
+   "label": "Masca / tratament picioare",
+   "patterns": [
+    "masca (pentru|de) picioare",
+    "sosete (exfoliante|hidratante)"
+   ]
+  },
+  {
+   "id": "masca_par",
+   "department": "Par",
+   "label": "Masca de par",
+   "patterns": [
+    "masca (de|pentru) par",
+    "masca par",
+    "masti (de|pentru) par",
+    "masca (reparatoare|nutritiva|hidratanta)\\b.*\\bpar\\b"
+   ]
+  },
+  {
+   "id": "masca_ochi",
+   "department": "Ten",
+   "label": "Masca / plasturi ochi",
+   "patterns": [
+    "(masca|plasturi|patch) (de|pentru) (ochi|zona ochilor)",
+    "plasturi pentru ochi"
+   ]
+  },
+  {
+   "id": "masca_ten",
+   "department": "Ten",
+   "label": "Masca de fata",
+   "patterns": [
+    "masca\\b",
+    "masti\\b"
+   ]
+  },
+  {
+   "id": "vopsea_par",
+   "department": "Par",
+   "label": "Vopsea de par",
+   "patterns": [
+    "vopsea",
+    "~\\bcolorare? (permanenta|semi)",
+    "nuantator",
+    "toner de par",
+    "color (gloss|mask)"
+   ]
+  },
+  {
+   "id": "oxidant",
+   "department": "Par",
+   "label": "Oxidant / developer",
+   "patterns": [
+    "oxidant",
+    "emulsie oxidanta",
+    "activator\\b",
+    "developer"
+   ]
+  },
+  {
+   "id": "decolorare",
+   "department": "Par",
+   "label": "Decolorant",
+   "patterns": [
+    "pudra decoloranta",
+    "decolorant",
+    "pudra pentru decolorare",
+    "crema decoloranta"
+   ]
+  },
+  {
+   "id": "ulei_par",
+   "department": "Par",
+   "label": "Ulei de par",
+   "patterns": [
+    "ulei (de|pentru) par",
+    "ulei par"
+   ]
+  },
+  {
+   "id": "ser_par",
+   "department": "Par",
+   "label": "Ser / tratament de par",
+   "patterns": [
+    "(ser|serum|elixir|fiole|fiola|tratament|lotiune|tonic) (de|pentru) (par|scalp)",
+    "(ser|serum) par",
+    "tratament (de )?par",
+    "tratament pentru scalp",
+    "lotiune (de|pentru) scalp"
+   ]
+  },
+  {
+   "id": "termoprotector",
+   "department": "Par",
+   "label": "Protectie termica",
+   "patterns": [
+    "(spray|crema|lotiune) (de |pentru )?(protectie termica|termoprotect)",
+    "termoprotector"
+   ]
+  },
+  {
+   "id": "fixativ",
+   "department": "Par",
+   "label": "Fixativ",
+   "patterns": [
+    "fixativ"
+   ]
+  },
+  {
+   "id": "spuma_par",
+   "department": "Par",
+   "label": "Spuma de par",
+   "patterns": [
+    "spuma (de|pentru) par",
+    "spuma (de )?coafare",
+    "mousse"
+   ]
+  },
+  {
+   "id": "ceara_par",
+   "department": "Par",
+   "label": "Ceara / pasta / gel de par",
+   "patterns": [
+    "(ceara|pasta|gel|pomada|argila|lut|guma|fibra|crema modelatoare) (de|pentru) par",
+    "(ceara|pomada|pasta) (de )?coafare",
+    "gel par"
+   ]
+  },
+  {
+   "id": "spray_par",
+   "department": "Par",
+   "label": "Spray de par (styling / tratament)",
+   "patterns": [
+    "spray (de|pentru) par",
+    "spray (texturizant|cu sare|de volum|pentru volum|de stralucire|pentru stralucire|descurcare)",
+    "pudra (de|pentru) par",
+    "pudra (texturizanta|de volum)"
+   ]
+  },
+  {
+   "id": "crema_par",
+   "department": "Par",
+   "label": "Crema de par",
+   "patterns": [
+    "crema (de|pentru) (par|bucle)",
+    "crema bucle"
+   ]
+  },
+  {
+   "id": "uscator",
+   "department": "Aparate",
+   "label": "Uscator de par",
+   "patterns": [
+    "uscator"
+   ]
+  },
+  {
+   "id": "placa",
+   "department": "Aparate",
+   "label": "Placa de indreptat",
+   "patterns": [
+    "placa (de|pentru) (par|indreptat)",
+    "placa"
+   ]
+  },
+  {
+   "id": "ondulator",
+   "department": "Aparate",
+   "label": "Ondulator / perie rotativa",
+   "patterns": [
+    "ondulator",
+    "perie (rotativa|cu aer|electrica de par|termica)",
+    "~\\bconic\\b.*\\bondul"
+   ]
+  },
+  {
+   "id": "difuzor",
+   "department": "Aparate",
+   "label": "Accesoriu uscator",
+   "patterns": [
+    "difuzor",
+    "concentrator",
+    "duza"
+   ]
+  },
+  {
+   "id": "masina_tuns",
+   "department": "Aparate",
+   "label": "Masina de tuns / trimmer",
+   "patterns": [
+    "masina (de )?tuns",
+    "trimmer",
+    "aparat (de )?tuns",
+    "masina de barbierit",
+    "shaver"
+   ]
+  },
+  {
+   "id": "perie_par",
+   "department": "Par",
+   "label": "Perie / pieptan",
+   "patterns": [
+    "perie",
+    "pieptan",
+    "pieptene"
+   ]
+  },
+  {
+   "id": "accesorii_par",
+   "department": "Par",
+   "label": "Accesorii coafare / vopsit",
+   "patterns": [
+    "(bigudiuri|clame|agrafe|elastice|cordeluta|bentita|plasa|pelerina|bol|pensula (de|pentru) vopsit|folie|manusi (de|pentru) vopsit|clips|spatula|pulverizator|cap de)\\b",
+    "foarfeca",
+    "brici",
+    "lama\\b",
+    "ac\\b"
+   ]
+  },
+  {
+   "id": "baza_top",
+   "department": "Unghii",
+   "label": "Baza / top coat",
+   "patterns": [
+    "baza (de |pentru )?(unghii|semipermanent|rubber|gel|manichiura)",
+    "base coat",
+    "rubber base",
+    "top coat",
+    "top (de |pentru )?(unghii|semipermanent|gel|no wipe|manichiura)"
+   ]
+  },
+  {
+   "id": "lac_semipermanent",
+   "department": "Unghii",
+   "label": "Lac semipermanent / gel lac",
+   "patterns": [
+    "lac (de unghii )?(semi|gel)",
+    "oja semi",
+    "gel lac",
+    "lac unghii semi",
+    "~\\bsemipermanent"
+   ]
+  },
+  {
+   "id": "lac_unghii",
+   "department": "Unghii",
+   "label": "Lac de unghii (clasic)",
+   "patterns": [
+    "lac (de )?unghii",
+    "oja",
+    "lac\\b"
+   ]
+  },
+  {
+   "id": "baza_top",
+   "department": "Unghii",
+   "label": "Baza / top coat",
+   "patterns": [
+    "(baza|top|top coat|base coat|rubber base)\\b",
+    "strat (de )?baza"
+   ]
+  },
+  {
+   "id": "gel_constructie",
+   "department": "Unghii",
+   "label": "Gel / acril constructie",
+   "patterns": [
+    "gel (de |pentru )?constructie",
+    "gel uv",
+    "acrygel",
+    "poly ?gel",
+    "pudra acrilica",
+    "acril",
+    "builder"
+   ]
+  },
+  {
+   "id": "dizolvant",
+   "department": "Unghii",
+   "label": "Dizolvant / degresant",
+   "patterns": [
+    "dizolvant",
+    "degresant",
+    "cleaner",
+    "remover",
+    "solutie (de|pentru) (indepartare|curatare)"
+   ]
+  },
+  {
+   "id": "tratament_unghii",
+   "department": "Unghii",
+   "label": "Tratament unghii / cuticule",
+   "patterns": [
+    "(tratament|ulei|ser|crema|balsam) (de|pentru) (unghii|cuticule)",
+    "intaritor",
+    "ulei cuticule"
+   ]
+  },
+  {
+   "id": "unghii_false",
+   "department": "Unghii",
+   "label": "Unghii false / tipsuri",
+   "patterns": [
+    "unghii false",
+    "tipsuri",
+    "tips"
+   ]
+  },
+  {
+   "id": "decor_unghii",
+   "department": "Unghii",
+   "label": "Decor unghii",
+   "patterns": [
+    "(sclipici|abtibilduri|stickere|folie de transfer|pietre|cristale|decor|pigment|pudra (cromata|holografica|cat eye))",
+    "nail art"
+   ]
+  },
+  {
+   "id": "lampa_unghii",
+   "department": "Aparate",
+   "label": "Lampa UV / LED",
+   "patterns": [
+    "lampa"
+   ]
+  },
+  {
+   "id": "pila_unghii",
+   "department": "Unghii",
+   "label": "Pile / instrumente unghii",
+   "patterns": [
+    "pila",
+    "buffer",
+    "bloc",
+    "cleste",
+    "forfecuta",
+    "impingator",
+    "freza",
+    "capace",
+    "instrument",
+    "penseta",
+    "separator",
+    "pensula (de|pentru) (unghii|gel|manichiura)",
+    "~\\bfreza\\b"
+   ]
+  },
+  {
+   "id": "ser_ten",
+   "department": "Ten",
+   "label": "Ser de fata",
+   "patterns": [
+    "(ser|serum|fiole|fiola|concentrat|elixir|booster|esenta)\\b"
+   ]
+  },
+  {
+   "id": "crema_ochi",
+   "department": "Ten",
+   "label": "Crema de ochi",
+   "patterns": [
+    "(crema|gel|ser) (de|pentru) (ochi|zona ochilor|conturul ochilor)",
+    "crema ochi",
+    "contur (de )?ochi"
+   ]
+  },
+  {
+   "id": "crema_maini",
+   "department": "Corp",
+   "label": "Crema de maini",
+   "patterns": [
+    "crema (de|pentru) maini",
+    "lotiune (de|pentru) maini"
+   ]
+  },
+  {
+   "id": "crema_picioare",
+   "department": "Corp",
+   "label": "Crema de picioare",
+   "patterns": [
+    "(crema|balsam|lotiune|spray|gel|fiola|fiole) (de|pentru|petru) picioare",
+    "crema picioare"
+   ]
+  },
+  {
+   "id": "crema_corp",
+   "department": "Corp",
+   "label": "Crema / lotiune de corp",
+   "patterns": [
+    "(crema|lotiune|lapte|unt|balsam|emulsie) (de|pentru) corp",
+    "(unt|lapte) corporal",
+    "crema corp",
+    "lotiune corp"
+   ]
+  },
+  {
+   "id": "protectie_solara",
+   "department": "Corp",
+   "label": "Protectie solara / plaja",
+   "patterns": [
+    "(crema|lotiune|spray|ulei|lapte|stick|fluid|gel) (de |pentru )?(plaja|protectie solara|bronzare|dupa plaja)",
+    "(lotiune|crema) (regeneranta )?.*dupa plaja",
+    "autobronzant",
+    "protectie solara"
+   ]
+  },
+  {
+   "id": "crema_ras",
+   "department": "Barbati",
+   "label": "Spuma / gel / crema de ras",
+   "patterns": [
+    "(spuma|gel|crema|sapun) (de|pentru) (ras|barbierit)"
+   ]
+  },
+  {
+   "id": "crema_ten",
+   "department": "Ten",
+   "label": "Crema de fata",
+   "patterns": [
+    "crema",
+    "gel crema",
+    "fluid",
+    "emulsie",
+    "balsam"
+   ]
+  },
+  {
+   "id": "lotiune_tonica",
+   "department": "Ten",
+   "label": "Lotiune tonica / tonic",
+   "patterns": [
+    "lotiune tonica",
+    "tonic",
+    "toner",
+    "apa (termala|de trandafiri|florala)",
+    "apa\\b",
+    "spray (de|pentru) fata",
+    "mist"
+   ]
+  },
+  {
+   "id": "demachiant",
+   "department": "Ten",
+   "label": "Demachiant / curatare",
+   "patterns": [
+    "demachiant",
+    "lapte demachiant",
+    "apa micelara",
+    "(gel|spuma|lapte|ulei|balsam|lotiune|pudra|crema) (de |pentru )?(curatare|demachiere|spalare)",
+    "curatare",
+    "sapun (de|pentru) fata",
+    "discuri",
+    "servetele demachiante"
+   ]
+  },
+  {
+   "id": "exfoliant_ten",
+   "department": "Ten",
+   "label": "Exfoliant / peeling fata",
+   "patterns": [
+    "(exfoliant|scrub|peeling|gomaj) (de|pentru) (fata|ten)",
+    "exfoliant",
+    "peeling",
+    "gomaj"
+   ]
+  },
+  {
+   "id": "dispozitiv_ten",
+   "department": "Aparate",
+   "label": "Dispozitiv ingrijire ten / corp",
+   "patterns": [
+    "dispozitiv",
+    "aparat",
+    "perie (de|pentru) (fata|curatare)",
+    "rola (de|pentru) (fata|masaj)",
+    "gua sha",
+    "~\\bmicrocurent"
+   ]
+  },
+  {
+   "id": "fond_ten",
+   "department": "Make-up",
+   "label": "Fond de ten",
+   "patterns": [
+    "fond (de )?ten",
+    "bb cream",
+    "cc cream",
+    "cushion",
+    "crema nuantatoare"
+   ]
+  },
+  {
+   "id": "corector",
+   "department": "Make-up",
+   "label": "Corector / anticearcan",
+   "patterns": [
+    "corector",
+    "anticearcan",
+    "concealer"
+   ]
+  },
+  {
+   "id": "baza_machiaj",
+   "department": "Make-up",
+   "label": "Baza de machiaj / primer / fixare",
+   "patterns": [
+    "baza (de |pentru )?machiaj",
+    "primer",
+    "spray (de |pentru )?fixare",
+    "fixator (de )?machiaj"
+   ]
+  },
+  {
+   "id": "pudra",
+   "department": "Make-up",
+   "label": "Pudra",
+   "patterns": [
+    "pudra (pulbere|compacta|libera|matifianta|translucida|de fata|minerala)",
+    "pudra\\b"
+   ]
+  },
+  {
+   "id": "fard_obraz",
+   "department": "Make-up",
+   "label": "Blush / bronzer / iluminator",
+   "patterns": [
+    "(fard|blush) (de )?obraz",
+    "blush",
+    "bronzer",
+    "iluminator",
+    "highlighter",
+    "contur\\b",
+    "pudra bronzanta"
+   ]
+  },
+  {
+   "id": "fard_pleoape",
+   "department": "Make-up",
+   "label": "Fard de pleoape",
+   "patterns": [
+    "fard (de )?pleoape",
+    "paleta",
+    "fard (lichid|cremos|metalic)",
+    "fard\\b"
+   ]
+  },
+  {
+   "id": "mascara",
+   "department": "Make-up",
+   "label": "Mascara",
+   "patterns": [
+    "mascara",
+    "rimel"
+   ]
+  },
+  {
+   "id": "tus_creion_ochi",
+   "department": "Make-up",
+   "label": "Tus / creion de ochi",
+   "patterns": [
+    "tus",
+    "eyeliner",
+    "creion (de |pentru )?ochi",
+    "creion kohl",
+    "kohl"
+   ]
+  },
+  {
+   "id": "sprancene",
+   "department": "Make-up",
+   "label": "Produse sprancene",
+   "patterns": [
+    "(creion|fard|gel|pomada|pudra|tus|ser|vopsea|sapun|ceara|pensula|stencil) (de |pentru )?sprancene",
+    "sprancene"
+   ]
+  },
+  {
+   "id": "gene_false",
+   "department": "Make-up",
+   "label": "Gene false / adeziv",
+   "patterns": [
+    "gene",
+    "adeziv (de |pentru )?gene",
+    "lipici (de |pentru )?gene",
+    "extensii"
+   ]
+  },
+  {
+   "id": "ruj",
+   "department": "Make-up",
+   "label": "Ruj",
+   "patterns": [
+    "ruj",
+    "lipstick",
+    "tinta (de )?buze",
+    "lip tint"
+   ]
+  },
+  {
+   "id": "luciu_buze",
+   "department": "Make-up",
+   "label": "Luciu de buze",
+   "patterns": [
+    "luciu",
+    "gloss",
+    "ulei (de |pentru )?buze",
+    "lip oil"
+   ]
+  },
+  {
+   "id": "creion_buze",
+   "department": "Make-up",
+   "label": "Creion de buze",
+   "patterns": [
+    "creion (de |pentru |contur )?buze",
+    "creion contur buze"
+   ]
+  },
+  {
+   "id": "pensule_machiaj",
+   "department": "Make-up",
+   "label": "Pensule / accesorii machiaj",
+   "patterns": [
+    "pensula",
+    "pensule",
+    "burete",
+    "bureti",
+    "beauty blender",
+    "aplicator"
+   ]
+  },
+  {
+   "id": "gel_dus",
+   "department": "Corp",
+   "label": "Gel de dus / sapun",
+   "patterns": [
+    "gel (de )?dus",
+    "spuma (de )?dus",
+    "ulei (de )?dus",
+    "sapun",
+    "crema (de )?dus",
+    "gel de baie",
+    "spuma de baie",
+    "sare de baie",
+    "bomba de baie"
+   ]
+  },
+  {
+   "id": "exfoliant_corp",
+   "department": "Corp",
+   "label": "Exfoliant de corp",
+   "patterns": [
+    "(exfoliant|scrub|peeling|gomaj) (de|pentru) corp",
+    "scrub"
+   ]
+  },
+  {
+   "id": "ulei_corp",
+   "department": "Corp",
+   "label": "Ulei de corp",
+   "patterns": [
+    "ulei (de |pentru )?corp",
+    "ulei (uscat|de masaj|esential)",
+    "ulei\\b"
+   ]
+  },
+  {
+   "id": "spray_corp",
+   "department": "Corp",
+   "label": "Spray / parfum de corp / deodorant",
+   "patterns": [
+    "spray (de |pentru )?corp",
+    "body mist",
+    "apa de (parfum|toaleta)",
+    "parfum",
+    "deodorant",
+    "antiperspirant",
+    "stick (de |pentru )?corp"
+   ]
+  },
+  {
+   "id": "epilare",
+   "department": "Corp",
+   "label": "Epilare",
+   "patterns": [
+    "ceara (depilatoare|de epilare|traditionala)",
+    "benzi (depilatoare|de epilare|cu ceara)",
+    "lotiune (dupa|pre) (epilare|depilare)",
+    "incalzitor",
+    "depil",
+    "epil",
+    "spatule"
+   ]
+  },
+  {
+   "id": "anticelulitic",
+   "department": "Corp",
+   "label": "Remodelare / anticelulitic",
+   "patterns": [
+    "(crema|gel|ser|ulei) (anticelulitic|remodelare|modelatoare|de slabire)",
+    "anticelulit"
+   ]
+  },
+  {
+   "id": "wellness",
+   "department": "Corp",
+   "label": "Wellness intim",
+   "patterns": [
+    "vibrator",
+    "lubrifiant",
+    "stimul",
+    "masturbator",
+    "~\\bsex\\b",
+    "dispozitiv stimulare"
+   ]
+  },
+  {
+   "id": "accesorii_corp",
+   "department": "Corp",
+   "label": "Accesorii corp",
+   "patterns": [
+    "(prosop|rola|bratara|plasturi|burete|manusa|lufa|halat|bentita|cearceaf|camp|husa|discuri|vata)\\b"
+   ]
+  }
+ ],
+ "category": {
+  "Sampon": "sampon",
+  "Sampon uscat": "sampon_uscat",
+  "Balsam fara clatire": "balsam_fara_clatire",
+  "Balsam": "balsam",
+  "Masti pentru par": "masca_par",
+  "Tratamente pentru par": "ser_par",
+  "Ulei pentru par": "ulei_par",
+  "Tratamente si Masca de par": "ser_par",
+  "Vopsea de par": "vopsea_par",
+  "Oxidant": "oxidant",
+  "Decolorare": "decolorare",
+  "Fixativ": "fixativ",
+  "Spuma": "spuma_par",
+  "Ceara de par si gel": "ceara_par",
+  "Spray de par": "spray_par",
+  "Pudra de par": "spray_par",
+  "Spray pentru colorare": "vopsea_par",
+  "Uscatoare par": "uscator",
+  "Placi de indreptat parul": "placa",
+  "Ondulatoare": "ondulator",
+  "Aparate de tuns": "masina_tuns",
+  "Perii de par si Piepteni": "perie_par",
+  "Accesorii coafare": "accesorii_par",
+  "Accesorii vopsit": "accesorii_par",
+  "Accesorii de tuns": "accesorii_par",
+  "Oja si lac de unghii": "lac_unghii",
+  "Oja si Lac unghii": "lac_unghii",
+  "Gel pentru constructie": "gel_constructie",
+  "Pudra acrilica pentru constructie": "gel_constructie",
+  "Baza manichiura": "baza_top",
+  "Top manichiura": "baza_top",
+  "Dizolvant unghii": "dizolvant",
+  "Degresant unghii": "dizolvant",
+  "Tratamente unghii": "tratament_unghii",
+  "Pile unghii": "pila_unghii",
+  "Instrumente si Accesorii unghii": "pila_unghii",
+  "Forfecute": "pila_unghii",
+  "Lampi LED": "lampa_unghii",
+  "Lampi UV": "lampa_unghii",
+  "Creme pentru ten": "crema_ten",
+  "Tratamente pentru ten": "ser_ten",
+  "Ser si crema antirid": "ser_ten",
+  "Masca pentru ten": "masca_ten",
+  "Demachiant": "demachiant",
+  "Gel curatare": "demachiant",
+  "Lotiune tonica": "lotiune_tonica",
+  "Exfoliante pentru ten": "exfoliant_ten",
+  "Dispozitive ingrijire ten": "dispozitiv_ten",
+  "Fond de ten": "fond_ten",
+  "Corector si anticearcan": "corector",
+  "Baza machiaj": "baza_machiaj",
+  "Pudra si fard de obraz": "fard_obraz",
+  "Iluminator si Contur": "fard_obraz",
+  "Fard de pleoape": "fard_pleoape",
+  "Mascara": "mascara",
+  "Creion si tus de ochi": "tus_creion_ochi",
+  "Ruj": "ruj",
+  "Luciu de buze": "luciu_buze",
+  "Creion de buze": "creion_buze",
+  "Gene false": "gene_false",
+  "Gene false si accesorii": "gene_false",
+  "Adeziv pentru gene false": "gene_false",
+  "Pensule machiaj": "pensule_machiaj",
+  "Bureti machiaj": "pensule_machiaj",
+  "Crema de maini": "crema_maini",
+  "Crema pentru picioare": "crema_picioare",
+  "Crema de corp": "crema_corp",
+  "Lotiune de corp": "crema_corp",
+  "Ulei de corp": "ulei_corp",
+  "Gel de dus": "gel_dus",
+  "Sapun": "gel_dus",
+  "Spuma de dus": "gel_dus",
+  "Exfoliante corp": "exfoliant_corp",
+  "Ceara depilatoare": "epilare",
+  "Lotiune depilare": "epilare",
+  "Crema si Lotiune pentru plaja": "protectie_solara",
+  "Spray de corp": "spray_corp",
+  "Accesorii corp": "accesorii_corp",
+  "Sex tech": "wellness",
+  "Sexual wellness": "wellness",
+  "Pachet Promo": "set_cadou",
+  "Set Cadou": "set_cadou",
+  "Seturi pentru ten": "set_cadou",
+  "Seturi de corp": "set_cadou",
+  "Seturi manichiura": "set_cadou",
+  "Seturi machiaj": "set_cadou",
+  "Creme modelatoare": "anticelulitic",
+  "Crema de ras": "crema_ras",
+  "Gel de ras": "crema_ras",
+  "Lotiuni si creme de corp": "crema_corp",
+  "Baie si Dus": "gel_dus",
+  "Remodelare corporala": "anticelulitic",
+  "Epilare": "epilare",
+  "Benzi depilatoare": "epilare",
+  "Lotiune dupa plaja": "protectie_solara",
+  "Curatare unghii": "dizolvant",
+  "Instrumente curatare unghii": "pila_unghii",
+  "Pensule si aplicatoare": "pensule_machiaj",
+  "Truse de machiaj": "pensule_machiaj",
+  "Accesorii par": "accesorii_par",
+  "Ulei pentru plaja": "protectie_solara"
+ },
+ "categoryPrefixes": {
+  "Sampon pentru": "sampon",
+  "Sampon anti": "sampon",
+  "Sampon barbati": "sampon",
+  "Sampon de par": "sampon",
+  "Balsam pentru": "balsam",
+  "Balsam de par": "balsam",
+  "Balsam barbati": "balsam",
+  "Vopsea de par": "vopsea_par"
+ },
+ "generic": [
+  "(ser|serum|fiole|fiola|concentrat|elixir|booster|esenta)\\b",
+  "apa\\b",
+  "aparat",
+  "balsam",
+  "bloc",
+  "conditioner",
+  "crema",
+  "curatare",
+  "dispozitiv",
+  "emulsie",
+  "fard\\b",
+  "fluid",
+  "instrument",
+  "lac\\b",
+  "masca\\b",
+  "masti\\b",
+  "pila",
+  "pudra\\b",
+  "sapun",
+  "scrub",
+  "toner",
+  "tonic",
+  "ulei\\b"
+ ],
+ "refillPrefix": "^(rezerva|rezerve|refill|mini|editie limitata)\\s+"
+}
