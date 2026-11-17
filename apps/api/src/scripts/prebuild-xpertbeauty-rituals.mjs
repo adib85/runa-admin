@@ -157,4 +157,6 @@ try {
       log(`data CDN cleared (${CF}, invalidation ${out.trim()})`);
     } catch (e) { log(`⚠ could not clear the data CDN ${CF}: ${String(e.message || e).slice(0, 160)}`); }
   }
+  // Shoppers' browsers and the client's preview link keep an answer 12 hours; the CDN clear above does not reach them.
+  if (stats.built) log("→ next: run ~/Mobile/runa_web_xpert/refresh-data.sh on the laptop, so every browser fetches the new rituals (new data version + data CDN cleared)");
 } finally { await driver.close(); }
