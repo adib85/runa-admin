@@ -4,9 +4,13 @@
 test / dev). Never in the client's preview link (`?runa_mode=preview`) and not for shoppers (store off) — the 10% is not
 charged by the cart until Xpert gives the coupon (`XB_BUNDLE_COUPON`). Decided with Adrian on 2026-11-11.
 
+**Update 2026-11-18 (Adrian: "only show products they visited"), deployed, runa_serverless b625b64:** the +1 comes only
+from products the shopper visited. The ritual is used only when they visited no other product. Section 2 below is the
+current order. Past orders (replenishment) are no longer a source.
+
 Where: `runa_serverless/xpertBeautyBundler.js` `proposeOnePlusOne` (default `XB_BUNDLE_MODE=1plus1`; the old 3-product
-mode = `mode: "routine"`), action `cart_bundle` in `xpertBeautyHelper.js` (session views from the widget, past orders
-from the profile store's replenishment for `cust_` visitors, the product's cached "Ritualul complet" read-only, the
+mode = `mode: "routine"`), action `cart_bundle` in `xpertBeautyHelper.js` (session views from the widget, earlier visits
+from the profile store's view events (`recentViews`, 30 days), the product's cached "Ritualul complet" read-only, the
 similar row's brand agreements). Widget: `VirtualBundler.jsx` (caps, holdout 10%, waits for the shop's popup, 1+1
 wording) + `api.js trackViewTime` (visible seconds + visits per product page, sessionStorage `runa_xb_viewtime`).
 "Never a substitute" = never the same `runaType`. Not built: the concern-compatibility rule beyond the ritual's own
@@ -22,13 +26,19 @@ choice; promotion stacking (open question).
 
 ## 2. Which product is offered — in this order
 
-1. **From the current session's history:**
-   a. first, a product viewed in this session that is **complementary** to the one just added (same routine, another step);
-   b. then, a product the shopper **spent a long time on** in this session — at least 45 seconds visible, or 2+ visits.
-2. **From past orders**, when it looks like the shopper has finished a product (e.g. a conditioner bought 2 months ago).
-3. **Otherwise** (anonymous visitor who landed on a product page from an ad and adds to cart): a product from the
-   **Ritualul complet** of the product just added — the most natural next step (shampoo → conditioner) that passes
-   the rules below, not simply the first card. Later: the step with the best acceptance in the learning log.
+Current order (2026-11-18): **only products the shopper visited**.
+
+1. **A product opened in this visit.** The most interest wins: more visits first, then longer visible time on the
+   page. It can come from any routine (a face cream next to a shampoo is fine). Reason `viewed_this_session`.
+2. **A product opened on an earlier visit** (profile store view events, last 30 days, most recent first).
+   Reason `viewed_before`.
+3. **Only when the shopper opened no other product** (e.g. landed from an ad and added straight away): the next step
+   of the **Ritualul complet** of the product just added. Reason `ritual_step`.
+
+If they opened other products but none passes the rules below (e.g. only other shampoos, or only an exclusive brand),
+there is **no offer** (note `no_visited_product_fits`). It does not fall back to the ritual.
+
+Before 2026-11-18 the order was session (complementary, then long views) → past orders → ritual.
 
 ## 3. Rules for every offer (approved 2026-11-11)
 
@@ -38,13 +48,14 @@ choice; promotion stacking (open question).
    concern (same principle as the ritual on the product page).
 3. **Guards:** in stock; can be added to the cart from the popup (has a Magento id); not already in the cart;
    respects the brand rules (never-together pairs, single-brand heroes); no professional-only product unless the
-   added one is professional; size class in line with the added product; price at most about 1.5× the added product's.
+   added one is professional; no salon size (750 ml and up) next to a retail product (since 2026-11-18; the old
+   "same size class" check blocked e.g. a 15 ml cream next to a 100 ml shampoo); price at most about 1.5× the added product's.
 4. **With several products in the cart**, the +1 is chosen against the product just added.
 5. **Frequency:** one offer per session unless it was accepted; none after two dismissals; none when the popup's own
    add triggered the event; never on top of the store's own add-to-cart popup.
-6. **Past-orders offers** only for logged-in customers, worded softly ("E timpul pentru un nou balsam?").
-7. **The copy prompt receives the reason** as data — `viewed_this_session`, `viewed_long`, `replenishment` or
-   `ritual_step` — so `bundler_copy.md` (runa-prompt-labs) can say why this product.
+6. ~~Past-orders offers~~: removed 2026-11-18 (they need logged-in customers and order events, which we don't have).
+7. **The copy prompt receives the reason** as data — `viewed_this_session`, `viewed_before` or `ritual_step`
+   (2026-11-18; `viewed_long` and `replenishment` are no longer sent) — so `bundler_copy.md` (runa-prompt-labs) can say why this product.
 8. **Measure it:** a small holdout that never sees the popup; shown / accepted / dismissed counted per source.
 
 ## 4. What exists today (to be changed)
